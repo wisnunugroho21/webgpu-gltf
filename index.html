@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111821" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%2367d5b6' d='M16 2 29 9v14l-13 7L3 23V9z'/%3E%3C/svg%3E"
+    />
+    <title>WebGPU · glTF viewer</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <span class="eyebrow">WEBGPU / glTF 2.0</span>
+          <h1>A small renderer.<br />A clear view.</h1>
+        </div>
+        <span class="badge">Native WebGPU</span>
+      </header>
+      <section class="toolbar" aria-label="Model controls">
+        <button id="demo">Built-in scene</button>
+        <label class="button"
+          >Open model<input
+            id="files"
+            type="file"
+            multiple
+            accept=".gltf,.glb,.bin,.png,.jpg,.jpeg,.webp"
+        /></label>
+        <form id="url-form">
+          <input
+            id="url"
+            type="url"
+            placeholder="https://…/model.glb"
+            aria-label="Model URL"
+            required
+          /><button>Load URL</button>
+        </form>
+        <button id="reset">Reset camera</button>
+      </section>
+      <section class="viewport" aria-label="3D model viewer">
+        <canvas id="canvas" aria-label="Rendered glTF scene"></canvas>
+        <div class="hint">Drag to orbit · Scroll to zoom</div>
+      </section>
+      <footer>
+        <p id="status" role="status">Starting WebGPU…</p>
+        <span id="stats"></span>
+      </footer>
+      <p class="note">
+        For .gltf files, select the model and its .bin / image files together. URLs must allow
+        cross-origin access. Static scenes only.
+      </p>
+      <details>
+        <summary>Renderer notes</summary>
+        <p>
+          Geometry is prepared once, pipelines are cached, and repeated meshes share instanced
+          draws. Base-color textures and metallic/roughness factors use a directional light with a
+          small ambient term. This viewer does not implement animation, skinning, normal maps, or
+          environment lighting.
+        </p>
+        <p id="warnings"></p>
+      </details>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
