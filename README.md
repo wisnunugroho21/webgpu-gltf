@@ -39,7 +39,7 @@ Environment lighting starts with an original, generated HDR **Studio** panorama.
 
 ## Code map
 
-The project has four layers: asset decoding (`gltf`), CPU pose/animation (`scene` and `animation`), WebGPU rendering (`renderer`), and browser UI (`app`). See [Architecture and maintenance](docs/architecture.md) for dependency rules, resource ownership, frame phases, and extension points.
+The project separates asset decoding (`gltf`), CPU pose/animation (`scene` and `animation`), gameplay worlds (`engine`), WebGPU rendering (`renderer`), and browser UI (`app`). See [Architecture and maintenance](docs/architecture.md) for dependency rules, resource ownership, frame phases, and extension points.
 
 See the [October 2026 code review](docs/review.md) for verified fixes, test results, remaining feature gaps, and a prioritized maintenance plan. Scene and environment GPU preparation now share a device-scoped transaction queue; overlapping public API calls validate and commit in order while failed candidates release their allocations. Core material factors are validated before texture preparation.
 
@@ -104,6 +104,47 @@ The browser viewer uses `ViewerRenderLoop` in `src/app/render-loop.ts`. Its `sta
 **Migration:** embedding applications that previously relied on automatic frames from `Renderer.create()` must call `render()` from their own loop. Browser tests and benchmarks now use that public method rather than private render/stop hooks.
 
 See [frame scheduling and lifecycle](docs/frame-scheduling.md) for ownership rules and regression coverage.
+
+## Game entities and model instances
+
+`World` stores gameplay entities identified by strings. An entity may instantiate one glTF model containing many mesh, joint and light nodes; those node indices stay local to that `ModelInstance`. Entity hierarchy, placement and component data remain outside glTF. Multiple entities can reference one loaded `Asset`, while each instance owns its pose and animation controller. Selecting an authored pose or crossfading changes model locals without resetting entity placement.
+
+```ts
+import { World, ModelLibrary, Renderer, loadUrl } from './src';
+
+const renderer = await Renderer.create(canvas, showError);
+const models = new ModelLibrary();
+models.register(
+  'hero',
+  await loadUrl('models/hero.glb', {
+    textureCompression: renderer.textureCompression,
+  }),
+  'models/hero.glb',
+);
+
+const world = new World(models);
+const player = world.createEntity({
+  id: 'player',
+  model: { asset: 'hero' },
+  transform: { translation: [0, 0, 0] },
+  components: { health: { current: 100, max: 100 } },
+});
+world.createEntity({ id: 'npc', model: { asset: 'hero' }, transform: { translation: [3, 0, 0] } });
+await renderer.setWorld(world);
+
+// Gameplay/physics writes placement before the caller-owned render frame.
+player.setTransform({ translation: [1, 0, 0] });
+player.model!.animation.select(0); // Independent of the NPC's playback.
+renderer.render(0);
+
+const savedScene = JSON.stringify(world.toDocument(), null, 2);
+```
+
+Engine scene JSON has `version: 1`, an `assets` dictionary mapping stable IDs to model URIs, and `entities` containing IDs, optional parents/names, transforms, model references and JSON component data. `parseSceneDocument()` validates it; `loadWorld(document, resolver?)` loads each asset ID once and builds independent model instances. Component data is preserved for gameplay systems; it does not automatically implement physics or behaviors. Scene saving does not embed glTF nodes, geometry, GPU resources or current animation playback state.
+
+`setTransform()` and `world.setParent()` become visible on the next frame without GPU preparation. Creating or destroying entities changes membership: pause submission, mutate the world, await `renderer.setWorld(world)`, then resume. Rendering an uncommitted membership change throws a recoverable error instead of drawing stale entities. A failed replacement releases candidate resources and retains the previously attached scene. Empty worlds render the background. The original viewer and `setAsset()` remain available.
+
+This first world bridge prepares GPU resources per model instance; cross-instance GPU geometry/material sharing is a separate optimization. All world model nodes are treated as movable so entity placement reaches transforms, joint palettes, bounds, winding, lights, shadows and occlusion dependencies. See [entity ownership and the scene format](docs/game-world.md) for loading, hierarchy, lifecycle and test coverage.
 
 ## How the case study informs the implementation
 

@@ -16,6 +16,11 @@ export interface LightInstance {
   outer: number;
   revision: number;
 }
+export interface SceneLights {
+  readonly instances: LightInstance[];
+  readonly authored: boolean;
+  update(): boolean;
+}
 
 function finite(value: number, min: number, label: string): number {
   if (!Number.isFinite(value) || value < min || value > 3.402823466e38)

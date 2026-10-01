@@ -9,11 +9,16 @@ The code separates asset preparation, CPU pose evaluation, GPU work, and browser
 | `src/gltf/`      | File decoding, validation, compression, accessors, canonical geometry, selected-scene traversal | Web platform, gl-matrix, meshoptimizer and decoder artifacts; no renderer or viewer imports |
 | `src/animation/` | Track preparation/interpolation, local-pose mixing and playback policy                          | glTF data and CPU scene poses                                                               |
 | `src/scene/`     | Mutable node poses, revisions, shared deformation inputs, CPU deformation oracle                | glTF data and animation sampling; no GPU allocations                                        |
+| `src/engine/`    | Gameplay entities/hierarchy, model library/instances, component data and scene documents        | CPU assets, poses and playback; no renderer/viewer imports                                  |
 | `src/renderer/`  | Resource preparation, bindings, compute/render passes, lighting and presentation                | CPU modules and WebGPU; no viewer imports                                                   |
 | `src/app/`       | DOM controls, model/environment loading lock, status, demo and styles                           | Public renderer API and loading helpers                                                     |
 | `src/main.ts`    | Start the viewer                                                                                | Application only                                                                            |
 
 `gltf/scene.ts` traverses the selected asset scene for initial instances. `scene/pose.ts` evaluates the mutable runtime hierarchy. `renderer/scene/` builds GPU draw records and consumes pose revisions. These are deliberately separate responsibilities despite referring to the same glTF nodes.
+
+`engine/World` owns string-identified entities and a separate entity-parent map. A `ModelInstance` owns a glTF-local `Pose` and `AnimationController`; entity world matrices apply through `Pose.setRootTransform()` without changing authored node locals, defaults, hierarchy or clip targets. `engine/scene-document.ts` validates versioned gameplay JSON and preserves model URIs/components independently of glTF. `engine/load-world.ts` resolves each asset ID once before publishing a world.
+
+`renderer/scene/world-builder.ts` prepares per-model scenes into one resource transaction and one global transform bind group. Each `PoseDraw` may carry its owning model pose, so identical local node indices in different models cannot collide. Uploads, shadow dependencies and occlusion dependencies all use that owner. Authored lights aggregate across models with a world-wide limit; one fallback light is used when none are authored. An empty world supplies a neutral instance binding meeting the fixed layout's minimum size. Cross-instance GPU resource caching is not part of this initial bridge.
 
 `scene/lights.ts` uses the same selected-scene membership rules to validate and instantiate punctual lights. Its pose revision checks remain CPU-only. `lighting/punctual.ts` owns light/shadow GPU records and pass encoding; `lighting/shadows/` handles projection fitting and load-time depth pipeline caching. Shader declarations use one fixed lighting interface across color variants, with the material struct shared by color and alpha-tested shadow shaders.
 
@@ -21,7 +26,7 @@ The code separates asset preparation, CPU pose evaluation, GPU work, and browser
 
 ## Public entry points
 
-Embedding code can import from `src/index.ts`, which exports `Renderer`, settings/statistics types, `AnimationController`, asset types, and loading helpers. `src/renderer/index.ts` exports the rendering API alone. The existing `src/renderer/renderer.ts` entry and renderer methods remain available, including the animation forwarding aliases.
+Embedding code can import from `src/index.ts`, which exports `Renderer`, settings/statistics types, `AnimationController`, asset types, loading helpers and the game-world API. `src/engine/index.ts` exposes the CPU world separately; `src/renderer/index.ts` exports the rendering API alone. The existing `src/renderer/renderer.ts` entry and renderer methods remain available, including the animation forwarding aliases.
 
 ```ts
 import { Renderer, loadUrl } from './src';
@@ -91,6 +96,8 @@ Frame preparation/encoding failures and asynchronous GPU/device failures disable
 6. `OutputPass` presents the resolved linear HDR image. Submit the command buffer once, then start any asynchronous occlusion readback mapping without waiting.
 
 Held or paused poses reuse output buffers. Conservative bounds update with the same pose dependencies as deformation. Skinned outputs are world-space; moving only the mesh node does not change their geometry. Culling preserves original transform indices through `firstInstance` rather than repacking instance buffers.
+
+In world mode, rendering preparation calls `World.update(timestampMs)` for per-instance playback and entity transforms. Its persistent pose revision retains dirty work even when CPU gameplay already evaluated the same timestamp. Root movement updates skin joints as well as model mesh/light nodes; a reflected entity root selects the corresponding skinned winding pipeline. Pose uploads → compute → shadows → render retain their existing order. Entity membership changes require an awaited `setWorld()` preparation; a structure-revision check prevents submitting stale membership or committing a world mutated during preparation. Transform/reparent/component changes require no scene rebuild. See [world lifecycle](game-world.md).
 
 `Pose` prepares a parent-order rank and the union of authored TRS targets/descendants. `SceneBuilder` separates mutable consumers from unaffected rigid instances per primitive, preserving static winding groups in animated scenes. `PoseMixer` accepts an optional node selection; `Pose` caches active/outgoing target selections and affected world subtrees. Outgoing targets restore defaults once, then leave the work list. Weight-only targets do not expand world subtrees. Interrupted fades with pose snapshots conservatively select all nodes. Changed-world flags are cleared only for previously changed nodes. Final value/matrix comparisons still own revisions; selection never decides GPU deformation or shadow visibility.
 

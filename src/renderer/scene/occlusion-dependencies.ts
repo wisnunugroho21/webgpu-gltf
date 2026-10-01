@@ -17,7 +17,9 @@ export class OcclusionDependencies {
     const receivers: number[] = [];
     for (const update of scene.updates) {
       const deformation = update.deformation?.data;
-      const world = deformation?.skinned ? 0 : scene.pose.nodes[update.node].worldRevision;
+      const world = deformation?.skinned
+        ? 0
+        : (update.pose ?? scene.pose).nodes[update.node].worldRevision;
       const weights = deformation?.weights.length ? deformation.weightsRevision : 0;
       let record = this.records.get(update);
       let changed = !record || record.world !== world || record.weights !== weights;

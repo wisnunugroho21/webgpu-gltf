@@ -23,10 +23,13 @@ export function uploadPose(device: GPUDevice, scene: Scene): void {
   for (const update of scene.updates) {
     const deformationChanged = update.deformation?.updateChanged() ?? false;
     if (deformationChanged) scene.pendingDeformations.push(update.deformation!);
-    const node = scene.pose.nodes[update.node];
+    const pose = update.pose ?? scene.pose;
+    const node = pose.nodes[update.node];
     const worldChanged = node.worldRevision !== update.worldRevision;
     update.worldRevision = node.worldRevision;
     const skinned = update.deformation?.data.skinned;
+    if (skinned && worldChanged)
+      update.draw.pipeline = pose.rootMirrored ? update.mirrored : update.front;
     // Skinned output is already world-space. Moving only the mesh node cannot
     // require a transform upload or recomputation unless it also moves a joint.
     if (!worldChanged && !deformationChanged) continue;

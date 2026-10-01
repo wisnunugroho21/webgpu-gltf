@@ -25,3 +25,15 @@ export type { LoadOptions } from './gltf/loader';
 export type { TextureCompression } from './gltf/compression/textures';
 export { loadEnvironmentImage, decodeRadiance } from './renderer';
 export type { Asset, Gltf } from './gltf/types';
+export {
+  World,
+  Entity,
+  ModelInstance,
+  ModelLibrary,
+  loadWorld,
+  parseSceneDocument,
+  type SceneDocument,
+  type EntityDefinition,
+  type TransformData,
+  type JsonValue,
+} from './engine';

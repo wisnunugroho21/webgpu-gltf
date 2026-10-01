@@ -36,9 +36,13 @@ export class SceneBuilder {
     private transparency: TransparencyMode = 'sorted',
   ) {}
 
-  async prepare(asset: Asset, resources: Resources): Promise<Scene> {
+  async prepare(
+    asset: Asset,
+    resources: Resources,
+    options: { pose?: Pose; mutableRoot?: boolean } = {},
+  ): Promise<Scene> {
     asset = await prepareTextureCompression(asset, this.device.features);
-    const pose = new Pose(asset);
+    const pose = options.pose ?? new Pose(asset);
     const lights = new PunctualLights(pose);
     const shadowPipelines = new ShadowPipelineCache(this.device, this.bindings.shadowPipeline);
     // Scene-scoped immutable inputs are decoded/packed/uploaded once per primitive.
@@ -47,6 +51,14 @@ export class SceneBuilder {
     const gpuDeformationInputs = new GpuDeformationInputCache(this.device, resources);
     const updates: PoseDraw[] = [];
     const primitiveInstances = collectInstances(asset.gltf);
+    if (options.pose)
+      for (const instances of primitiveInstances.values())
+        for (const instance of instances) {
+          mat4.copy(instance.world, pose.nodes[instance.node].world);
+          if (!mat4.invert(instance.normal, instance.world)) mat4.identity(instance.normal);
+          mat4.transpose(instance.normal, instance.normal);
+          instance.mirrored = mat4.determinant(instance.world) < 0;
+        }
     if (
       !this.compute &&
       [...primitiveInstances].some(
@@ -96,6 +108,7 @@ export class SceneBuilder {
           ])
         : undefined;
       const needsUpdate = (node: number) =>
+        !!options.mutableRoot ||
         !!pose.animatedWorld[node] ||
         !!primitive.targets?.length ||
         asset.gltf.nodes![node].skin !== undefined;
@@ -159,7 +172,11 @@ export class SceneBuilder {
             vec3.max(max, max, instanceBounds.max);
           }
           const pipeline = await pipelines.get(
-            pipelineArgs(geometry, material, deformation?.data.skinned ? false : batch[0].mirrored),
+            pipelineArgs(
+              geometry,
+              material,
+              deformation?.data.skinned ? pose.rootMirrored : batch[0].mirrored,
+            ),
           );
           const draw: Draw = {
             pipeline,

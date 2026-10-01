@@ -1,4 +1,4 @@
-import { mat4, quat } from 'gl-matrix';
+import { mat4, quat, type ReadonlyMat4 } from 'gl-matrix';
 import type { Asset } from '../gltf/types';
 import { prepareClips, type Clip } from '../animation/tracks';
 import { PoseMixer, clonePose, type BlendSample } from '../animation/blending';
@@ -26,6 +26,7 @@ export class Pose {
   }[];
   private local = mat4.create();
   private world = mat4.create();
+  private root = mat4.create();
   private sampled: Pose['defaults'];
   private worldChanged: Uint8Array;
   private initialized = false;
@@ -124,6 +125,45 @@ export class Pose {
   capture() {
     return clonePose(this.nodes);
   }
+  get rootMirrored(): boolean {
+    return mat4.determinant(this.root) < 0;
+  }
+
+  /** Gameplay placement is external to authored node locals and clip snapshots.
+   * Recompute effective worlds (including joints/lights) without resetting animation. */
+  setRootTransform(matrix: ReadonlyMat4): boolean {
+    if (matrix.length !== 16 || [...matrix].some((v) => !Number.isFinite(v)))
+      throw new Error('Model root must be a finite matrix.');
+    let same = true;
+    for (let c = 0; c < 16; c++) same &&= matrix[c] === this.root[c];
+    if (same) return false;
+    const start = this.profiling ? performance.now() : 0;
+    mat4.copy(this.root, matrix);
+    let changed = false;
+    for (const index of this.order) {
+      const node = this.nodes[index],
+        definition = this.asset.gltf.nodes![index];
+      if (definition.matrix) mat4.copy(this.local, definition.matrix as mat4);
+      else
+        mat4.fromRotationTranslationScale(
+          this.local,
+          node.rotation as quat,
+          node.translation as [number, number, number],
+          node.scale as [number, number, number],
+        );
+      const parent = this.parents[index];
+      mat4.multiply(this.world, parent < 0 ? this.root : this.nodes[parent].world, this.local);
+      let worldChanged = false;
+      for (let c = 0; c < 16; c++) worldChanged ||= this.world[c] !== node.world[c];
+      if (worldChanged) {
+        mat4.copy(node.world, this.world);
+        node.worldRevision++;
+        changed = true;
+      }
+    }
+    if (this.profiling) this.timings.worldMs += performance.now() - start;
+    return changed;
+  }
 
   evaluateBlend(samples: readonly BlendSample[]): boolean {
     const start = this.profiling ? performance.now() : 0;
@@ -197,7 +237,7 @@ export class Pose {
           node.scale as [number, number, number],
         );
       if (parent >= 0) mat4.multiply(this.world, this.nodes[parent].world, this.local);
-      else mat4.copy(this.world, this.local);
+      else mat4.multiply(this.world, this.root, this.local);
       // Compare float32 matrices too: a local change can cancel out in world space,
       // including under collapsed parents or equivalent quaternion signs.
       let worldChanged = !this.initialized;

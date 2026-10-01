@@ -13,6 +13,8 @@ import { EnvironmentLighting, type EnvironmentSettings } from './lighting/enviro
 import type { EnvironmentImage } from './lighting/source';
 import type { Scene, FrameStats, SceneStats } from './scene/types';
 import { SceneBuilder } from './scene/builder';
+import { prepareWorld } from './scene/world-builder';
+import type { World } from '../engine/world';
 import { uploadPose } from './scene/pose-upload';
 import { SceneVisibility } from './scene/visibility';
 import { OcclusionCulling } from './scene/occlusion';
@@ -63,7 +65,11 @@ export class Renderer {
     return compressionSupport(this.device.features);
   }
   readonly camera: OrbitCamera;
-  readonly animation = new AnimationController();
+  private readonly assetAnimation = new AnimationController();
+  /** Single-asset compatibility; world gameplay normally uses entity.model.animation. */
+  get animation(): AnimationController {
+    return this.scene?.world?.models[0]?.animation ?? this.assetAnimation;
+  }
   private scene?: Scene;
   private bindings: SceneBindings;
   private disposed = false;
@@ -271,6 +277,20 @@ export class Renderer {
 
   /** Prepare a replacement fully before swapping. A failed load leaves the current model usable. */
   async setAsset(asset: Asset): Promise<SceneStats> {
+    return this.replaceScene((resources) => this.builder.prepare(asset, resources));
+  }
+
+  /** Attach an engine world without merging its entities into glTF node definitions.
+   * Spawn/destroy changes require another atomic preparation; transforms update per frame. */
+  async setWorld(world: World): Promise<SceneStats> {
+    return this.replaceScene((resources) =>
+      prepareWorld(this.device, this.bindings, this.builder, world, resources),
+    );
+  }
+
+  private async replaceScene(
+    prepare: (resources: Resources) => Promise<Scene>,
+  ): Promise<SceneStats> {
     const resources = new Resources();
     let committed = false;
     try {
@@ -278,20 +298,28 @@ export class Renderer {
         this.device,
         async () => {
           if (this.disposed || this.failed) throw new Error('Renderer is disposed or failed.');
-          return this.builder.prepare(asset, resources);
+          return prepare(resources);
         },
         (candidate) => {
           if (this.disposed || this.failed) throw new Error('Renderer is disposed or failed.');
+          if (
+            candidate.world &&
+            candidate.world.source.structureRevision !== candidate.world.structureRevision
+          )
+            throw new Error('World structure changed during preparation.');
           const previous = this.scene;
           candidate.pose.profiling = this.cpuProfiling;
+          for (const model of candidate.world?.models ?? [])
+            model.pose.profiling = this.cpuProfiling;
           this.scene = candidate;
           committed = true;
-          this.camera.frame(candidate.min, candidate.max);
+          if (candidate.stats.instances) this.camera.frame(candidate.min, candidate.max);
           this.occlusion.invalidate();
           previous?.resources.destroy();
           // Notify only after the valid scene is committed and old resources released.
           // A caller's notification callback cannot destroy the newly attached scene.
-          this.animation.setPose(candidate.pose);
+          if (!candidate.world || !candidate.world.models.length)
+            this.assetAnimation.setPose(candidate.pose);
           return candidate.stats;
         },
       );
@@ -309,10 +337,18 @@ export class Renderer {
     if (scene) {
       // This list belongs to this frame; paused/held poses must not replay old dispatches.
       scene.pendingDeformations.length = 0;
-      poseChanged = this.animation.update(timestamp);
+      if (scene.world) {
+        scene.world.source.update(timestamp);
+        poseChanged = scene.world.poseRevision !== scene.world.source.poseRevision;
+        scene.world.poseRevision = scene.world.source.poseRevision;
+      } else poseChanged = this.animation.update(timestamp);
       if (this.cpuProfiling) {
         this.timings.animationMs = performance.now() - start;
-        Object.assign(this.timings, scene.pose.timings);
+        for (const pose of scene.world
+          ? scene.world.models.map((model) => model.pose)
+          : [scene.pose])
+          for (const key of ['mixingMs', 'worldMs', 'sampledNodes', 'visitedNodes'] as const)
+            this.timings[key] += pose.timings[key];
       }
     }
     const animated = this.cpuProfiling ? performance.now() : 0;
@@ -386,18 +422,26 @@ export class Renderer {
   render(timestamp: number): boolean {
     if (this.disposed || this.failed) return false;
     if (!Number.isFinite(timestamp)) throw new Error('Frame timestamp must be finite.');
+    if (
+      this.scene?.world &&
+      this.scene.world.structureRevision !== this.scene.world.source.structureRevision
+    )
+      throw new Error('World membership changed. Await renderer.setWorld(world) before rendering.');
     try {
       const scene = this.scene;
       const start = this.cpuProfiling ? performance.now() : 0;
       if (this.cpuProfiling) {
         Object.assign(this.timings, emptyCpuTimings());
         if (scene)
-          Object.assign(scene.pose.timings, {
-            mixingMs: 0,
-            worldMs: 0,
-            sampledNodes: 0,
-            visitedNodes: 0,
-          });
+          for (const pose of scene.world
+            ? scene.world.models.map((model) => model.pose)
+            : [scene.pose])
+            Object.assign(pose.timings, {
+              mixingMs: 0,
+              worldMs: 0,
+              sampledNodes: 0,
+              visitedNodes: 0,
+            });
       }
       this.uploadFrame(scene, timestamp);
       const uploaded = this.cpuProfiling ? performance.now() : 0;

@@ -183,7 +183,8 @@ export class PunctualLighting {
       // Receiver transforms can also enlarge the fitted scene envelope. Unselected
       // nodes do not appear in these draw records and therefore cannot invalidate maps.
       const deformation = update.deformation?.data;
-      if (!deformation?.skinned) revisions.push(scene.pose.nodes[update.node].worldRevision);
+      if (!deformation?.skinned)
+        revisions.push((update.pose ?? scene.pose).nodes[update.node].worldRevision);
       if (deformation) {
         revisions.push(deformation.weightsRevision);
         for (const joint of deformation.activeJoints)

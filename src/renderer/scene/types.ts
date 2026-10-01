@@ -4,7 +4,9 @@ import type { GpuDeformation } from '../deformation/instance';
 import type { GpuMaterial } from '../materials/factory';
 import type { Resources } from '../core/resources';
 import type { Bounds } from './frustum';
-import type { PunctualLights } from '../../scene/lights';
+import type { SceneLights } from '../../scene/lights';
+import type { World } from '../../engine/world';
+import type { ModelInstance } from '../../engine/model';
 
 export interface Draw {
   pipeline: GPURenderPipeline;
@@ -34,7 +36,7 @@ export interface SceneStats {
   instances: number;
 }
 export interface Scene {
-  lights: PunctualLights;
+  lights: SceneLights;
   pose: Pose;
   updates: PoseDraw[];
   pendingDeformations: GpuDeformation[];
@@ -49,10 +51,18 @@ export interface Scene {
   visibleTransmission: Draw[];
   draws: Draw[];
   stats: SceneStats;
+  world?: {
+    source: World;
+    models: readonly ModelInstance[];
+    structureRevision: number;
+    poseRevision: number;
+  };
   min: vec3;
   max: vec3;
 }
 export interface PoseDraw {
+  /** Model-owned node indices remain local even when several entities share an asset. */
+  pose?: Pose;
   draw: Draw;
   node: number;
   deformation?: GpuDeformation;

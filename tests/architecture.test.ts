@@ -23,7 +23,7 @@ function resolve(from: string, specifier: string): string | undefined {
 
 test('CPU asset, animation and scene modules do not depend on the renderer or viewer', () => {
   for (const [path, source] of Object.entries(sources)) {
-    if (!/^\.\.\/src\/(gltf|animation|scene)\//.test(path)) continue;
+    if (!/^\.\.\/src\/(gltf|animation|scene|engine)\//.test(path)) continue;
     for (const specifier of imports(source)) {
       const dependency = resolve(path, specifier);
       expect(dependency ?? specifier, `${path} imports ${specifier}`).not.toMatch(
