@@ -43,6 +43,9 @@ select {
   min-width: 100px;
   accent-color: #67d5b6;
 }
+#scale-culling {
+  width: 5ch;
+}
 #animation-time {
   flex: 1;
   min-width: 100px;

@@ -12,6 +12,7 @@ import type { Scene, FrameStats, SceneStats } from './scene/types';
 import { SceneBuilder } from './scene/builder';
 import { uploadPose } from './scene/pose-upload';
 import { SceneVisibility } from './scene/visibility';
+import { OcclusionCulling } from './scene/occlusion';
 import { encodeDeformation } from './deformation/pass';
 import { encodeScene } from './render/pass';
 import { TransmissionBuffer } from './render/transmission';
@@ -31,6 +32,10 @@ export interface RendererOptions {
   sampleCount?: SceneSampleCount;
   /** Conservative per-instance bounds testing; enabled by default. */
   frustumCulling?: boolean;
+  /** Optional asynchronous opaque-depth queries; disabled by default because queries have a cost. */
+  occlusionCulling?: boolean;
+  /** Minimum projected AABB size in physical pixels. Zero disables size culling (default). */
+  scaleCulling?: number;
   shadows?: boolean;
   /** Fixed at creation. All shadow maps use this single-sample depth resolution. */
   shadowResolution?: ShadowResolution;
@@ -54,6 +59,25 @@ export class Renderer {
     this.lighting.setSettings(settings);
   }
   private cullingEnabled = true;
+  private occlusionEnabled = false;
+  private minPixels = 0;
+  get occlusionCulling(): boolean {
+    return this.occlusionEnabled;
+  }
+  setOcclusionCulling(enabled: boolean): void {
+    if (typeof enabled !== 'boolean') throw new Error('Occlusion culling must be a boolean.');
+    this.occlusionEnabled = enabled;
+    this.occlusion.invalidate();
+  }
+  get scaleCulling(): number {
+    return this.minPixels;
+  }
+  setScaleCulling(minPixels: number): void {
+    if (!Number.isFinite(minPixels) || minPixels < 0)
+      throw new Error('Scale culling must be a finite nonnegative pixel threshold.');
+    this.minPixels = minPixels;
+    this.occlusion.invalidate();
+  }
   private lastFrame: FrameStats = { draws: 0, instances: 0, culledInstances: 0 };
   get frameStats(): Readonly<FrameStats> {
     return { ...this.lastFrame };
@@ -64,6 +88,7 @@ export class Renderer {
   setFrustumCulling(enabled: boolean): void {
     if (typeof enabled !== 'boolean') throw new Error('Frustum culling must be a boolean.');
     this.cullingEnabled = enabled;
+    this.occlusion.invalidate();
   }
   get sampleCount(): SceneSampleCount {
     return this.output.sampleCount;
@@ -113,6 +138,10 @@ export class Renderer {
     if (transparencyMode !== 'weighted' && transparencyMode !== 'sorted')
       throw new Error('Transparency must be weighted or sorted.');
     const frustumCulling = options.frustumCulling ?? true;
+    const occlusionCulling = options.occlusionCulling ?? false;
+    const scaleCulling = options.scaleCulling ?? 0;
+    if (typeof occlusionCulling !== 'boolean' || !Number.isFinite(scaleCulling) || scaleCulling < 0)
+      throw new Error('Invalid occlusion or scale culling options.');
     const shadows = options.shadows ?? true;
     const shadowResolution = options.shadowResolution ?? 512;
     if (typeof shadows !== 'boolean' || ![256, 512, 1024].includes(shadowResolution))
@@ -133,15 +162,19 @@ export class Renderer {
     const format = navigator.gpu.getPreferredCanvasFormat();
     let output: OutputPass | undefined;
     let transparency: TransparencyPass | undefined;
-    let environment: EnvironmentLighting;
+    let environment: EnvironmentLighting | undefined;
+    let occlusion: OcclusionCulling | undefined;
     try {
       output = await OutputPass.create(device, format, sampleCount);
       if (transparencyMode === 'weighted')
         transparency = await TransparencyPass.create(device, sampleCount);
       environment = await EnvironmentLighting.create(device);
+      occlusion = await OcclusionCulling.create(device, sampleCount);
     } catch (error) {
       output?.destroy();
       transparency?.destroy();
+      environment?.destroy();
+      occlusion?.destroy();
       device.destroy();
       throw error;
     }
@@ -153,12 +186,15 @@ export class Renderer {
       onError,
       output,
       environment,
+      occlusion,
       shadowResolution,
       shadows,
       transparencyMode,
       transparency,
     );
     renderer.setFrustumCulling(frustumCulling);
+    renderer.setOcclusionCulling(occlusionCulling);
+    renderer.setScaleCulling(scaleCulling);
     device.addEventListener('uncapturederror', (event) => {
       renderer.stop();
       onError(`GPU error: ${event.error.message}`);
@@ -180,6 +216,7 @@ export class Renderer {
     private onError: (message: string) => void,
     private output: OutputPass,
     private environment: EnvironmentLighting,
+    private occlusion: OcclusionCulling,
     shadowResolution: ShadowResolution,
     shadows: boolean,
     readonly transparencyMode: TransparencyMode,
@@ -222,6 +259,7 @@ export class Renderer {
     this.scene = candidate!;
     this.animation.setPose(candidate!.pose);
     this.camera.frame(candidate!.min, candidate!.max);
+    this.occlusion.invalidate();
     previous?.resources.destroy();
     return candidate!.stats;
   }
@@ -229,12 +267,14 @@ export class Renderer {
   private render = (timestamp: number): void => {
     if (this.disposed) return;
     const scene = this.scene;
+    let poseChanged = false;
     // Phase 1: sample animation and upload its inputs before encoding any GPU work.
     if (scene) {
       // This list belongs to this frame; paused/held poses must not replay old dispatches.
       scene.pendingDeformations.length = 0;
       try {
-        if (this.animation.update(timestamp)) uploadPose(this.device, scene);
+        poseChanged = this.animation.update(timestamp);
+        if (poseChanged) uploadPose(this.device, scene);
       } catch (error) {
         this.stop();
         this.onError(error instanceof Error ? error.message : String(error));
@@ -248,17 +288,34 @@ export class Renderer {
       this.transparency?.resize(this.viewport.width, this.viewport.height);
     this.bindings.uploadCamera(this.camera, this.viewport.width / this.viewport.height);
     if (scene) this.lighting.update(scene);
+    // Visibility consumes updated bounds. Query input uploads also finish before
+    // encoding; visibility cannot suppress deformation or shadow preparation.
+    this.lastFrame.draws = 0;
+    this.lastFrame.instances = 0;
+    this.lastFrame.culledInstances = 0;
+    if (scene) {
+      if (this.occlusionEnabled)
+        this.occlusion.beginFrame(
+          scene,
+          this.bindings.frameData,
+          this.viewport.width,
+          this.viewport.height,
+          poseChanged,
+        );
+      this.visibility.update(scene, this.bindings.frameData, this.cullingEnabled, this.lastFrame, {
+        width: this.viewport.width,
+        height: this.viewport.height,
+        minPixels: this.minPixels,
+        occlusion: this.occlusionEnabled ? this.occlusion : undefined,
+      });
+      if (this.occlusionEnabled) this.occlusion.upload();
+    }
     const encoder = this.device.createCommandEncoder();
     // Phase 2: compute consumes uploaded inputs. Paused/static poses reuse their output.
     if (scene) encodeDeformation(encoder, scene);
     // Shadow rendering consumes the same completed deformation output as the color pass.
     if (scene) this.lighting.encode(encoder, scene);
     // Phase 3: render consumes completed deformation output in the same submission.
-    this.lastFrame.draws = 0;
-    this.lastFrame.instances = 0;
-    this.lastFrame.culledInstances = 0;
-    if (scene)
-      this.visibility.update(scene, this.bindings.frameData, this.cullingEnabled, this.lastFrame);
     encodeScene(encoder, scene, {
       output: this.output,
       depth: this.viewport.depth!,
@@ -267,10 +324,12 @@ export class Renderer {
       camera: this.camera,
       transmission: this.transmission,
       transparency: this.transparency,
+      occlusion: this.occlusionEnabled ? this.occlusion : undefined,
     });
     // Presentation follows scene rendering: tone mapping happens once, after all blending.
     this.output.encode(encoder, this.context.getCurrentTexture().createView());
     this.device.queue.submit([encoder.finish()]);
+    if (this.occlusionEnabled) this.occlusion.afterSubmit();
     this.frameRequest = requestAnimationFrame(this.render);
   };
 
@@ -287,6 +346,7 @@ export class Renderer {
     this.output.destroy();
     this.environment.destroy();
     this.lighting.destroy();
+    this.occlusion.destroy();
     this.bindings.destroy();
     this.camera.destroy();
     this.context.unconfigure();

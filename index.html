@@ -59,6 +59,20 @@
         />
         <output id="exposure-value" for="exposure">0.0 EV</output>
         <label><input id="shadows" type="checkbox" checked /> Shadows</label>
+        <label><input id="occlusion-culling" type="checkbox" /> Occlusion culling</label>
+        <label
+          >Minimum mesh size
+          <input
+            id="scale-culling"
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            value="0"
+            aria-label="Minimum mesh size in pixels"
+          />
+          px
+        </label>
       </section>
       <section id="environment-controls" class="toolbar" aria-label="Environment lighting controls">
         <label class="button"

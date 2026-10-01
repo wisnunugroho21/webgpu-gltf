@@ -4,6 +4,7 @@ import type { OutputPass } from '../presentation/output';
 import type { OrbitCamera } from '../camera/orbit-camera';
 import type { TransmissionBuffer } from './transmission';
 import type { TransparencyPass } from './transparency';
+import type { OcclusionCulling } from '../scene/occlusion';
 
 export interface ScenePassContext {
   output: OutputPass;
@@ -13,6 +14,7 @@ export interface ScenePassContext {
   camera: OrbitCamera;
   transmission: TransmissionBuffer;
   transparency?: TransparencyPass;
+  occlusion?: OcclusionCulling;
 }
 
 /** Submission consumes prepared buffers and visibility; no uploads or compute here. */
@@ -32,14 +34,19 @@ export function encodeScene(
         output.sceneAttachment(
           { r: 0.001935, g: 0.002786, b: 0.004123, a: 1 },
           load ? 'load' : 'clear',
-          (hasTransmission && !load) || hasWeighted,
+          (hasTransmission && !load) ||
+            hasWeighted ||
+            (!!context.occlusion?.ready && !!scene?.visibleTransparent.length),
         ),
       ],
       depthStencilAttachment: {
         view: depth.createView(),
         depthClearValue: 1,
         depthLoadOp: load ? 'load' : 'clear',
-        depthStoreOp: (hasTransmission && !load) || hasWeighted ? 'store' : 'discard',
+        depthStoreOp:
+          (hasTransmission && !load) || hasWeighted || context.occlusion?.ready
+            ? 'store'
+            : 'discard',
       },
     });
   let pass = begin(false);
@@ -56,10 +63,22 @@ export function encodeScene(
           if (draw.pipeline === pipeline && draw.visibleRuns.length) submitDraw(pass, draw);
       }
     }
+    if (context.occlusion?.ready) {
+      pass.end();
+      // Opaque/MASK depth is the only occluder source. Glass and BLEND must never
+      // hide opaque geometry required by the transmission background snapshot.
+      context.occlusion.encode(encoder, depth);
+      if (!hasTransmission && (scene.visibleTransparent.length || hasWeighted)) {
+        pass = begin(true);
+        pass.setBindGroup(0, frameGroup);
+        pass.setBindGroup(1, scene.instances);
+        pass.setBindGroup(3, environmentGroup);
+      } else if (!hasTransmission) return;
+    }
     // Finish/resolve opaque rendering before taking the background snapshot. Store
     // MSAA samples and depth for the continuation pass so geometric coverage survives.
     if (hasTransmission) {
-      pass.end();
+      if (!context.occlusion?.ready) pass.end();
       context.transmission.capture(encoder, output);
       pass = begin(true);
       pass.setBindGroup(0, context.transmission.group!);

@@ -61,10 +61,10 @@ Bind groups and pipelines do not have explicit destroy methods. Their references
 ```mermaid
 flowchart LR
     A[AnimationController evaluates Pose] --> B[uploadPose updates changed inputs and bounds]
-    B --> C[encodeDeformation writes vertex output]
+    B --> D[Camera upload, CPU visibility, query inputs]
+    D --> C[encodeDeformation writes vertex output]
     C --> S[Shadow depth passes and GPU depth copies]
-    S --> D[SceneVisibility tests bounds]
-    D --> E[encodeScene draws and resolves linear HDR]
+    S --> E[encodeScene draws, queries opaque depth, resolves HDR]
     E --> F[OutputPass applies exposure and tone mapping]
     F --> G[One queue submission]
 ```
@@ -72,11 +72,11 @@ flowchart LR
 The frame loop in `Renderer` explicitly coordinates these phases:
 
 1. Clear pending deformation records. Sample and blend animation local poses, then call `scene/pose-upload.ts` only if the pose changed or initial output needs preparation. Dirty transform records are coalesced only when adjacent.
-2. Resize HDR/depth targets together through `Viewport`, upload the camera through `SceneBindings`, and update light/shadow records from relevant pose revisions.
+2. Resize HDR/depth targets together through `Viewport`, upload the camera through `SceneBindings`, and update light/shadow records from relevant pose revisions. CPU visibility selects instance runs from current bounds, projected size and valid occlusion history, then uploads any query rectangles before encoding.
 3. `deformation/batch.ts` uploads compact dirty-job lists during pose upload. `deformation/pass.ts` then encodes one two-dimensional dispatch per active compatible batch (or standalone node) and ends the pass before vertex reads. X addresses vertices; Y selects a dirty node. Draws bind each node's arena output offset, including shadow draws.
-4. Dirty shadow passes render from completed deformation output, reusing one single-sample depth target and copying each view to GPU storage for PCF. These passes include off-camera opaque/MASK triangle casters. Then `SceneVisibility` creates contiguous visible instance runs using current bounds and the same view-projection matrix uploaded to the GPU. Visibility does not suppress changed pose uploads, compute work or shadow casters.
+4. Dirty shadow passes render from completed deformation output, reusing one single-sample depth target and copying each view to GPU storage for PCF. These passes include off-camera opaque/MASK triangle casters. The already prepared visibility runs use current bounds and the same view-projection matrix uploaded to the GPU. Visibility does not suppress changed pose uploads, compute work or shadow casters.
 5. `render/pass.ts` submits opaque state groups. When transmission is visible, `TransmissionBuffer` copies the resolved opaque HDR image before a continuation pass loads stored color/depth samples and draws transmitting and alpha-blended instances. Rendering does not decode assets, upload poses, or dispatch deformation.
-6. `OutputPass` presents the resolved linear HDR image. Submit the command buffer once.
+6. `OutputPass` presents the resolved linear HDR image. Submit the command buffer once, then start any asynchronous occlusion readback mapping without waiting.
 
 Held or paused poses reuse output buffers. Conservative bounds update with the same pose dependencies as deformation. Skinned outputs are world-space; moving only the mesh node does not change their geometry. Culling preserves original transform indices through `firstInstance` rather than repacking instance buffers.
 
@@ -109,3 +109,5 @@ Environment file decoding is CPU-only: `lighting/source.ts` dispatches Radiance 
 `MipmapGenerator` owns area-weighted downsampling and the alpha-weighted color variant. `MaterialFactory` selects alpha weighting only for BLEND base color and includes that policy in generated image-cache keys. Authored mip chains bypass generation and keep source/format sharing. Filter variants change only the generator pipeline, never the fixed material layout or frame phases.
 
 Weighted transparency is a color-render continuation owned by `renderer/render/transparency.ts`: opaque/transmission passes preserve HDR samples and depth, BLEND pipelines accumulate color and logarithmic transmittance in separate per-sample attachments, then a fullscreen pass composites into the preserved HDR samples before resolve/presentation. `PipelineCache` keys include transmission/output semantics but material binding layouts stay fixed. Sorted mode retains the previous forward blending path. This adds no pose uploads or deformation dispatches inside render encoding. Renderer-owned OIT textures allocate lazily for transparent scenes, resize with the viewport, survive scene replacement, and destroy with the renderer.
+
+Optional visibility filters live in `renderer/scene/visibility.ts`, `projected-bounds.ts`, and `occlusion.ts`. CPU frustum/size/history tests prepare contiguous instance runs after pose/camera uploads, before compute encoding. Query rectangles upload in that same phase. After opaque/MASK color rendering, `encodeScene` inserts a depth-only query pass against stored opaque depth, before transmission/BLEND; depth and MSAA color samples remain valid for continuation passes. Results are mapped only after submission, with one in-flight buffer and a rotating bounded query budget. Scene/pose/camera/viewport/filter changes invalidate history and stale generations are ignored. Scale thresholds are physical-pixel projected AABB extents; near-plane/invalid bounds fail open. Neither filter suppresses pose/deformation or shadow casters. Occlusion resources are renderer-owned, grow lazily, survive scene replacement, and release on renderer disposal.
