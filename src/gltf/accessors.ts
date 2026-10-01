@@ -1,6 +1,12 @@
 import type { Accessor, Asset } from './types';
 
-export const components: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+export const components: Record<string, number> = {
+  SCALAR: 1,
+  VEC2: 2,
+  VEC3: 3,
+  VEC4: 4,
+  MAT4: 16,
+};
 const sizes: Record<number, number> = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
 
 function read(view: DataView, offset: number, type: number, normalized = false): number {
@@ -57,6 +63,9 @@ function source(
  * Ordinary float attributes still use the original bufferView on the GPU. */
 export function decodeAccessor(asset: Asset, accessor: Accessor): number[] {
   const width = components[accessor.type];
+  // MAT4 inverse-bind matrices are float-only; integer matrix column padding is not used.
+  if (accessor.type === 'MAT4' && accessor.componentType !== 5126)
+    throw new Error('MAT4 accessors must use float32 components.');
   const size = sizes[accessor.componentType];
   if (!width || !size || !Number.isInteger(accessor.count) || accessor.count < 1)
     throw new Error('Invalid accessor shape.');

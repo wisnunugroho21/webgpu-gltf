@@ -39,6 +39,24 @@
         </form>
         <button id="reset">Reset camera</button>
       </section>
+      <section id="animation-controls" class="toolbar" aria-label="Animation controls" hidden>
+        <label
+          >Animation
+          <select id="animation-clip" aria-label="Animation clip"></select
+        ></label>
+        <button id="animation-play">Pause</button>
+        <button id="animation-restart">Restart</button>
+        <input
+          id="animation-time"
+          type="range"
+          min="0"
+          max="1"
+          step="0.001"
+          value="0"
+          aria-label="Animation time"
+        />
+        <output id="animation-clock">0.00 / 0.00 s</output>
+      </section>
       <section class="viewport" aria-label="3D model viewer">
         <canvas id="canvas" aria-label="Rendered glTF scene"></canvas>
         <div class="hint">Drag to orbit · Scroll to zoom</div>
@@ -49,7 +67,8 @@
       </footer>
       <p class="note">
         For .gltf files, select the model and its .bin / image files together. URLs must allow
-        cross-origin access. Static scenes only.
+        cross-origin access. Animation clips loop automatically; use the playback controls to pause
+        or scrub.
       </p>
       <details>
         <summary>Renderer notes</summary>
@@ -57,7 +76,8 @@
           Geometry is prepared once, pipelines are cached, and repeated meshes share instanced
           draws. All five core glTF material textures are supported: base color, metallic/roughness,
           normal, occlusion, and emissive. Lighting uses a directional light with a small ambient
-          term. This viewer does not implement animation, skinning, or environment lighting.
+          term. Animation, linear blend skinning, and morph targets are supported. Environment
+          lighting is not implemented.
         </p>
         <p id="warnings"></p>
       </details>

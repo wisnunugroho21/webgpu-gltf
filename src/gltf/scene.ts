@@ -2,6 +2,7 @@ import { mat4, quat, vec3 } from 'gl-matrix';
 import type { Gltf, Primitive } from './types';
 
 export interface Instance {
+  node: number;
   world: mat4;
   normal: mat4;
   mirrored: boolean;
@@ -35,10 +36,13 @@ export function collectInstances(gltf: Gltf): Map<Primitive, Instance[]> {
           (node.scale ?? [1, 1, 1]) as vec3,
         );
     const world = mat4.multiply(mat4.create(), parent, local);
-    const normal = mat4.invert(mat4.create(), world);
-    if (!normal) throw new Error('A node has a singular transform (for example zero scale).');
+    const inverse = mat4.invert(mat4.create(), world);
+    // Mesh-node transforms do not affect skinning; joints may also pass through zero scale.
+    if (!inverse && node.mesh !== undefined && node.skin === undefined)
+      throw new Error('A node has a singular transform (for example zero scale).');
+    const normal = inverse ?? mat4.create();
     mat4.transpose(normal, normal);
-    const instance = { world, normal, mirrored: mat4.determinant(world) < 0 };
+    const instance = { node: index, world, normal, mirrored: mat4.determinant(world) < 0 };
     if (node.mesh !== undefined) {
       const mesh = gltf.meshes?.[node.mesh];
       if (!mesh) throw new Error('Node references a missing mesh.');

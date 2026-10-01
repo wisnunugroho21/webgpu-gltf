@@ -1,6 +1,6 @@
 # WebGPU glTF renderer
 
-A small, commented TypeScript renderer for static glTF 2.0 scenes, built directly on WebGPU. It includes a browser viewer, an offline demo, and tests for the parts where glTF's data layout does not map directly to WebGPU.
+A small, commented TypeScript renderer for glTF 2.0 scenes, built directly on WebGPU. It supports static scenes, animation clips, linear blend skinning, and morph targets. It includes a browser viewer, an offline demo, and tests for the parts where glTF's data layout does not map directly to WebGPU.
 
 The architecture follows [Toji's “Efficiently rendering glTF models” case study](https://toji.dev/webgpu-gltf-case-study/). It is an independent implementation, not a copy of the sample renderer. As in the article, the focus is efficient data preparation and draw submission rather than full glTF feature coverage.
 
@@ -26,29 +26,33 @@ The first scene is generated locally and makes no network requests for models. T
 
 Use **Open model** to select one `.glb`, or one `.gltf` together with its binary and image dependencies. Local dependencies are matched by decoded URI or filename; assets with different dependencies sharing the same filename should be served by URL instead. **Load URL** accepts a model URL and resolves dependencies relative to it. Cross-origin servers must enable CORS. Drag to orbit, scroll to zoom, and use **Reset camera** to return to the fitted view.
 
+Models with animation clips show a clip selector, Play/Pause, Restart, and a timeline. The first clip plays automatically and loops over its duration. Scrubbing pauses playback; selecting **Authored pose** restores the original TRS and morph weights. Only one clip plays at a time. Models with skinning or morph weights also render correctly without an animation clip.
+
 ## Code map
 
-| Module                      | Responsibility                                                            |
-| --------------------------- | ------------------------------------------------------------------------- |
-| `src/main.ts`               | UI events, serialized loading, status and errors                          |
-| `src/gltf/types.ts`         | Typed subset of the glTF JSON schema                                      |
-| `src/gltf/loader.ts`        | JSON/GLB parsing, URI resolution, buffer and image loading                |
-| `src/gltf/accessors.ts`     | Strided component decoding, normalization, sparse overlays, bounds checks |
-| `src/gltf/geometry.ts`      | Canonical GPU layouts, exceptional repacking, index/topology conversion   |
-| `src/gltf/scene.ts`         | Selected-scene traversal, world/normal matrices, instance collection      |
-| `src/renderer/resources.ts` | Padded uploads and explicit GPU allocation ownership                      |
-| `src/renderer/materials.ts` | Cached images/samplers/material bind groups and uniform packing           |
-| `src/renderer/shader.ts`    | Commented WGSL generated for available vertex inputs                      |
-| `src/renderer/pipelines.ts` | Immutable-state pipeline keys and cached async compilation                |
-| `src/renderer/renderer.ts`  | Scene preparation, batching, transparent ordering, rendering and disposal |
-| `src/renderer/camera.ts`    | Orbit controls, scene framing, WebGPU depth projection                    |
-| `src/demo.ts`               | Original procedural glTF demo                                             |
+| Module                      | Responsibility                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| `src/main.ts`               | UI events, serialized loading, status and errors                               |
+| `src/gltf/types.ts`         | Typed subset of the glTF JSON schema                                           |
+| `src/gltf/loader.ts`        | JSON/GLB parsing, URI resolution, buffer and image loading                     |
+| `src/gltf/accessors.ts`     | Strided component decoding, normalization, sparse overlays, bounds checks      |
+| `src/gltf/geometry.ts`      | Canonical GPU layouts, exceptional repacking, index/topology conversion        |
+| `src/gltf/scene.ts`         | Selected-scene traversal, world/normal matrices, instance collection           |
+| `src/gltf/animation.ts`     | Validated animation tracks, interpolation, clip metadata, reusable node poses  |
+| `src/gltf/deformation.ts`   | Node-owned morph streams, inverse binds, joint palettes, linear blend skinning |
+| `src/renderer/resources.ts` | Padded uploads and explicit GPU allocation ownership                           |
+| `src/renderer/materials.ts` | Cached images/samplers/material bind groups and uniform packing                |
+| `src/renderer/shader.ts`    | Commented WGSL generated for available vertex inputs                           |
+| `src/renderer/pipelines.ts` | Immutable-state pipeline keys and cached async compilation                     |
+| `src/renderer/renderer.ts`  | Scene preparation, batching, transparent ordering, rendering and disposal      |
+| `src/renderer/camera.ts`    | Orbit controls, scene framing, WebGPU depth projection                         |
+| `src/demo.ts`               | Original procedural glTF demo                                                  |
 
 ## How the case study informs the implementation
 
 ### Do work when loading, not when drawing
 
-The loader resolves bytes and images first. `Renderer.prepare()` traverses the scene and prepares geometry, transforms, materials, bind groups, and pipelines before displaying it. A frame updates only the camera uniform, sorts transparent draws, and submits the prepared draw records. There is no scene-tree traversal, accessor decoding, GPU allocation, or pipeline compilation in the normal draw path (apart from recreating the depth attachment on resize).
+The loader resolves bytes and images first. `Renderer.prepare()` traverses the scene and prepares geometry, transforms, materials, bind groups, and pipelines before displaying it. Static frames update only the camera uniform, sort transparent draws, and submit prepared draw records. Animated frames have a separate pose/deformation update before draw submission. Accessors and tracks are decoded at load time; playback does not create GPU allocations or pipelines (apart from recreating the depth attachment on resize).
 
 ### Normalize vertex offsets and preserve interleaving
 
@@ -86,7 +90,9 @@ The derivative fallback is useful for assets such as DamagedHelmet, but is not M
 
 ### Instance and order draws
 
-The selected scene's parent transforms are accumulated once. Each instance stores a world matrix and its inverse transpose as two mat4 values (128 bytes, matching WGSL storage alignment). Primitive instance ranges are packed into one scene storage buffer, bound once, and addressed with `instance_index` and `firstInstance`. Nodes referencing the same opaque primitive are drawn together. Transform records are duplicated for each primitive of a multi-primitive mesh; this keeps ranges contiguous and avoids another indirection in this teaching renderer. Static data is never uploaded again each frame.
+The selected scene's initial parent transforms are accumulated once. Each instance stores a world matrix and its inverse transpose as two mat4 values (128 bytes, matching WGSL storage alignment). Primitive instance ranges are packed into one scene storage buffer, bound once, and addressed with `instance_index` and `firstInstance`. Static nodes referencing the same opaque primitive are drawn together. Transform records are duplicated for each primitive of a multi-primitive mesh; this keeps ranges contiguous and avoids another indirection in this teaching renderer. Static data is never uploaded again each frame.
+
+Scenes with clips use individual node draws, and skinned/morphed nodes always own their deformation streams. This preserves independent poses and morph weights when multiple nodes share a mesh. Original UV/color bufferViews and index buffers remain shared. Both winding pipelines are prepared at load time for pose-dependent draws, allowing animated scales to cross zero and become negative without creating pipelines during playback. The active draw is submitted only in its current winding group. Transparent draw centers are updated with the pose before sorting.
 
 Opaque draws are grouped **pipeline → material → primitive**, reducing pipeline and material bind changes. Negative-determinant transforms use a separate winding pipeline and instance batch. Blended draws disable depth writes and are submitted after opaque geometry, back to front by transformed primitive center along the camera direction. Transparent instances deliberately use individual draws, since their ordering changes with the camera. Center sorting cannot correctly resolve intersecting triangles or every concave transparent mesh; order-independent transparency is outside this renderer's scope.
 
@@ -105,11 +111,27 @@ Every scene owns its buffers and textures through `Resources`. A replacement is 
 
 This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light plus a simple ambient term. It has no environment lighting, shadows, exposure/tone mapping, antialiasing, frustum culling, or mipmap generation. Samplers are clamped to level zero; distant textured surfaces can alias. Blending operates on encoded canvas colors rather than a separate linear offscreen target.
 
-Texture transforms and TEXCOORD sets other than zero are rejected for every supported texture slot. Skins and morph targets are rejected; animations are ignored with a warning and authored node transforms are displayed. Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
+Texture transforms and TEXCOORD sets other than zero are rejected for every supported texture slot. Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
+
+## Animation and deformation
+
+The implementation follows the [glTF animation and skinning rules](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#animations). `Pose` stores immutable authored defaults and reusable translation, rotation, scale, morph-weight, and world-matrix arrays. Clip changes reset every animated property before applying the new clip. World matrices are updated in a prepared parent-first order. Track inputs are strictly increasing times in seconds and are clamped outside their key range.
+
+- **STEP** holds the preceding key, including the correct value at an exact key time.
+- **LINEAR** interpolates vectors/weights and uses shortest-path quaternion slerp for rotations.
+- **CUBICSPLINE** uses Hermite interpolation with incoming/outgoing tangents scaled by the key interval in seconds. Rotations are normalized after interpolation. Weight outputs are unpacked by key, target, and tangent/value group.
+- **Morph targets** add weighted POSITION/NORMAL/TANGENT deltas to immutable base attributes. Node weights override mesh defaults, and omitted weights are zero. Sparse target accessors are supported. Tangent morphs change XYZ while preserving the base handedness component.
+- **Skinning** supports JOINTS_n/WEIGHTS_n influence sets, normalized integer weights, and optional float MAT4 inverse-bind matrices. Missing inverse binds are identity matrices. Joint matrices are `jointWorld * inverseBind`; weights are normalized across all influence sets for each vertex. Skinning follows morphing. Skinned positions are already world-space, so their draw uses an identity instance transform: the skinned mesh node's transform is not applied a second time. Normals use the inverse transpose of the blended transform and tangents use its linear part.
+
+Deformation currently runs on the **CPU**, using reusable float streams and joint palettes, then uploads changed streams to WebGPU buffers with COPY_DST usage. Static scenes retain the optimized instanced path. Paused poses do no deformation work until a seek or clip change. This implementation prioritizes readable, testable support and avoids introducing large deformation shader variants or extra bind group layouts. It is not intended for crowds or very large deforming meshes; moving skinning/morphing into a WebGPU compute stage is the next performance improvement.
+
+Playback is single-clip and looping, with no blending, crossfades, animation-pointer extensions, or runtime retargeting. Camera framing uses the initial authored pose rather than the whole animation's swept bounds; zoom out if a clip moves beyond the initial view. Degenerate transforms use a safe normal-matrix fallback; collapsed geometry has no well-defined surface normal. Models containing unsupported required extensions remain rejected.
+
+For programmatic playback, await `renderer.setAsset(asset)`, then use `selectAnimation(index)` (`-1` for authored pose), `setPlaying(boolean)`, and `seek(seconds)`. `animationState` exposes clip names, selected index, time, duration, and playback state. `onAnimationChange` updates UI after state changes; it does not alter GPU resources.
 
 ## Extending the renderer
 
-Add material texture slots with neutral default textures and the same explicit bind group layout across variants. Decode color textures as sRGB and data textures as linear. Add shader flags only when they materially change the interface or algorithm, rather than for every material value. Dynamic transforms need a COPY_DST storage buffer and an update phase separate from draw submission; larger scenes should split buffers at device limits. Keep new rendering features isolated from file parsing and test their layout or ordering edge cases.
+Keep material texture slots on the same explicit bind group layout across variants, with neutral defaults. Decode color textures as sRGB and data textures as linear. Add shader flags only when they materially change the interface or algorithm. Dynamic transforms already use a COPY_DST storage buffer and a separate pose update phase; GPU compute deformation can reuse that boundary. Larger scenes should split buffers at device limits. Keep new rendering features isolated from file parsing and test their layout or ordering edge cases.
 
 ## Verification
 
@@ -120,6 +142,8 @@ Add material texture slots with neutral default textures and the same explicit b
 `browser-tests/textures.spec.ts` compares presented pixels against equivalent factor-only materials to check metallic/roughness G/B channels and linear decoding, including an image reused for both color and data. It checks that occlusion strength changes only the expected ambient contribution and that normal scale zero preserves surface normals. It also compares authored and derivative tangent bases under nonuniform and mirrored transforms. These fixtures run offline.
 
 The DamagedHelmet regression loads the public Khronos GLB with all five material textures and requires network access. It is skipped by default. To include it in PowerShell:
+
+`tests/animation.test.ts` also covers key clamping, STEP boundaries, cubic tangent timing, normalized and shortest-path rotations, clip resets, morph-before-skin ordering, inverse binds, independent node weights, sparse targets, multiple influence sets, and malformed inputs. `browser-tests/animation.spec.ts` verifies rendered changes during node motion, skinning, and morph playback, paused-frame stability, scrubbing, and authored-pose restoration. Optional network tests load Khronos SimpleSkin and AnimatedMorphCube. Set TEST_REMOTE_MODELS as below to include these public-asset regressions.
 
 ```powershell
 $env:TEST_REMOTE_MODELS = '1'

@@ -1,4 +1,4 @@
-/** The subset of glTF 2.0 used by this static renderer. JSON names stay spec-compatible. */
+/** The glTF 2.0 fields used by the renderer. JSON names stay spec-compatible. */
 export interface Accessor {
   bufferView?: number;
   byteOffset?: number;
@@ -19,7 +19,7 @@ export interface Primitive {
   indices?: number;
   material?: number;
   mode?: number;
-  targets?: unknown[];
+  targets?: Record<string, number>[];
 }
 export interface TextureInfo {
   index: number;
@@ -49,7 +49,7 @@ export interface Gltf {
   buffers?: { uri?: string; byteLength: number }[];
   bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
   accessors?: Accessor[];
-  meshes?: { primitives: Primitive[] }[];
+  meshes?: { primitives: Primitive[]; weights?: number[] }[];
   nodes?: {
     children?: number[];
     mesh?: number;
@@ -58,6 +58,7 @@ export interface Gltf {
     rotation?: number[];
     scale?: number[];
     skin?: number;
+    weights?: number[];
   }[];
   scenes?: { nodes?: number[] }[];
   scene?: number;
@@ -66,7 +67,16 @@ export interface Gltf {
   images?: { uri?: string; bufferView?: number; mimeType?: string }[];
   samplers?: { magFilter?: number; minFilter?: number; wrapS?: number; wrapT?: number }[];
   extensionsRequired?: string[];
-  animations?: unknown[];
+  skins?: { joints: number[]; inverseBindMatrices?: number; skeleton?: number }[];
+  animations?: Animation[];
+}
+export interface Animation {
+  name?: string;
+  samplers: { input: number; output: number; interpolation?: 'LINEAR' | 'STEP' | 'CUBICSPLINE' }[];
+  channels: {
+    sampler: number;
+    target: { node?: number; path: 'translation' | 'rotation' | 'scale' | 'weights' };
+  }[];
 }
 export interface Asset {
   gltf: Gltf;

@@ -74,15 +74,7 @@ async function load(data: ArrayBuffer, resolve: Resolve): Promise<Asset> {
   );
   if (unsupported.length)
     throw new Error(`Required extensions are unsupported: ${unsupported.join(', ')}`);
-  if (
-    gltf.nodes?.some((node) => node.skin !== undefined) ||
-    gltf.meshes?.some((mesh) => mesh.primitives.some((p) => p.targets?.length))
-  ) {
-    throw new Error('Skinned meshes and morph targets are not supported.');
-  }
   const warnings: string[] = [];
-  if (gltf.animations?.length)
-    warnings.push('Animations are ignored; the authored static pose is shown.');
   const buffers = await Promise.all(
     (gltf.buffers ?? []).map(async (buffer, index) => {
       const bytes = buffer.uri ? await resolve(buffer.uri) : index === 0 ? bin : undefined;

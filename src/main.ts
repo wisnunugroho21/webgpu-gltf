@@ -7,12 +7,27 @@ import { Renderer } from './renderer/renderer';
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = element('status');
 const controls = [
-  ...document.querySelectorAll<HTMLInputElement | HTMLButtonElement>('button, input'),
+  ...document.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>(
+    'button, input, select',
+  ),
 ];
 let renderer: Renderer;
 let busy = false;
 let failed = false;
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+function updateAnimationControls(): void {
+  const state = renderer.animationState;
+  element('animation-controls').hidden = !state.clips.length;
+  element<HTMLSelectElement>('animation-clip').value = String(state.clip);
+  const timeline = element<HTMLInputElement>('animation-time');
+  timeline.max = String(state.duration);
+  timeline.value = String(state.time);
+  timeline.disabled = failed || busy || state.clip < 0 || state.duration === 0;
+  element<HTMLButtonElement>('animation-play').disabled = failed || busy || state.clip < 0;
+  element('animation-play').textContent = state.playing ? 'Pause' : 'Play';
+  element('animation-clock').textContent =
+    `${state.time.toFixed(2)} / ${state.duration.toFixed(2)} s`;
+}
 
 async function show(source: () => Promise<Asset> | Asset, name: string): Promise<void> {
   if (busy || failed) return;
@@ -24,6 +39,11 @@ async function show(source: () => Promise<Asset> | Asset, name: string): Promise
   try {
     const asset = await source();
     const stats = await renderer.setAsset(asset);
+    const select = element<HTMLSelectElement>('animation-clip');
+    select.replaceChildren(
+      new Option('Authored pose', '-1'),
+      ...renderer.animationState.clips.map((name, index) => new Option(name, String(index))),
+    );
     if (!failed) status.textContent = name;
     element('stats').textContent =
       `${stats.pipelines} pipelines · ${stats.draws} draws · ${stats.instances} primitive instances`;
@@ -35,6 +55,7 @@ async function show(source: () => Promise<Asset> | Asset, name: string): Promise
     controls.forEach((control) => {
       control.disabled = failed;
     });
+    updateAnimationControls();
   }
 }
 
@@ -46,6 +67,19 @@ async function start(): Promise<void> {
       controls.forEach((control) => {
         control.disabled = true;
       });
+    });
+    renderer.onAnimationChange = updateAnimationControls;
+    element('animation-clip').addEventListener('change', () =>
+      renderer.selectAnimation(Number(element<HTMLSelectElement>('animation-clip').value)),
+    );
+    element('animation-play').addEventListener('click', () =>
+      renderer.setPlaying(!renderer.animationState.playing),
+    );
+    element('animation-restart').addEventListener('click', () => renderer.seek(0));
+    element('animation-time').addEventListener('input', () => {
+      const time = Number(element<HTMLInputElement>('animation-time').value);
+      renderer.setPlaying(false);
+      renderer.seek(time);
     });
     element('demo').addEventListener('click', () => {
       void show(demoAsset, 'Built-in instancing scene');

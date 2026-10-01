@@ -8,6 +8,25 @@
 * {
   box-sizing: border-box;
 }
+[hidden] {
+  display: none !important;
+}
+select {
+  color: inherit;
+  background: #1c2733;
+  padding: 10px;
+  border: 1px solid #34424f;
+  border-radius: 7px;
+}
+#animation-controls {
+  align-items: center;
+  font-size: 12px;
+}
+#animation-time {
+  flex: 1;
+  min-width: 100px;
+  accent-color: #67d5b6;
+}
 body {
   margin: 0;
 }
