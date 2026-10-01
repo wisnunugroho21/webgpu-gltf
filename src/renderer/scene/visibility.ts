@@ -21,17 +21,21 @@ export class SceneVisibility {
       for (let i = 0; i < draw.bounds.length; i++) {
         const bounds = draw.bounds[i];
         if (enabled && !this.frustum.intersects(bounds)) continue;
+        const first = draw.firstInstance + i;
+        const occlusion = filters?.occlusion;
+        // Cached hidden results are valid only after dependency checks in beginFrame.
+        // Skip repeated projections of stable instances and futile moving-depth queries.
+        if (occlusion?.hasResult(first) && !occlusion.visible(first)) continue;
+        const query = occlusion?.acceptingQueries && !occlusion.hasResult(first);
         const projected =
-          filters && (filters.minPixels > 0 || filters.occlusion)
+          filters && (filters.minPixels > 0 || query)
             ? projectBounds(bounds, viewProjection, filters.width, filters.height)
             : undefined;
         if (projected && projected.pixels < filters!.minPixels) continue;
-        const first = draw.firstInstance + i;
-        // Query even previously hidden instances so objects can become visible again.
-        // Near-plane/invalid bounds fail open for both optional filters.
-        if (projected && filters?.occlusion) {
-          filters.occlusion.add(first, projected);
-          if (!filters.occlusion.visible(first)) continue;
+        // Changed geometry invalidates its history before visibility. New query
+        // rectangles and near-plane/invalid bounds always fail open until delivery.
+        if (projected && query) {
+          occlusion!.add(first, projected);
         }
         const runs = draw.visibleRuns;
         if (runs.length && runs[runs.length - 2] + runs[runs.length - 1] === first)

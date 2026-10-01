@@ -279,7 +279,7 @@ test('BLEND, discarded MASK and transmission cannot hide opaque background geome
   }
 });
 
-test('hidden animated meshes keep computing, pose changes invalidate visibility, and uploads precede all encoding', async ({
+test('hidden animated meshes keep computing and updating shadows, pose changes invalidate visibility, and uploads precede all encoding', async ({
   page,
 }) => {
   await page.goto('/');
@@ -292,7 +292,7 @@ test('hidden animated meshes keep computing, pose changes invalidate visibility,
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message), {
       occlusionCulling: true,
-      shadows: false,
+      shadows: true,
     });
     const internal = renderer as unknown as {
       render(t: number): void;
@@ -406,10 +406,12 @@ test('hidden animated meshes keep computing, pose changes invalidate visibility,
   expect(result.hidden.stats.instances).toBe(1);
   expect(result.changed.stats.instances).toBe(3);
   expect(result.changed.events).toContain('compute');
+  expect(result.changed.events.some((event) => event.startsWith('Shadow map'))).toBe(true);
   expect(result.held.stats.instances).toBe(1);
   expect(result.held.events).not.toContain('compute');
   expect(result.scaled.stats.instances).toBe(0);
   expect(result.scaled.events).toContain('compute');
+  expect(result.scaled.events.some((event) => event.startsWith('Shadow map'))).toBe(true);
   expect(result.maxError).toBeLessThan(0.00001);
   for (const frame of [result.initial, result.hidden, result.changed, result.held, result.scaled]) {
     expect(frame.events.slice(frame.events.indexOf('encode')).includes('upload')).toBe(false);

@@ -11,3 +11,4 @@ export type {
   ShadowMemoryStats,
 } from './lighting/punctual';
 export type { TransparencyMode } from './render/transparency';
+export type { OcclusionStats } from './scene/occlusion';

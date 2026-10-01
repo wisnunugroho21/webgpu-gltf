@@ -11,6 +11,7 @@ export type {
   ShadowUpdate,
   ShadowMemoryStats,
   TransparencyMode,
+  OcclusionStats,
 } from './renderer';
 export {
   AnimationController,

@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "test:compressed-build": "node scripts/check-compressed-build.mjs",
+    "bench:occlusion": "playwright test --config playwright.benchmark.config.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

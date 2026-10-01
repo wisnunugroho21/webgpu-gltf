@@ -16,6 +16,7 @@ import { SceneBuilder } from './scene/builder';
 import { uploadPose } from './scene/pose-upload';
 import { SceneVisibility } from './scene/visibility';
 import { OcclusionCulling } from './scene/occlusion';
+import type { OcclusionStats } from './scene/occlusion';
 import { encodeDeformation } from './deformation/pass';
 import { encodeScene } from './render/pass';
 import { TransmissionBuffer } from './render/transmission';
@@ -45,6 +46,10 @@ export interface RendererOptions {
   shadowResolution?: ShadowResolution;
 }
 export class Renderer {
+  get occlusionStats(): Readonly<OcclusionStats> {
+    const stats = this.occlusion.stats;
+    return this.occlusionEnabled ? stats : { ...stats, queries: 0 };
+  }
   get textureCompression(): readonly TextureCompression[] {
     return compressionSupport(this.device.features);
   }

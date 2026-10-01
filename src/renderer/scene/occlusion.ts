@@ -1,6 +1,18 @@
 import type { Scene } from './types';
 import type { ProjectedBounds } from './projected-bounds';
 import type { SceneSampleCount } from '../presentation/output';
+import { OcclusionDependencies } from './occlusion-dependencies';
+
+export interface OcclusionStats {
+  queries: number;
+  knownInstances: number;
+  hiddenInstances: number;
+  capacity: number;
+  pending: boolean;
+  /** Consecutive camera/occluder changes; two or more suspend new queries. */
+  unstableFrames: number;
+  discardedResults: number;
+}
 
 const shader = /* wgsl */ `
 struct Proxy { rect: vec4f, depth: vec4f }
@@ -24,6 +36,23 @@ export class OcclusionCulling {
   private height = 0;
   private generation = 0;
   private hidden = new Set<number>();
+  private known = new Set<number>();
+  private revisions = new Map<number, number>();
+  private dependencies = new OcclusionDependencies();
+  private unstableFrames = 0;
+  private queries = 0;
+  private discardedResults = 0;
+  get stats(): Readonly<OcclusionStats> {
+    return {
+      queries: this.queries,
+      knownInstances: this.known.size,
+      hiddenInstances: this.hidden.size,
+      capacity: this.capacity,
+      pending: this.pending,
+      unstableFrames: this.unstableFrames,
+      discardedResults: this.discardedResults,
+    };
+  }
   private candidates: { id: number; projected: ProjectedBounds }[] = [];
   private capacity = 0;
   private querySet?: GPUQuerySet;
@@ -67,6 +96,7 @@ export class OcclusionCulling {
   invalidate(): void {
     this.generation++;
     this.hidden.clear();
+    this.known.clear();
   }
   beginFrame(
     scene: Scene,
@@ -75,33 +105,51 @@ export class OcclusionCulling {
     height: number,
     poseChanged: boolean,
   ): void {
-    if (
-      this.scene !== scene ||
-      this.width !== width ||
-      this.height !== height ||
-      poseChanged ||
-      this.camera.some((value, i) => value !== matrix[i])
-    ) {
+    const replaced = this.scene !== scene;
+    if (replaced) {
+      this.dependencies.reset();
+      this.revisions.clear();
+    }
+    const changes = replaced || poseChanged ? this.dependencies.update(scene) : undefined;
+    const cameraChanged = this.camera.some((value, i) => value !== matrix[i]);
+    const moved = cameraChanged || !!changes?.depthChanged;
+    this.unstableFrames = replaced ? 0 : moved ? this.unstableFrames + 1 : 0;
+    if (replaced || this.width !== width || this.height !== height || moved) {
       this.invalidate();
       this.scene = scene;
       this.width = width;
       this.height = height;
       for (let i = 0; i < 16; i++) this.camera[i] = matrix[i];
     }
+    for (const id of changes?.receivers ?? []) {
+      this.hidden.delete(id);
+      this.known.delete(id);
+      this.revisions.set(id, (this.revisions.get(id) ?? 0) + 1);
+    }
     this.candidates.length = 0;
     this.prepared = false;
+    this.queries = 0;
   }
   visible(id: number): boolean {
     return !this.hidden.has(id);
   }
+  hasResult(id: number): boolean {
+    return this.known.has(id);
+  }
+  get acceptingQueries(): boolean {
+    return !this.pending && this.unstableFrames < 2;
+  }
   add(id: number, projected: ProjectedBounds): void {
+    // Opaque depth is unchanged within an epoch. Re-querying proven results would
+    // spend GPU work without learning anything new. Changed receivers fail open.
+    if (this.known.has(id)) return;
     this.candidates.push({ id, projected });
   }
 
   /** Upload before command encoding. One in-flight readback bounds memory and never
    * stalls rendering. Over-budget candidates rotate through queries; unknown IDs draw. */
   upload(): void {
-    if (this.pending || !this.candidates.length) return;
+    if (this.pending || !this.candidates.length || this.unstableFrames >= 2) return;
     const limit = Math.min(
       4096,
       Math.floor(this.device.limits.maxStorageBufferBindingSize / 32),
@@ -188,15 +236,17 @@ export class OcclusionCulling {
     encoder.resolveQuerySet(this.querySet!, 0, this.ids.length, this.resolve!, 0);
     encoder.copyBufferToBuffer(this.resolve!, 0, this.readback!, 0, this.ids.length * 8);
     this.encoded = true;
+    this.queries = this.ids.length;
   }
-  /** Start mapping only after submission. A result is usable only for the exact same
-   * scene, pose, camera, viewport and culling settings; late obsolete results are ignored. */
+  /** Start mapping only after submission. Depth epochs reject scene/camera/occluder
+   * changes; receiver revisions separately reject moved BLEND/transmission geometry. */
   afterSubmit(): void {
     if (!this.encoded) return;
     this.encoded = false;
     this.pending = true;
     const generation = this.generation;
     const ids = this.ids.slice();
+    const revisions = ids.map((id) => this.revisions.get(id) ?? 0);
     const readback = this.readback!;
     void readback
       .mapAsync(GPUMapMode.READ)
@@ -204,10 +254,15 @@ export class OcclusionCulling {
         if (!this.disposed && generation === this.generation) {
           const results = new BigUint64Array(readback.getMappedRange());
           ids.forEach((id, i) => {
+            if (revisions[i] !== (this.revisions.get(id) ?? 0)) {
+              this.discardedResults++;
+              return;
+            }
+            this.known.add(id);
             if (results[i] === 0n) this.hidden.add(id);
             else this.hidden.delete(id);
           });
-        }
+        } else if (!this.disposed) this.discardedResults += ids.length;
         readback.unmap();
       })
       .catch(() => {
