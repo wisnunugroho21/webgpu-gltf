@@ -3,6 +3,7 @@ import { demoAsset } from './demo';
 import { loadFiles, loadUrl } from './gltf/loader';
 import type { Asset } from './gltf/types';
 import { Renderer } from './renderer/renderer';
+import type { ToneMapping } from './renderer/output';
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = element('status');
@@ -69,6 +70,16 @@ async function start(): Promise<void> {
       });
     });
     renderer.animation.onChange = updateAnimationControls;
+    const updateOutput = () => {
+      const exposureEV = Number(element<HTMLInputElement>('exposure').value);
+      renderer.setOutput({
+        exposureEV,
+        toneMapping: element<HTMLSelectElement>('tone-mapping').value as ToneMapping,
+      });
+      element('exposure-value').textContent = `${exposureEV.toFixed(1)} EV`;
+    };
+    element('tone-mapping').addEventListener('change', updateOutput);
+    element('exposure').addEventListener('input', updateOutput);
     element('animation-clip').addEventListener('change', () =>
       renderer.animation.select(Number(element<HTMLSelectElement>('animation-clip').value)),
     );

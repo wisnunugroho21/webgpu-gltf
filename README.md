@@ -22,11 +22,13 @@ npm run preview  # Serve the production bundle locally
 npm run test:browser # Real WebGPU integration tests in installed Microsoft Edge
 ```
 
-The first scene is generated locally and makes no network requests for models. Three green cubes share one primitive, so they render in one instanced draw; the orange cube shares the pipeline but uses a different material. The demo reports **1 pipeline, 2 draws, and 4 primitive instances**.
+The first scene is generated locally and makes no network requests for models. Three green cubes share one primitive, so they render in one instanced draw; the orange cube shares the pipeline but uses a different material. The demo reports **1 pipeline, 2 draws, and 4 primitive instances**. These counts describe scene geometry; the fixed fullscreen presentation pipeline and draw are additional.
 
 Use **Open model** to select one `.glb`, or one `.gltf` together with its binary and image dependencies. Local dependencies are matched by decoded URI or filename; assets with different dependencies sharing the same filename should be served by URL instead. **Load URL** accepts a model URL and resolves dependencies relative to it. Cross-origin servers must enable CORS. Drag to orbit, scroll to zoom, and use **Reset camera** to return to the fitted view.
 
 Models with animation clips show a clip selector, Play/Pause, Restart, and a timeline. The first clip plays automatically and loops over its duration. Scrubbing pauses playback; selecting **Authored pose** restores the original TRS and morph weights. Only one clip plays at a time. Models with skinning or morph weights also render correctly without an animation clip.
+
+Display controls select **Reinhard** tone mapping (default) or **None**, and adjust exposure from −6 to +6 EV. One extra EV doubles linear brightness; negative exposure reveals highlight detail. None retains the HDR rendering path but clips display values above one after exposure. Display settings persist across model replacements and do not rebuild scene pipelines.
 
 ## Code map
 
@@ -48,6 +50,7 @@ Models with animation clips show a clip selector, Play/Pause, Restart, and a tim
 | `src/renderer/materials.ts`          | Cached images/samplers/material bind groups and uniform packing                    |
 | `src/renderer/material-slots.ts`     | Shared texture slot bindings, color spaces, neutral defaults and WGSL declarations |
 | `src/renderer/mipmaps.ts`            | Cached GPU mipmap generation in linear light                                       |
+| `src/renderer/output.ts`             | Linear HDR viewport target, exposure, tone mapping and sRGB presentation           |
 | `src/renderer/samplers.ts`           | glTF wrap/filter modes and mip-selection policy                                    |
 | `src/renderer/shader.ts`             | Commented WGSL generated for available vertex inputs                               |
 | `src/renderer/pipelines.ts`          | Immutable-state pipeline keys and cached async compilation                         |
@@ -111,6 +114,12 @@ Anisotropic filtering requests up to **16×** for samplers with linear magnifica
 
 ### Instance and order draws
 
+Scene shaders write linear radiance to a viewport-sized `rgba16float` attachment. Opaque, masked, and blended geometry all use this target; transparent RGB blends in linear space while alpha remains linear. Values above one survive until presentation. After the scene pass ends, `OutputPass.encode()` draws one fullscreen triangle into the canvas. It applies exposure as `2^EV`, then the selected tone curve, then sRGB display encoding. Reinhard uses `color / (1 + color)` per channel, compressing highlights smoothly. None skips the curve for debugging. The preferred unorm canvas receives explicit sRGB encoding; an sRGB attachment instead uses hardware encoding to avoid a double transfer function.
+
+`OutputPass` owns its HDR texture, sampled view, bind group, and 16-byte settings uniform. Resize recreates the viewport texture and bind group together; renderer disposal releases the HDR target and uniform. The presentation pipeline is compiled once, and exposure/curve changes update only uniform data. The extra target uses eight bytes per pixel plus the existing depth storage, and presentation adds a fullscreen pass. This is an HDR intermediate with SDR presentation, not HDR display output. Reinhard is a simple per-channel curve, not an ACES color-management pipeline; no bloom, automatic exposure, or gamut mapping is included.
+
+Programmatic callers can use `renderer.setOutput({ exposureEV: 1, toneMapping: 'reinhard' })` and read `renderer.outputSettings`. Exposure accepts finite values from −16 to +16 EV; the UI offers a smaller practical range. Settings are validated before state changes. Tone mapping is applied consistently to lit materials, unlit materials, and the background after scene compositing.
+
 The selected scene's initial parent transforms are accumulated once. Each instance stores a world matrix and its inverse transpose as two mat4 values (128 bytes, matching WGSL storage alignment). Primitive instance ranges are packed into one scene storage buffer, bound once, and addressed with `instance_index` and `firstInstance`. Static nodes referencing the same opaque primitive are drawn together. Transform records are duplicated for each primitive of a multi-primitive mesh; this keeps ranges contiguous and avoids another indirection in this teaching renderer. Static data is never uploaded again each frame.
 
 Scenes with clips use individual node draws, and skinned/morphed nodes always own their deformation streams. This preserves independent poses and morph weights when multiple nodes share a mesh. Original UV/color bufferViews and index buffers remain shared. Both winding pipelines are prepared at load time for pose-dependent draws, allowing animated scales to cross zero and become negative without creating pipelines during playback. The active draw is submitted only in its current winding group. Transparent draw centers are updated with the pose before sorting.
@@ -130,7 +139,7 @@ Every scene owns its buffers and textures through `Resources`. A replacement is 
 - All five core material textures: base color, emissive, metallic/roughness, normal (with scale), and occlusion (with strength). Material factors, vertex colors, OPAQUE/MASK/BLEND, double-sided materials, and KHR_materials_unlit are supported.
 - JPEG/PNG browser-decoded images, KHR_texture_transform, wrap/filter sampler translation, GPU mipmap generation, and linear-light shading with sRGB decoding for color maps and linear sampling for data maps.
 
-This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light plus a simple ambient term. It has no environment lighting, shadows, exposure/tone mapping, antialiasing, or frustum culling. Blending operates on encoded canvas colors rather than a separate linear offscreen target.
+This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light plus a simple ambient term. It has no environment lighting, shadows, antialiasing, or frustum culling. Center-based transparency sorting remains approximate even with correct linear blending.
 
 Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit and KHR_texture_transform. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
 
@@ -150,7 +159,7 @@ The shared compute pipeline uses one explicit bind group layout for skin-only, m
 
 The renderer ends the compute pass before starting the render pass in the same command encoder. WebGPU orders these uses of the output buffer; no shader barrier or CPU wait is required between passes. Paused poses retain their GPU output until a seek or clip change. Static scenes retain the optimized instanced path and do not create a compute pipeline. Buffers and workgroup counts are checked against device limits; oversized deformation inputs are rejected rather than silently truncated. Outputs are owned by the scene and destroyed together on replacement or a failed load.
 
-The frame loop keeps three explicit boundaries: `uploadPose(scene)` updates joint palettes, morph weights, instance transforms, winding, and sorting centers; `encodeDeformation(encoder, scene, poseChanged)` dispatches compute and ends its pass; `encodeRender(encoder, scene)` draws from the prepared output. Submission happens once after both encoding phases. The pose-change flag belongs to the current frame, so paused frames skip uploads and compute while continuing to render camera changes. When adding deformation features, place new pose inputs in the upload phase and kernels in the compute phase; keep uploads and deformation dispatches out of render-pass encoding.
+The frame loop keeps three explicit boundaries: `uploadPose(scene)` updates joint palettes, morph weights, instance transforms, winding, and sorting centers; `encodeDeformation(encoder, scene, poseChanged)` dispatches compute and ends its pass; `encodeRender(encoder, scene)` draws from the prepared output into HDR storage. Presentation follows scene rendering, and submission happens once after all encoding phases. The pose-change flag belongs to the current frame, so paused frames skip uploads and compute while continuing to render camera and display changes. When adding deformation features, place new pose inputs in the upload phase and kernels in the compute phase; keep uploads and deformation dispatches out of render-pass encoding.
 
 The CPU deformation evaluator remains an oracle for tests and runs once on load for exact initial camera bounds. Playback uses precomputed base/delta bounds, expands them for signed morph weights, and unions joint-transformed envelopes to estimate transparent draw centers. This takes work proportional to target/joint counts rather than vertex counts and avoids GPU readbacks. Those conservative centers can be less accurate than centers of the deformed vertices; intersecting transparent meshes still have the usual draw-sorting limitations. GPU inputs currently belong to each deforming node; large crowds would benefit from sharing immutable deformation buffers and batching dispatches.
 
@@ -177,6 +186,8 @@ Color-space regressions compare base-color and emissive maps against equivalent 
 `tests/texture-coordinates.test.ts` checks affine-transform order, defaults, malformed values, sparse normalized UV sets, compact UV locations, mip counts, and all six minification modes. `browser-tests/mipmaps.spec.ts` reads GPU-generated mip levels back to verify linear-light color filtering, linear data/alpha, and NPOT/thin images. The optional live ChronographWatch GLB regression verifies texture-transform loading and saves a screenshot alongside the other public-model tests.
 
 Sampler tests also check anisotropy eligibility, explicit quality requests, and preservation of nearest/non-mip modes. A browser regression creates every glTF minification/magnification combination on the real GPU to verify the anisotropic descriptors satisfy WebGPU validation.
+
+`browser-tests/output.spec.ts` blends an HDR foreground over a known background on the GPU, then compares readback pixels against linear blending, exposure, Reinhard, and sRGB equations. Both unorm and sRGB presentation formats are tested, including highlight recovery with reduced exposure, invalid exposure requests, and resizing. Viewer tests check display controls without scene pipeline changes. Texture channel regressions explicitly select None at zero exposure to isolate material math from the nonlinear tone curve.
 
 The DamagedHelmet regression loads the public Khronos GLB with all five material textures and requires network access. It is skipped by default. To include it in PowerShell:
 

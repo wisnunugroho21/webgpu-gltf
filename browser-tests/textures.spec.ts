@@ -138,6 +138,9 @@ function linear(byte: number): number {
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
+  // These tests measure channel math before a nonlinear display curve. The scene still
+  // renders through HDR; presentation uses identity tone mapping at zero exposure.
+  await page.locator('#tone-mapping').selectOption('none');
 });
 
 test('each material slot selects UV1 and honors extension override, rotation, scale and offset', async ({

@@ -75,11 +75,6 @@ fn mappedNormal(N: vec3f, tangent: vec3f, bitangent: vec3f, sample: vec3f) -> ve
   if (dot(T, T) < 0.001 || dot(local, local) < 0.000001) { return N; }
   return safeNormalize(T * local.x + B * local.y + N * local.z);
 }
-// Canvas is an unorm target, so encode linear lighting to sRGB explicitly.
-fn linearToSrgb(v: vec3f) -> vec3f {
-  let x = max(v, vec3f(0.0));
-  return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308));
-}
 @fragment fn fragmentMain(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   // sRGB texture views decode color into linear space; factors and vertex colors are linear.
   let base = textureSample(colorTexture, colorSampler, textureUV(input, 0u)) * material.baseColor * input.color;
@@ -139,6 +134,8 @@ fn linearToSrgb(v: vec3f) -> vec3f {
   var color = (diffuse + specular) * nl * 3.0 + base.rgb * 0.12 * occlusion + emission;
   if (material.parameters.w == 1.0) { color = base.rgb; } // KHR_materials_unlit
   let alpha = select(1.0, base.a, alphaMode == 2.0);
-  return vec4f(linearToSrgb(color), alpha);
+  // Preserve HDR linear radiance for lighting and alpha blending. Display encoding and
+  // tone mapping belong exclusively to the fullscreen presentation pass.
+  return vec4f(color, alpha);
 }`;
 }

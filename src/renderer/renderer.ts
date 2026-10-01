@@ -13,6 +13,7 @@ import { AnimationController } from '../animation/controller';
 import { materialTextureSlots } from './material-slots';
 import { textureCoordinates } from '../gltf/texture-coordinates';
 import { MipmapGenerator } from './mipmaps';
+import { OutputPass, hdrFormat, type OutputSettings } from './output';
 
 interface Draw {
   pipeline: GPURenderPipeline;
@@ -66,6 +67,12 @@ export class Renderer {
   private frameData = new Float32Array(20);
   private compute?: DeformationCompute;
   private mipmaps: MipmapGenerator;
+  get outputSettings(): Readonly<OutputSettings> {
+    return this.output.settings;
+  }
+  setOutput(settings: Partial<OutputSettings>): void {
+    this.output.setSettings(settings);
+  }
   // Keep the original public playback API as small delegates for existing consumers.
   get onAnimationChange(): (() => void) | undefined {
     return this.animation.onChange;
@@ -100,13 +107,15 @@ export class Renderer {
       device.destroy();
       throw new Error('Could not create a WebGPU canvas context.');
     }
-    const renderer = new Renderer(
-      canvas,
-      device,
-      context,
-      navigator.gpu.getPreferredCanvasFormat(),
-      onError,
-    );
+    const format = navigator.gpu.getPreferredCanvasFormat();
+    let output: OutputPass;
+    try {
+      output = await OutputPass.create(device, format);
+    } catch (error) {
+      device.destroy();
+      throw error;
+    }
+    const renderer = new Renderer(canvas, device, context, format, onError, output);
     device.addEventListener('uncapturederror', (event) => {
       renderer.stop();
       onError(`GPU error: ${event.error.message}`);
@@ -124,8 +133,9 @@ export class Renderer {
     private canvas: HTMLCanvasElement,
     private device: GPUDevice,
     private context: GPUCanvasContext,
-    private format: GPUTextureFormat,
+    format: GPUTextureFormat,
     private onError: (message: string) => void,
+    private output: OutputPass,
   ) {
     context.configure({ device, format, alphaMode: 'opaque' });
     this.mipmaps = new MipmapGenerator(device);
@@ -207,7 +217,7 @@ export class Renderer {
       this.materialLayout,
       this.mipmaps,
     );
-    const pipelines = new PipelineCache(this.device, this.pipelineLayout, this.format);
+    const pipelines = new PipelineCache(this.device, this.pipelineLayout, hdrFormat);
     const views = new Map<number, GPUBuffer>();
     const indexBuffers = new Map<object, GPUBuffer>();
     const opaque: Scene['opaque'] = new Map();
@@ -419,6 +429,7 @@ export class Renderer {
     if (width === this.width && height === this.height) return;
     this.canvas.width = this.width = width;
     this.canvas.height = this.height = height;
+    this.output.resize(width, height);
     this.depth?.destroy();
     this.depth = this.device.createTexture({
       label: 'Viewport depth',
@@ -491,6 +502,8 @@ export class Renderer {
     if (scene) this.encodeDeformation(encoder, scene, poseChanged);
     // Phase 3: render consumes completed deformation output in the same submission.
     this.encodeRender(encoder, scene);
+    // Presentation follows scene rendering: tone mapping happens once, after all blending.
+    this.output.encode(encoder, this.context.getCurrentTexture().createView());
     this.device.queue.submit([encoder.finish()]);
     this.frameRequest = requestAnimationFrame(this.render);
   };
@@ -502,8 +515,9 @@ export class Renderer {
       label: 'Scene rendering',
       colorAttachments: [
         {
-          view: this.context.getCurrentTexture().createView(),
-          clearValue: { r: 0.025, g: 0.036, b: 0.052, a: 1 },
+          view: this.output.view,
+          // The previous display background decoded to linear, keeping the neutral view dark.
+          clearValue: { r: 0.001935, g: 0.002786, b: 0.004123, a: 1 },
           loadOp: 'clear',
           storeOp: 'store',
         },
@@ -559,6 +573,7 @@ export class Renderer {
     this.stop();
     this.scene?.resources.destroy();
     this.depth?.destroy();
+    this.output.destroy();
     this.frameBuffer.destroy();
     this.camera.destroy();
     this.context.unconfigure();

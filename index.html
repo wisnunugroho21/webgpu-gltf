@@ -39,6 +39,26 @@
         </form>
         <button id="reset">Reset camera</button>
       </section>
+      <section id="output-controls" class="toolbar" aria-label="Display controls">
+        <label
+          >Tone mapping
+          <select id="tone-mapping" aria-label="Tone mapping">
+            <option value="reinhard">Reinhard</option>
+            <option value="none">None (clip highlights)</option>
+          </select></label
+        >
+        <label for="exposure">Exposure</label>
+        <input
+          id="exposure"
+          type="range"
+          min="-6"
+          max="6"
+          step="0.1"
+          value="0"
+          aria-label="Exposure in EV"
+        />
+        <output id="exposure-value" for="exposure">0.0 EV</output>
+      </section>
       <section id="animation-controls" class="toolbar" aria-label="Animation controls" hidden>
         <label
           >Animation

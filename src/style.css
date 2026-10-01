@@ -22,6 +22,15 @@ select {
   align-items: center;
   font-size: 12px;
 }
+#output-controls {
+  align-items: center;
+  font-size: 12px;
+}
+#exposure {
+  flex: 1;
+  min-width: 100px;
+  accent-color: #67d5b6;
+}
 #animation-time {
   flex: 1;
   min-width: 100px;
