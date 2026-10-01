@@ -4,6 +4,29 @@ import { materialUniform } from '../src/renderer/materials/uniform';
 import { materialTextureSlots } from '../src/renderer/materials/slots';
 import { supportedExtensions } from '../src/gltf/extensions';
 
+test('core material factors reject malformed arrays, invalid ranges and float32 overflow', () => {
+  const invalid: Material[] = [
+    { pbrMetallicRoughness: { baseColorFactor: [1, 1, 1] } },
+    { pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, NaN] } },
+    { pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 2] } },
+    { pbrMetallicRoughness: { metallicFactor: -0.1 } },
+    { pbrMetallicRoughness: { roughnessFactor: 1.1 } },
+    { alphaCutoff: -1 },
+    { alphaCutoff: 1e100 },
+    { normalTexture: { index: 0, scale: Infinity } },
+    { occlusionTexture: { index: 0, strength: 2 } },
+  ];
+  for (const material of invalid) expect(() => materialUniform(material)).toThrow();
+  const valid = materialUniform({
+    alphaMode: 'MASK',
+    alphaCutoff: 2,
+    normalTexture: { index: 0, scale: -2 },
+    pbrMetallicRoughness: { baseColorFactor: [0, 1, 0, 1], metallicFactor: 0, roughnessFactor: 1 },
+  });
+  expect(valid[10]).toBe(2);
+  expect(valid[12]).toBe(-2);
+});
+
 test('extension defaults retain core shading and pack the shared 512-byte uniform', () => {
   const base = materialUniform({});
   const defaults = materialUniform({

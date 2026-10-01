@@ -2,6 +2,7 @@ import type { Asset } from '../gltf/types';
 import { OrbitCamera } from './camera/orbit-camera';
 import { SceneBindings } from './core/bindings';
 import { Resources } from './core/resources';
+import { prepareGpu } from './core/preparation';
 import { Viewport } from './core/viewport';
 import { AnimationController } from '../animation/controller';
 import { MipmapGenerator } from './textures/mipmaps';
@@ -164,37 +165,40 @@ export class Renderer {
     let transparency: TransparencyPass | undefined;
     let environment: EnvironmentLighting | undefined;
     let occlusion: OcclusionCulling | undefined;
+    let renderer: Renderer;
     try {
       output = await OutputPass.create(device, format, sampleCount);
       if (transparencyMode === 'weighted')
         transparency = await TransparencyPass.create(device, sampleCount);
       environment = await EnvironmentLighting.create(device);
       occlusion = await OcclusionCulling.create(device, sampleCount);
+      renderer = new Renderer(
+        canvas,
+        device,
+        context,
+        format,
+        onError,
+        output,
+        environment,
+        occlusion,
+        shadowResolution,
+        shadows,
+        transparencyMode,
+        transparency,
+      );
+      renderer.setFrustumCulling(frustumCulling);
+      renderer.setOcclusionCulling(occlusionCulling);
+      renderer.setScaleCulling(scaleCulling);
     } catch (error) {
       output?.destroy();
       transparency?.destroy();
       environment?.destroy();
       occlusion?.destroy();
+      context.unconfigure();
+      // Device destruction also releases allocations from an interrupted constructor.
       device.destroy();
       throw error;
     }
-    const renderer = new Renderer(
-      canvas,
-      device,
-      context,
-      format,
-      onError,
-      output,
-      environment,
-      occlusion,
-      shadowResolution,
-      shadows,
-      transparencyMode,
-      transparency,
-    );
-    renderer.setFrustumCulling(frustumCulling);
-    renderer.setOcclusionCulling(occlusionCulling);
-    renderer.setScaleCulling(scaleCulling);
     device.addEventListener('uncapturederror', (event) => {
       renderer.stop();
       onError(`GPU error: ${event.error.message}`);
@@ -224,7 +228,6 @@ export class Renderer {
   ) {
     context.configure({ device, format, alphaMode: 'opaque' });
     const mipmaps = new MipmapGenerator(device);
-    this.camera = new OrbitCamera(canvas);
     this.viewport = new Viewport(canvas, device, output);
     this.lighting = new PunctualLighting(device, shadowResolution, shadows);
     this.bindings = new SceneBindings(device, environment.layout, this.lighting);
@@ -236,50 +239,51 @@ export class Renderer {
       this.sampleCount,
       transparencyMode,
     );
+    // Attach input listeners only once all fallible GPU initialization has succeeded.
+    this.camera = new OrbitCamera(canvas);
     this.frameRequest = requestAnimationFrame(this.render);
   }
 
   /** Prepare a replacement fully before swapping. A failed load leaves the current model usable. */
   async setAsset(asset: Asset): Promise<SceneStats> {
     const resources = new Resources();
-    this.device.pushErrorScope('validation');
-    let candidate: Scene | undefined;
-    let failure: unknown;
+    let committed = false;
     try {
-      candidate = await this.builder.prepare(asset, resources);
+      return await prepareGpu(
+        this.device,
+        async () => {
+          if (this.disposed) throw new Error('Renderer was disposed.');
+          return this.builder.prepare(asset, resources);
+        },
+        (candidate) => {
+          if (this.disposed) throw new Error('Renderer was disposed.');
+          const previous = this.scene;
+          this.scene = candidate;
+          committed = true;
+          this.camera.frame(candidate.min, candidate.max);
+          this.occlusion.invalidate();
+          previous?.resources.destroy();
+          // Notify only after the valid scene is committed and old resources released.
+          // A caller's notification callback cannot destroy the newly attached scene.
+          this.animation.setPose(candidate.pose);
+          return candidate.stats;
+        },
+      );
     } catch (error) {
-      failure = error;
+      if (!committed) resources.destroy();
+      throw error;
     }
-    const gpuError = await this.device.popErrorScope();
-    if (failure || gpuError || this.disposed) {
-      resources.destroy();
-      throw failure ?? new Error(gpuError?.message ?? 'Renderer was disposed.');
-    }
-    const previous = this.scene;
-    this.scene = candidate!;
-    this.animation.setPose(candidate!.pose);
-    this.camera.frame(candidate!.min, candidate!.max);
-    this.occlusion.invalidate();
-    previous?.resources.destroy();
-    return candidate!.stats;
   }
 
-  private render = (timestamp: number): void => {
-    if (this.disposed) return;
-    const scene = this.scene;
+  /** Phase 1 owns CPU state and queue uploads; no command encoder is created here. */
+  private uploadFrame(scene: Scene | undefined, timestamp: number): void {
     let poseChanged = false;
     // Phase 1: sample animation and upload its inputs before encoding any GPU work.
     if (scene) {
       // This list belongs to this frame; paused/held poses must not replay old dispatches.
       scene.pendingDeformations.length = 0;
-      try {
-        poseChanged = this.animation.update(timestamp);
-        if (poseChanged) uploadPose(this.device, scene);
-      } catch (error) {
-        this.stop();
-        this.onError(error instanceof Error ? error.message : String(error));
-        return;
-      }
+      poseChanged = this.animation.update(timestamp);
+      if (poseChanged) uploadPose(this.device, scene);
     }
     this.viewport.resize();
     if (scene?.transmission.length)
@@ -310,6 +314,10 @@ export class Renderer {
       });
       if (this.occlusionEnabled) this.occlusion.upload();
     }
+  }
+
+  /** Encode compute, shadows, scene and presentation together, without pose uploads. */
+  private encodeFrame(scene: Scene | undefined): GPUCommandBuffer {
     const encoder = this.device.createCommandEncoder();
     // Phase 2: compute consumes uploaded inputs. Paused/static poses reuse their output.
     if (scene) encodeDeformation(encoder, scene);
@@ -328,9 +336,23 @@ export class Renderer {
     });
     // Presentation follows scene rendering: tone mapping happens once, after all blending.
     this.output.encode(encoder, this.context.getCurrentTexture().createView());
-    this.device.queue.submit([encoder.finish()]);
-    if (this.occlusionEnabled) this.occlusion.afterSubmit();
-    this.frameRequest = requestAnimationFrame(this.render);
+    return encoder.finish();
+  }
+
+  private render = (timestamp: number): void => {
+    if (this.disposed) return;
+    try {
+      const scene = this.scene;
+      this.uploadFrame(scene, timestamp);
+      this.device.queue.submit([this.encodeFrame(scene)]);
+      if (this.occlusionEnabled) this.occlusion.afterSubmit();
+      this.frameRequest = requestAnimationFrame(this.render);
+    } catch (error) {
+      // Resize, visibility preparation and command encoding can fail too. Stop the
+      // loop and surface those errors through the same callback as pose failures.
+      this.stop();
+      this.onError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   private stop(): void {

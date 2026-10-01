@@ -72,7 +72,8 @@ export function decodeAccessor(asset: Asset, accessor: Accessor): number[] {
   const result = new Array<number>(accessor.count * width).fill(0);
   if (accessor.bufferView !== undefined) {
     const stride = asset.gltf.bufferViews?.[accessor.bufferView]?.byteStride ?? width * size;
-    if (stride < width * size || stride % size) throw new Error('Invalid accessor stride.');
+    if (!Number.isSafeInteger(stride) || stride < width * size || stride % size)
+      throw new Error('Invalid accessor stride.');
     const view = source(
       asset,
       accessor.bufferView,
@@ -94,6 +95,7 @@ export function decodeAccessor(asset: Asset, accessor: Accessor): number[] {
   const sparse = accessor.sparse;
   if (sparse) {
     if (
+      !Number.isSafeInteger(sparse.count) ||
       sparse.count < 1 ||
       sparse.count > accessor.count ||
       ![5121, 5123, 5125].includes(sparse.indices.componentType)

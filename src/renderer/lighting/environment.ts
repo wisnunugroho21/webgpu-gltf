@@ -1,4 +1,5 @@
 import { Resources, uploadBuffer } from '../core/resources';
+import { prepareGpu } from '../core/preparation';
 import { environmentFilterShader } from './shader';
 import { studioEnvironment, validateEnvironment, type EnvironmentImage } from './source';
 
@@ -147,102 +148,113 @@ export class EnvironmentLighting {
     const revision = ++this.revision;
     const temporary = new Resources();
     const resources = new Resources();
-    this.device.pushErrorScope('validation');
-    let failure: unknown;
-    let candidate: Maps | undefined;
     try {
-      const source = temporary.own(
-        this.device.createTexture({
-          label: 'Linear environment panorama',
-          size: [image.width, image.height],
-          format: 'rgba32float',
-          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-        }),
-      );
-      // Copy honors subarray byte offsets and provides an ArrayBuffer-backed upload.
-      this.device.queue.writeTexture(
-        { texture: source },
-        image.pixels.slice().buffer,
-        { bytesPerRow: image.width * 16 },
-        [image.width, image.height],
-      );
-      candidate = {
-        resources,
-        diffuse: this.texture(resources, 'Diffuse irradiance / pi', 16, 6, 1),
-        specular: this.texture(resources, 'GGX environment mip chain', specularSize, 6, mipCount),
-      };
-      const encoder = this.device.createCommandEncoder({ label: 'Prepare environment lighting' });
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(this.pipeline);
-      const dispatch = (
-        texture: GPUTexture,
-        size: number,
-        layers: number,
-        mip: number,
-        roughness: number,
-        mode: number,
-      ) => {
-        // Each dispatch owns its parameters: later queue writes must not overwrite earlier jobs.
-        const buffer = uploadBuffer(
-          this.device,
-          temporary,
-          new Float32Array([roughness, mode, size, 0]),
-          GPUBufferUsage.UNIFORM,
-          'Environment filter job',
-        );
-        pass.setBindGroup(
-          0,
-          this.device.createBindGroup({
-            layout: this.filterLayout,
+      await prepareGpu(
+        this.device,
+        async () => {
+          if (this.disposed) throw new Error('Environment lighting was disposed.');
+          const source = temporary.own(
+            this.device.createTexture({
+              label: 'Linear environment panorama',
+              size: [image.width, image.height],
+              format: 'rgba32float',
+              usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+            }),
+          );
+          // Copy honors subarray byte offsets and provides an ArrayBuffer-backed upload.
+          this.device.queue.writeTexture(
+            { texture: source },
+            image.pixels.slice().buffer,
+            { bytesPerRow: image.width * 16 },
+            [image.width, image.height],
+          );
+          const candidate: Maps = {
+            resources,
+            diffuse: this.texture(resources, 'Diffuse irradiance / pi', 16, 6, 1),
+            specular: this.texture(
+              resources,
+              'GGX environment mip chain',
+              specularSize,
+              6,
+              mipCount,
+            ),
+          };
+          const encoder = this.device.createCommandEncoder({
+            label: 'Prepare environment lighting',
+          });
+          const pass = encoder.beginComputePass();
+          pass.setPipeline(this.pipeline);
+          const dispatch = (
+            texture: GPUTexture,
+            size: number,
+            layers: number,
+            mip: number,
+            roughness: number,
+            mode: number,
+          ) => {
+            // Each dispatch owns its parameters: later queue writes must not overwrite earlier jobs.
+            const buffer = uploadBuffer(
+              this.device,
+              temporary,
+              new Float32Array([roughness, mode, size, 0]),
+              GPUBufferUsage.UNIFORM,
+              'Environment filter job',
+            );
+            pass.setBindGroup(
+              0,
+              this.device.createBindGroup({
+                layout: this.filterLayout,
+                entries: [
+                  { binding: 0, resource: source.createView() },
+                  {
+                    binding: 1,
+                    resource: texture.createView({
+                      dimension: '2d-array',
+                      baseMipLevel: mip,
+                      mipLevelCount: 1,
+                      arrayLayerCount: layers,
+                    }),
+                  },
+                  { binding: 2, resource: { buffer } },
+                ],
+              }),
+            );
+            pass.dispatchWorkgroups(Math.ceil(size / 8), Math.ceil(size / 8), layers);
+          };
+          dispatch(candidate.diffuse, 16, 6, 0, 1, 1);
+          for (let mip = 0; mip < mipCount; mip++)
+            dispatch(candidate.specular, specularSize >> mip, 6, mip, mip / (mipCount - 1), 0);
+          if (makeLut) dispatch(this.lut, 64, 1, 0, 0, 2);
+          pass.end();
+          this.device.queue.submit([encoder.finish()]);
+          await this.device.queue.onSubmittedWorkDone();
+          // Validate the final bind group inside the same candidate scope as its maps.
+          const bindGroup = this.device.createBindGroup({
+            layout: this.layout,
             entries: [
-              { binding: 0, resource: source.createView() },
-              {
-                binding: 1,
-                resource: texture.createView({
-                  dimension: '2d-array',
-                  baseMipLevel: mip,
-                  mipLevelCount: 1,
-                  arrayLayerCount: layers,
-                }),
-              },
-              { binding: 2, resource: { buffer } },
+              { binding: 0, resource: this.sampler },
+              { binding: 1, resource: candidate.diffuse.createView({ dimension: 'cube' }) },
+              { binding: 2, resource: candidate.specular.createView({ dimension: 'cube' }) },
+              { binding: 3, resource: this.lut.createView() },
+              { binding: 4, resource: { buffer: this.uniform } },
             ],
-          }),
-        );
-        pass.dispatchWorkgroups(Math.ceil(size / 8), Math.ceil(size / 8), layers);
-      };
-      dispatch(candidate.diffuse, 16, 6, 0, 1, 1);
-      for (let mip = 0; mip < mipCount; mip++)
-        dispatch(candidate.specular, specularSize >> mip, 6, mip, mip / (mipCount - 1), 0);
-      if (makeLut) dispatch(this.lut, 64, 1, 0, 0, 2);
-      pass.end();
-      this.device.queue.submit([encoder.finish()]);
-      await this.device.queue.onSubmittedWorkDone();
-    } catch (error) {
-      failure = error;
-    }
-    const gpuError = await this.device.popErrorScope();
-    temporary.destroy();
-    if (failure || gpuError || this.disposed || revision !== this.revision) {
-      resources.destroy();
-      throw (
-        failure ??
-        new Error(gpuError?.message ?? 'Environment preparation was superseded or disposed.')
+          });
+          return { candidate, bindGroup };
+        },
+        ({ candidate, bindGroup }) => {
+          if (this.disposed || revision !== this.revision)
+            throw new Error('Environment preparation was superseded or disposed.');
+          this.maps?.resources.destroy();
+          this.maps = candidate;
+          this.bindGroup = bindGroup;
+        },
       );
+    } catch (error) {
+      resources.destroy();
+      throw error;
+    } finally {
+      temporary.destroy();
     }
-    const bindGroup = this.device.createBindGroup({
-      layout: this.layout,
-      entries: [
-        { binding: 0, resource: this.sampler },
-        { binding: 1, resource: candidate!.diffuse.createView({ dimension: 'cube' }) },
-        { binding: 2, resource: candidate!.specular.createView({ dimension: 'cube' }) },
-        { binding: 3, resource: this.lut.createView() },
-        { binding: 4, resource: { buffer: this.uniform } },
-      ],
-    });
-    this.maps?.resources.destroy();
-    this.maps = candidate;
-    this.bindGroup = bindGroup;
   }
 
   destroy(): void {

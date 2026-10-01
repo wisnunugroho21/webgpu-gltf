@@ -40,7 +40,9 @@ Feature implementation paths moved during the refactor. Imports of internal file
 
 Quantization uses the normal accessor conversion and float repacking paths. Bounds, deformation caches and draw pipelines need no compressed variants. These load-time operations do not change the frame phases below. Decoder scripts/WASM are emitted build assets; the Three.js package provides those artifacts without importing its engine.
 
-`Renderer.setAsset()` creates candidate `Resources` and opens a GPU validation scope. `SceneBuilder.prepare()` constructs the candidate, including all pipelines and material bind groups. Only a successful candidate replaces the current scene and attaches its pose to the animation controller. Failure destroys candidate allocations and retains the displayed scene.
+`Renderer.setAsset()` creates candidate `Resources` and enters `core/preparation.ts`'s device-scoped queue. `SceneBuilder.prepare()` constructs the candidate, including all pipelines and material bind groups. Scene and environment preparation share that queue: WebGPU validation scopes form a device-wide stack, so asynchronous owners must not overlap their scopes. Each transaction prepares, pops its scope, then commits synchronously; rejection does not block subsequent requests. Scenes commit in request order. Environment revisions additionally reject superseded map requests. Different devices prepare independently.
+
+Preparation failure destroys candidate allocations and retains the displayed scene. Application animation notifications run after scene commitment and old-resource release; if a notification throws, its error propagates but the committed scene retains its resources. Renderer initialization also releases the device and prepared subsystems if constructor setup fails. Camera input listeners attach only after GPU setup succeeds.
 
 Preparation delegates vertex/index uploads to `GeometryUploader`. Its view and index caches live for one candidate scene. CPU `DeformationInputCache` and GPU `GpuDeformationInputCache` share immutable primitive inputs across nodes; each `GpuDeformation` retains independent output, palette and weight ranges. Compatible nodes share aligned arenas planned by `deformation/batch.ts`, with device-limit splitting and standalone singleton fallback. The builder reuses one deformation pipeline across scene replacements. Material and scene pipeline caches remain scoped to a candidate scene.
 
@@ -69,7 +71,7 @@ flowchart LR
     F --> G[One queue submission]
 ```
 
-The frame loop in `Renderer` explicitly coordinates these phases:
+The frame loop in `Renderer` explicitly coordinates these phases. `uploadFrame()` owns CPU updates and queue uploads; `encodeFrame()` records compute and rendering without pose uploads; `render()` submits and schedules the next frame. Exceptions throughout all three steps stop playback and reach the error callback.
 
 1. Clear pending deformation records. Sample and blend animation local poses, then call `scene/pose-upload.ts` only if the pose changed or initial output needs preparation. Dirty transform records are coalesced only when adjacent.
 2. Resize HDR/depth targets together through `Viewport`, upload the camera through `SceneBindings`, and update light/shadow records from relevant pose revisions. CPU visibility selects instance runs from current bounds, projected size and valid occlusion history, then uploads any query rectangles before encoding.

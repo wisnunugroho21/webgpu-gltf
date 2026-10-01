@@ -41,6 +41,8 @@ Environment lighting starts with an original, generated HDR **Studio** panorama.
 
 The project has four layers: asset decoding (`gltf`), CPU pose/animation (`scene` and `animation`), WebGPU rendering (`renderer`), and browser UI (`app`). See [Architecture and maintenance](docs/architecture.md) for dependency rules, resource ownership, frame phases, and extension points.
 
+See the [October 2026 code review](docs/review.md) for verified fixes, test results, remaining feature gaps, and a prioritized maintenance plan. Scene and environment GPU preparation now share a device-scoped transaction queue; overlapping public API calls validate and commit in order while failed candidates release their allocations. Core material factors are validated before texture preparation.
+
 | Module or directory                                                 | Responsibility                                                                    |
 | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `src/index.ts`, `src/renderer/index.ts`                             | Public rendering, settings, statistics, animation and loading exports             |

@@ -185,6 +185,8 @@ export class MaterialFactory {
           (() => {
             throw new Error(`Missing material ${index}.`);
           })());
+    // Validate pure factors before decoding images or allocating candidate textures.
+    const values = materialUniform(definition);
     const textureEntries: GPUBindGroupEntry[] = [];
     for (const slot of materialTextureSlots) {
       const { texture, sampler } = await this.textureBinding(
@@ -200,7 +202,6 @@ export class MaterialFactory {
       );
     }
     const alphaMode = definition.alphaMode ?? 'OPAQUE';
-    const values = materialUniform(definition);
     const uniform = uploadBuffer(
       this.device,
       this.resources,

@@ -1,5 +1,58 @@
 import { expect, test } from '@playwright/test';
 
+test('large HDR highlights remain bright after half-float storage and presentation', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { OutputPass } = await import('/src/renderer/presentation/output.ts');
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error('No GPU adapter');
+    const device = await adapter.requestDevice();
+    device.pushErrorScope('validation');
+    const output = await OutputPass.create(device, 'rgba8unorm');
+    output.resize(1, 1);
+    const target = device.createTexture({
+      format: 'rgba8unorm',
+      size: [1, 1],
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+    const readback = device.createBuffer({
+      size: 256,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    try {
+      const encoder = device.createCommandEncoder();
+      // Exercise radiance beyond the attachment's finite f16 range on the real GPU.
+      encoder
+        .beginRenderPass({ colorAttachments: [output.sceneAttachment([100000, 0.5, 0.25, 1])] })
+        .end();
+      output.encode(encoder, target.createView());
+      encoder.copyTextureToBuffer(
+        { texture: target },
+        { buffer: readback, bytesPerRow: 256 },
+        [1, 1],
+      );
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      const pixel = [...new Uint8Array(readback.getMappedRange()).slice(0, 4)];
+      readback.unmap();
+      const error = await device.popErrorScope();
+      return { pixel, error: error?.message };
+    } finally {
+      readback.destroy();
+      target.destroy();
+      output.destroy();
+      device.destroy();
+    }
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.pixel[0]).toBe(255);
+  expect(result.pixel[1]).toBeGreaterThan(150);
+  expect(result.pixel[2]).toBeGreaterThan(120);
+  expect(result.pixel[3]).toBe(255);
+});
+
 test('HDR retains highlights and blends in linear space before exposure and presentation', async ({
   page,
 }) => {

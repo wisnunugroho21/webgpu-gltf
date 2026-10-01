@@ -192,3 +192,15 @@ describe('GLB parsing', () => {
     expect(() => parseGlb(buffer)).toThrow('length');
   });
 });
+
+it('rejects fractional accessor strides and sparse counts before interpreting their payloads', () => {
+  const asset = packedAsset(new Float32Array(9), [0], 12.5);
+  expect(() => decodeAccessor(asset, asset.gltf.accessors![0])).toThrow('stride');
+  asset.gltf.bufferViews![0].byteStride = 12;
+  asset.gltf.accessors![0].sparse = {
+    count: 0.5,
+    indices: { bufferView: 0, componentType: 5121 },
+    values: { bufferView: 0 },
+  };
+  expect(() => decodeAccessor(asset, asset.gltf.accessors![0])).toThrow('sparse');
+});

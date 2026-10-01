@@ -41,6 +41,8 @@ export function materialUniform(definition: Material): Float32Array {
   if (!['OPAQUE', 'MASK', 'BLEND'].includes(alphaMode))
     throw new Error('Invalid material alpha mode.');
   const pbr = definition.pbrMetallicRoughness ?? {};
+  if (definition.doubleSided !== undefined && typeof definition.doubleSided !== 'boolean')
+    throw new Error('Material doubleSided must be a boolean.');
   const ext = definition.extensions ?? {};
   const coat = ext.KHR_materials_clearcoat ?? {};
   const specular = ext.KHR_materials_specular ?? {};
@@ -50,7 +52,9 @@ export function materialUniform(definition: Material): Float32Array {
   materialTextureSlots.forEach((slot, i) =>
     values.set(textureCoordinates(slot.read(definition)), materialFactorFloats + i * 8),
   );
-  values.set(pbr.baseColorFactor ?? [1, 1, 1, 1]);
+  const baseColor = pbr.baseColorFactor ?? [1, 1, 1, 1];
+  if (baseColor.length !== 4) throw new Error('Base color factor must contain four components.');
+  values.set(baseColor.map((value) => number(value, 1, 'Base color factor', 0, 1)));
   const strength = number(
     ext.KHR_materials_emissive_strength?.emissiveStrength,
     1,
@@ -65,17 +69,17 @@ export function materialUniform(definition: Material): Float32Array {
   values[7] = { OPAQUE: 0, MASK: 1, BLEND: 2 }[alphaMode];
   values.set(
     [
-      pbr.metallicFactor ?? 1,
-      pbr.roughnessFactor ?? 1,
-      definition.alphaCutoff ?? 0.5,
+      number(pbr.metallicFactor, 1, 'Metallic factor', 0, 1),
+      number(pbr.roughnessFactor, 1, 'Roughness factor', 0, 1),
+      number(definition.alphaCutoff, 0.5, 'Alpha cutoff'),
       ext.KHR_materials_unlit ? 1 : 0,
     ],
     8,
   );
   values.set(
     [
-      definition.normalTexture?.scale ?? 1,
-      definition.occlusionTexture?.strength ?? 1,
+      number(definition.normalTexture?.scale, 1, 'Normal scale', -Infinity),
+      number(definition.occlusionTexture?.strength, 1, 'Occlusion strength', 0, 1),
       Number(!!definition.normalTexture),
       authoredBasis(definition.normalTexture),
     ],
