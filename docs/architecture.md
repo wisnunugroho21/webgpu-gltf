@@ -4,14 +4,14 @@ The code separates asset preparation, CPU pose evaluation, GPU work, and browser
 
 ## Module boundaries
 
-| Directory        | Responsibility                                                                     | Dependencies                                           |
-| ---------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `src/gltf/`      | File decoding, validation, accessors, canonical geometry, selected-scene traversal | Web platform, gl-matrix; no renderer or viewer imports |
-| `src/animation/` | Track preparation/interpolation and playback policy                                | glTF data and CPU scene poses                          |
-| `src/scene/`     | Mutable node poses, revisions, shared deformation inputs, CPU deformation oracle   | glTF data and animation sampling; no GPU allocations   |
-| `src/renderer/`  | Resource preparation, bindings, compute/render passes, lighting and presentation   | CPU modules and WebGPU; no viewer imports              |
-| `src/app/`       | DOM controls, model/environment loading lock, status, demo and styles              | Public renderer API and loading helpers                |
-| `src/main.ts`    | Start the viewer                                                                   | Application only                                       |
+| Directory        | Responsibility                                                                                  | Dependencies                                                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `src/gltf/`      | File decoding, validation, compression, accessors, canonical geometry, selected-scene traversal | Web platform, gl-matrix, meshoptimizer and decoder artifacts; no renderer or viewer imports |
+| `src/animation/` | Track preparation/interpolation and playback policy                                             | glTF data and CPU scene poses                                                               |
+| `src/scene/`     | Mutable node poses, revisions, shared deformation inputs, CPU deformation oracle                | glTF data and animation sampling; no GPU allocations                                        |
+| `src/renderer/`  | Resource preparation, bindings, compute/render passes, lighting and presentation                | CPU modules and WebGPU; no viewer imports                                                   |
+| `src/app/`       | DOM controls, model/environment loading lock, status, demo and styles                           | Public renderer API and loading helpers                                                     |
+| `src/main.ts`    | Start the viewer                                                                                | Application only                                                                            |
 
 `gltf/scene.ts` traverses the selected asset scene for initial instances. `scene/pose.ts` evaluates the mutable runtime hierarchy. `renderer/scene/` builds GPU draw records and consumes pose revisions. These are deliberately separate responsibilities despite referring to the same glTF nodes.
 
@@ -33,6 +33,10 @@ renderer.setFrustumCulling(true);
 Feature implementation paths moved during the refactor. Imports of internal files must use their new locations; application consumers should prefer the public entry points above. The code map in the README lists the new locations.
 
 ## Loading and ownership
+
+`loadFiles()` and `loadUrl()` resolve compressed data before returning an `Asset`. Meshopt replaces bufferViews while retaining accessor offsets and strides, including animation and morph streams. Draco creates primitive-specific decoded accessors without modifying accessors shared by other primitives. Basis KTX2 sources become CPU `decodedImages` with authored mip levels. The loader's worker owns WASM state and transferred payload copies and is terminated in a `finally` block. Original shared buffers are never transferred or detached. `MaterialFactory` uploads decoded texture levels with the same format-aware image cache and fixed slot layout used by ordinary images.
+
+Quantization uses the normal accessor conversion and float repacking paths. Bounds, deformation caches and draw pipelines need no compressed variants. These load-time operations do not change the frame phases below. Decoder scripts/WASM are emitted build assets; the Three.js package provides those artifacts without importing its engine.
 
 `Renderer.setAsset()` creates candidate `Resources` and opens a GPU validation scope. `SceneBuilder.prepare()` constructs the candidate, including all pipelines and material bind groups. Only a successful candidate replaces the current scene and attaches its pose to the animation controller. Failure destroys candidate allocations and retains the displayed scene.
 

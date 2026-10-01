@@ -1,5 +1,6 @@
 import { vec3 } from 'gl-matrix';
 import { decodeAccessor } from '../gltf/accessors';
+import { quantizedAttribute } from '../gltf/quantization';
 import type { Asset, Primitive } from '../gltf/types';
 
 export interface DeformationStream {
@@ -54,10 +55,12 @@ export class DeformationInputCache {
         if (
           !accessor ||
           accessor.type !== 'VEC3' ||
-          accessor.componentType !== 5126 ||
+          (accessor.componentType !== 5126 && !quantizedAttribute(asset.gltf, accessor, true)) ||
           accessor.count !== count
         )
-          throw new Error('Morph target must be a float VEC3 matching the base vertex count.');
+          throw new Error(
+            'Morph target must be a float or quantized VEC3 matching the base vertex count.',
+          );
         return decodeAccessor(asset, accessor);
       });
       streams.push({ semantic, width, base, targets });

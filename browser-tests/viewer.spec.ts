@@ -239,7 +239,7 @@ test('local GLB loads and a rejected replacement keeps the current scene', async
       contentType: 'application/json',
       body: JSON.stringify({
         asset: { version: '2.0' },
-        extensionsRequired: ['KHR_draco_mesh_compression'],
+        extensionsRequired: ['TEST_unsupported_extension'],
       }),
     }),
   );

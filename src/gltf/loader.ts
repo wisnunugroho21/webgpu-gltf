@@ -1,5 +1,7 @@
-import type { Asset, Gltf } from './types';
+import type { Asset, DecodedImage, Gltf } from './types';
 import { supportedExtensions } from './extensions';
+import { decodeDraco, decodeMeshopt } from './compression/geometry';
+import { CompressionRuntime } from './compression/runtime';
 
 type Resolve = (uri: string) => Promise<ArrayBuffer>;
 const decoder = new TextDecoder();
@@ -78,36 +80,67 @@ async function load(data: ArrayBuffer, resolve: Resolve): Promise<Asset> {
   const warnings: string[] = [];
   const buffers = await Promise.all(
     (gltf.buffers ?? []).map(async (buffer, index) => {
+      // Required meshopt assets may declare a URI-less fallback buffer as a placeholder.
+      // Its compressed views are replaced before any ordinary view is validated.
+      const views = (gltf.bufferViews ?? []).filter((view) => view.buffer === index);
+      const placeholder =
+        !buffer.uri &&
+        !(index === 0 && bin) &&
+        gltf.extensionsRequired?.includes('EXT_meshopt_compression') &&
+        views.length > 0 &&
+        views.every((view) => view.extensions?.EXT_meshopt_compression) &&
+        !(gltf.bufferViews ?? []).some(
+          (view) => view.extensions?.EXT_meshopt_compression?.buffer === index,
+        );
+      if ((buffer.extensions?.EXT_meshopt_compression?.fallback && !buffer.uri) || placeholder)
+        return new ArrayBuffer(0);
       const bytes = buffer.uri ? await resolve(buffer.uri) : index === 0 ? bin : undefined;
       if (!bytes || bytes.byteLength < buffer.byteLength)
         throw new Error(`Buffer ${index} is missing or truncated.`);
       return bytes;
     }),
   );
-  for (const [index, view] of (gltf.bufferViews ?? []).entries()) {
-    if (
-      !buffers[view.buffer] ||
-      (view.byteOffset ?? 0) < 0 ||
-      view.byteLength < 0 ||
-      (view.byteOffset ?? 0) + view.byteLength > buffers[view.buffer].byteLength
-    )
-      throw new Error(`Invalid bufferView ${index}.`);
+  const runtime = new CompressionRuntime();
+  try {
+    await decodeMeshopt(gltf, buffers);
+    for (const [index, view] of (gltf.bufferViews ?? []).entries()) {
+      if (
+        !buffers[view.buffer] ||
+        (view.byteOffset ?? 0) < 0 ||
+        view.byteLength < 0 ||
+        (view.byteOffset ?? 0) + view.byteLength > buffers[view.buffer].byteLength
+      )
+        throw new Error(`Invalid bufferView ${index}.`);
+    }
+    await decodeDraco(gltf, buffers, runtime);
+    const images = await Promise.all(
+      (gltf.images ?? []).map(async (image) => {
+        if (image.uri) return new Blob([await resolve(image.uri)]);
+        const view = gltf.bufferViews?.[image.bufferView!];
+        if (!view) throw new Error('Image has no valid source.');
+        return new Blob(
+          [
+            buffers[view.buffer].slice(
+              view.byteOffset ?? 0,
+              (view.byteOffset ?? 0) + view.byteLength,
+            ),
+          ],
+          { type: image.mimeType },
+        );
+      }),
+    );
+    const decodedImages = new Map<number, DecodedImage>();
+    // Decode only KTX2 sources selected by textures; unused fallback images remain blobs.
+    for (const texture of gltf.textures ?? []) {
+      const source = texture.extensions?.KHR_texture_basisu?.source;
+      if (source === undefined) continue;
+      if (!images[source]) throw new Error('Basis texture references a missing image.');
+      if (!decodedImages.has(source))
+        decodedImages.set(source, await runtime.basis(await images[source].arrayBuffer()));
+      texture.source = source;
+    }
+    return { gltf, buffers, images, decodedImages, warnings };
+  } finally {
+    runtime.dispose();
   }
-  const images = await Promise.all(
-    (gltf.images ?? []).map(async (image) => {
-      if (image.uri) return new Blob([await resolve(image.uri)]);
-      const view = gltf.bufferViews?.[image.bufferView!];
-      if (!view) throw new Error('Image has no valid source.');
-      return new Blob(
-        [
-          buffers[view.buffer].slice(
-            view.byteOffset ?? 0,
-            (view.byteOffset ?? 0) + view.byteLength,
-          ),
-        ],
-        { type: image.mimeType },
-      );
-    }),
-  );
-  return { gltf, buffers, images, warnings };
 }

@@ -9,7 +9,7 @@ The architecture follows [Toji's “Efficiently rendering glTF models” case st
 Use Node.js 22.12+ (Node.js 24 recommended) and a browser/device with WebGPU enabled.
 
 ```sh
-npm ci
+pnpm install --frozen-lockfile
 npm run dev
 ```
 
@@ -20,6 +20,7 @@ npm test          # CPU-side glTF and layout regression tests
 npm run build    # Strict TypeScript check and production bundle
 npm run preview  # Serve the production bundle locally
 npm run test:browser # Real WebGPU integration tests in installed Microsoft Edge
+npm run test:compressed-build # After build: verify emitted Draco/Basis WASM and worker URLs
 ```
 
 The first scene is generated locally and makes no network requests for models. Three green cubes share one primitive, so they render in one instanced draw; the orange cube shares the pipeline but uses a different material. The demo reports **1 pipeline, 2 draws, and 4 primitive instances**. These counts describe scene geometry; the fixed fullscreen presentation pipeline and draw are additional.
@@ -46,6 +47,7 @@ The project has four layers: asset decoding (`gltf`), CPU pose/animation (`scene
 | `src/app/controls/`                                                 | Separate animation, environment and display widgets                              |
 | `src/app/demo.ts`, `src/app/style.css`                              | Offline demo and viewer presentation                                             |
 | `src/gltf/types.ts`, `src/gltf/loader.ts`                           | Typed glTF subset, JSON/GLB parsing, URI resolution and image loading            |
+| `src/gltf/compression/`, `src/gltf/quantization.ts`                 | meshopt/Draco decoding, Basis KTX2 transcoding, quantized attribute support      |
 | `src/gltf/accessors.ts`, `src/gltf/geometry.ts`                     | Accessor decoding, canonical layouts, repacking and topology conversion          |
 | `src/gltf/scene.ts`, `src/gltf/texture-coordinates.ts`              | Initial scene traversal and per-slot UV selection/transforms                     |
 | `src/animation/tracks.ts`, `src/animation/controller.ts`            | Track validation/interpolation and independent playback policy                   |
@@ -78,7 +80,7 @@ The loader resolves bytes and images first. `SceneBuilder.prepare()` traverses t
 
 For float attributes, the renderer uploads each referenced bufferView once. Attributes sharing the same bufferView, stride, and record base share a binding. A large accessor offset is split into a buffer binding base and a small within-record offset. Only the latter enters `GPUVertexAttribute.offset`; the base is passed to `setVertexBuffer()`. Separate planar ranges remain separate bindings even when they share a bufferView.
 
-Attributes use fixed shader locations and are sorted before buffers are ordered. Pipeline keys therefore do not depend on JSON property order or buffer IDs. Sparse and integer attributes are repacked as floats because WebGPU does not directly support every glTF vertex format (notably packed integer VEC3s). This trades load-time work and some memory for simpler shader interfaces. POSITION is required to be float VEC3; required quantization/compression extensions are rejected.
+Attributes use fixed shader locations and are sorted before buffers are ordered. Pipeline keys therefore do not depend on JSON property order or buffer IDs. Sparse and integer attributes are repacked as floats because WebGPU does not directly support every glTF vertex format (notably packed integer VEC3s). This trades load-time work and some memory for simpler shader interfaces. POSITION accepts float VEC3 or the integer formats declared by KHR_mesh_quantization; normalized values are decoded before bounds and GPU deformation inputs are prepared.
 
 All GPU buffer allocations are rounded up to four bytes. Initial uploads use mapped buffers so byte-sized source data and odd uint16 index counts do not need padded source arrays. Byte indices are promoted to uint16; index streams containing values reserved for uint16 strip restart use uint32. Line loops and triangle fans become indexed lists during preparation.
 
@@ -190,7 +192,26 @@ Every scene owns its buffers and textures through `Resources`. A replacement is 
 
 This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light, a small ambient term, and diffuse/specular environment lighting. Four-sample MSAA smooths geometric edges. It has no shadows. Center-based transparency sorting remains approximate even with correct linear blending.
 
-Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. The material extensions below and KHR_texture_transform work whether optional or required. Other optional extensions are ignored. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
+Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions are rejected. The compression and material extensions below and KHR_texture_transform work whether optional or required. Other optional extensions are ignored. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
+
+## Compressed assets
+
+Use the same **Open model**, **Load URL**, `loadFiles()` or `loadUrl()` entry points for compressed assets. No decoder configuration or CDN access is needed. For local `.gltf`, include the referenced `.bin` and `.ktx2` files; GLB can embed both geometry and texture payloads. `Renderer.setAsset()` expects an already prepared `Asset`, so external integrations should use these loading helpers rather than pass compressed JSON directly.
+
+| Extension                                                                                                                      | Preparation                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [EXT_meshopt_compression](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Vendor/EXT_meshopt_compression)        | Decode attribute, triangle-index and index-sequence bufferViews, including octahedral, quaternion and exponential filters. This covers geometry, skin data, morph deltas and animation streams. URI-less fallback placeholders need no allocation.                   |
+| [KHR_draco_mesh_compression](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_draco_mesh_compression) | Decode triangle meshes using unique attribute IDs and accessor component types. Integer normalization is preserved. Decoded accessors are primitive-specific; attributes outside the Draco payload retain their original data. Strips become decoded triangle lists. |
+| [KHR_mesh_quantization](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_mesh_quantization)           | Repack integer positions and signed integer morph deltas to floats. Node transforms, inverse binds and UV transforms carry the authored dequantization scale/offset.                                                                                                 |
+| [KHR_texture_basisu](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_texture_basisu)                 | Transcode 2D ETC1S and UASTC KTX2 sources to RGBA8, preserving authored mip levels. Generate mipmaps when only the base level is supplied. Select the extension image in preference to a PNG/JPEG fallback.                                                          |
+
+Meshopt uses the lazily imported `meshoptimizer/decoder`. Draco and Basis use a short-lived worker shared by all compressed primitives and images in one load; it initializes each WASM module only when needed and terminates on success or failure. The `three` dependency supplies decoder scripts and WASM files only; no Three.js rendering code is imported. Vite emits these files with the application. Deploy the entire `dist` directory; a Content Security Policy must permit `blob:` workers, same-origin decoder scripts and WebAssembly compilation. Meshopt decoding currently runs on the loading thread.
+
+KTX2 reduces download size, but this implementation expands texture data to RGBA8 rather than retaining BC/ETC/ASTC blocks on the GPU. This avoids optional WebGPU compression features at the cost of GPU memory. Texture interpretation still comes from the material slot: color maps use sRGB and data maps use linear formats, with the same fixed bind group layout and neutral defaults. Authored mipmaps are uploaded unchanged, and existing sampler/anisotropy handling applies. Texture arrays, cubemaps, HDR Basis payloads, raw `.basis` files, and other KTX2 encodings are unsupported.
+
+Compression completes before scene preparation. Shared deformation inputs, pose revision tracking, frustum bounds and the separate pose-upload → compute → render phases therefore continue to operate on the existing canonical data. Decoding occurs once at load time, never during playback. This is a runtime normalization step, not a glTF re-export API.
+
+Offline regression fixtures cover meshopt streams/filters, quantized geometry and morphs, Draco normalized colors, ETC1S/UASTC texture slots and authored mipmaps, GLB-embedded images, and compressed skin/animation data. `scripts/generate-draco-fixture.mjs` regenerates the original Draco quad; `draco3dgltf` is a test-only encoder dependency. The production smoke test exercises both emitted WASM decoders together.
 
 ## Material extensions
 

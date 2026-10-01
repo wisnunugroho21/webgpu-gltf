@@ -66,6 +66,44 @@ export class MaterialFactory {
     let result = this.images.get(key);
     if (!result) {
       result = (async () => {
+        const decoded = this.asset.decodedImages?.get(index);
+        if (decoded) {
+          const base = decoded.levels[0];
+          if (!base) throw new Error('Decoded texture has no mip levels.');
+          const generate = decoded.levels.length === 1;
+          const texture = this.resources.own(
+            this.device.createTexture({
+              label: `glTF KTX2 image ${index} (${format})`,
+              size: [base.width, base.height],
+              format,
+              mipLevelCount: generate
+                ? mipLevelCount(base.width, base.height)
+                : decoded.levels.length,
+              usage:
+                GPUTextureUsage.TEXTURE_BINDING |
+                GPUTextureUsage.COPY_DST |
+                (generate ? GPUTextureUsage.RENDER_ATTACHMENT : 0),
+            }),
+          );
+          // Preserve authored mipmaps. RGBA bytes are uploaded unchanged and interpreted
+          // by this slot's sRGB/linear texture format, just like PNG/JPEG image uploads.
+          for (const [mipLevel, level] of decoded.levels.entries()) {
+            if (
+              level.width !== Math.max(1, base.width >> mipLevel) ||
+              level.height !== Math.max(1, base.height >> mipLevel) ||
+              level.data.byteLength !== level.width * level.height * 4
+            )
+              throw new Error('Invalid decoded texture mip dimensions.');
+            this.device.queue.writeTexture(
+              { texture, mipLevel },
+              level.data,
+              { bytesPerRow: level.width * 4, rowsPerImage: level.height },
+              [level.width, level.height],
+            );
+          }
+          if (generate) await this.mipmaps.generate(texture);
+          return texture;
+        }
         const blob = this.asset.images[index];
         if (!blob) throw new Error('Texture references a missing image.');
         const bitmap = await createImageBitmap(blob, {

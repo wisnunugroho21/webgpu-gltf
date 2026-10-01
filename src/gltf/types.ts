@@ -20,6 +20,26 @@ export interface Primitive {
   material?: number;
   mode?: number;
   targets?: Record<string, number>[];
+  extensions?: {
+    KHR_draco_mesh_compression?: { bufferView: number; attributes: Record<string, number> };
+  };
+}
+export interface BufferView {
+  buffer: number;
+  byteOffset?: number;
+  byteLength: number;
+  byteStride?: number;
+  extensions?: {
+    EXT_meshopt_compression?: {
+      buffer: number;
+      byteOffset?: number;
+      byteLength: number;
+      byteStride: number;
+      count: number;
+      mode: 'ATTRIBUTES' | 'TRIANGLES' | 'INDICES';
+      filter?: 'NONE' | 'OCTAHEDRAL' | 'QUATERNION' | 'EXPONENTIAL';
+    };
+  };
 }
 export interface TextureInfo {
   index: number;
@@ -79,8 +99,12 @@ export interface Material {
 }
 export interface Gltf {
   asset: { version: string; minVersion?: string };
-  buffers?: { uri?: string; byteLength: number }[];
-  bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
+  buffers?: {
+    uri?: string;
+    byteLength: number;
+    extensions?: { EXT_meshopt_compression?: { fallback?: boolean } };
+  }[];
+  bufferViews?: BufferView[];
   accessors?: Accessor[];
   meshes?: { primitives: Primitive[]; weights?: number[] }[];
   nodes?: {
@@ -96,10 +120,15 @@ export interface Gltf {
   scenes?: { nodes?: number[] }[];
   scene?: number;
   materials?: Material[];
-  textures?: { source?: number; sampler?: number }[];
+  textures?: {
+    source?: number;
+    sampler?: number;
+    extensions?: { KHR_texture_basisu?: { source: number } };
+  }[];
   images?: { uri?: string; bufferView?: number; mimeType?: string }[];
   samplers?: { magFilter?: number; minFilter?: number; wrapS?: number; wrapT?: number }[];
   extensionsRequired?: string[];
+  extensionsUsed?: string[];
   skins?: { joints: number[]; inverseBindMatrices?: number; skeleton?: number }[];
   animations?: Animation[];
 }
@@ -115,5 +144,10 @@ export interface Asset {
   gltf: Gltf;
   buffers: ArrayBuffer[];
   images: Blob[];
+  /** KTX2 images are decoded once on the CPU; authored mip levels remain intact. */
+  decodedImages?: Map<number, DecodedImage>;
   warnings: string[];
+}
+export interface DecodedImage {
+  levels: { width: number; height: number; data: Uint8Array<ArrayBuffer> }[];
 }

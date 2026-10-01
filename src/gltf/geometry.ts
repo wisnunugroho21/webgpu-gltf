@@ -1,6 +1,7 @@
 import { components, decodeAccessor } from './accessors';
 import type { Asset, Primitive } from './types';
 import { uvLocation } from './texture-coordinates';
+import { quantizedAttribute } from './quantization';
 
 // Fixed locations are shared by geometry layouts and generated WGSL.
 export const locations: Record<string, number> = {
@@ -28,8 +29,12 @@ export interface Geometry {
  * Large accessor offsets belong to setVertexBuffer; only within-record offsets enter pipelines. */
 export function prepareGeometry(asset: Asset, primitive: Primitive): Geometry {
   const position = asset.gltf.accessors?.[primitive.attributes.POSITION];
-  if (!position || position.type !== 'VEC3' || position.componentType !== 5126)
-    throw new Error('POSITION must be a float VEC3.');
+  if (
+    !position ||
+    position.type !== 'VEC3' ||
+    (position.componentType !== 5126 && !quantizedAttribute(asset.gltf, position))
+  )
+    throw new Error('POSITION must be a float VEC3 or use KHR_mesh_quantization.');
   const groups: VertexBinding[] = [];
   const uvSets = Object.keys(primitive.attributes)
     .filter((name) => /^TEXCOORD_\d+$/.test(name))

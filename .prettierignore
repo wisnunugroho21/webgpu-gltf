@@ -2,3 +2,4 @@ node_modules/
 dist/
 test-results/
 package-lock.json
+pnpm-lock.yaml
