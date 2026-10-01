@@ -1,5 +1,11 @@
 // Public imports for embedding the renderer. Feature implementation files remain internal.
-export { Renderer, type RendererOptions, type FrameStats, type SceneStats } from './renderer';
+export {
+  Renderer,
+  type RendererOptions,
+  type AssetOptions,
+  type FrameStats,
+  type SceneStats,
+} from './renderer';
 export type {
   OutputSettings,
   ToneMapping,
@@ -30,6 +36,7 @@ export {
   Entity,
   ModelInstance,
   ModelLibrary,
+  LoadedModel,
   loadWorld,
   parseSceneDocument,
   type SceneDocument,

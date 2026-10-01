@@ -2,11 +2,8 @@
  * identities and never glTF node indices. Components contain serializable data. */
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
-export interface TransformData {
-  translation: number[];
-  rotation: number[];
-  scale: number[];
-}
+import { transformData, type TransformData } from '../scene/transform';
+export { transformData, type TransformData } from '../scene/transform';
 export interface EntityDefinition {
   id: string;
   name?: string;
@@ -39,32 +36,6 @@ export function identifier(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error('IDs must be nonempty strings.');
   return value;
 }
-/** Copy data at API boundaries so caller mutation cannot bypass transform revisions. */
-export function transformData(value: unknown = {}): TransformData {
-  const source = record(value, 'Transform');
-  fields(source, ['translation', 'rotation', 'scale'], 'transform');
-  const vector = (key: string, defaults: number[]) => {
-    const values = source[key] ?? defaults;
-    if (
-      !Array.isArray(values) ||
-      values.length !== defaults.length ||
-      values.some(
-        (v) => typeof v !== 'number' || !Number.isFinite(v) || Math.abs(v) > 3.402823466e38,
-      )
-    )
-      throw new Error(`Invalid transform ${key}.`);
-    return [...values] as number[];
-  };
-  const translation = vector('translation', [0, 0, 0]);
-  const rotation = vector('rotation', [0, 0, 0, 1]);
-  const scale = vector('scale', [1, 1, 1]);
-  const length = Math.hypot(...rotation);
-  if (length < 1e-8 || scale.some((v) => v === 0))
-    throw new Error('Transform must have a valid rotation and nonzero scale.');
-  for (let c = 0; c < 4; c++) rotation[c] /= length;
-  return { translation, rotation, scale };
-}
-
 export function copyJson<T extends JsonValue>(value: T): T {
   const seen = new Set<object>();
   const visit = (item: unknown): void => {

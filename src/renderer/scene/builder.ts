@@ -36,8 +36,17 @@ export class SceneBuilder {
   async prepare(
     asset: Asset,
     resources: Resources,
-    options: { pose?: Pose; mutableRoot?: boolean } = {},
+    options: { pose?: Pose; mutableRoot?: boolean; movableNodes?: readonly number[] } = {},
   ): Promise<Scene> {
+    const movableNodes = new Set<number>();
+    const mark = (index: number) => {
+      if (!Number.isInteger(index) || !asset.gltf.nodes?.[index])
+        throw new Error('Unknown movable model node.');
+      if (movableNodes.has(index)) return;
+      movableNodes.add(index);
+      for (const child of asset.gltf.nodes[index].children ?? []) mark(child);
+    };
+    for (const index of options.movableNodes ?? []) mark(index);
     const model = await this.models.acquire(asset, resources, (shared) =>
       ModelResources.load(
         asset,
@@ -105,6 +114,7 @@ export class SceneBuilder {
         : undefined;
       const needsUpdate = (node: number) =>
         !!options.mutableRoot ||
+        movableNodes.has(node) ||
         !!pose.animatedWorld[node] ||
         !!primitive.targets?.length ||
         asset.gltf.nodes![node].skin !== undefined;
@@ -249,6 +259,8 @@ export class SceneBuilder {
     return {
       lights,
       pose,
+      poseRevision: -1,
+      movableNodes,
       updates,
       pendingDeformations: [],
       transformData,

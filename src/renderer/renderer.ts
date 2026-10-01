@@ -1,4 +1,5 @@
 import type { Asset } from '../gltf/types';
+import type { TransformData } from '../scene/transform';
 import { OrbitCamera } from './camera/orbit-camera';
 import { SceneBindings } from './core/bindings';
 import { Resources } from './core/resources';
@@ -34,6 +35,11 @@ import {
 } from './lighting/punctual';
 export type { FrameStats, SceneStats } from './scene/types';
 
+export interface AssetOptions {
+  /** Reserve independently mutable draws for these glTF nodes and descendants.
+   * Unrelated rigid nodes retain static instance grouping. */
+  movableNodes?: readonly number[];
+}
 export interface RendererOptions {
   /** Opt-in CPU phase wall times; disabled by default to avoid timer overhead. */
   cpuProfiling?: boolean;
@@ -276,8 +282,28 @@ export class Renderer {
   }
 
   /** Prepare a replacement fully before swapping. A failed load leaves the current model usable. */
-  async setAsset(asset: Asset): Promise<SceneStats> {
-    return this.replaceScene((resources) => this.builder.prepare(asset, resources));
+  async setAsset(asset: Asset, options: AssetOptions = {}): Promise<SceneStats> {
+    return this.replaceScene((resources) => this.builder.prepare(asset, resources, options));
+  }
+
+  private transformPose(node: number) {
+    if (this.disposed || this.failed || !this.scene)
+      throw new Error('No editable scene is attached.');
+    if (this.scene.world) throw new Error('Use entity.model.setNodeTransform() in a world.');
+    if (!this.scene.movableNodes?.has(node))
+      throw new Error(
+        'Declare the node in setAsset(asset, { movableNodes }) before gameplay movement.',
+      );
+    return this.scene.pose;
+  }
+  getNodeTransform(node: number): TransformData {
+    return this.transformPose(node).getNodeTransform(node);
+  }
+  setNodeTransform(node: number, patch: Partial<TransformData>): boolean {
+    return this.transformPose(node).setNodeTransform(node, patch);
+  }
+  clearNodeTransform(node: number): boolean {
+    return this.transformPose(node).clearNodeTransform(node);
   }
 
   /** Attach an engine world without merging its entities into glTF node definitions.
@@ -341,7 +367,11 @@ export class Renderer {
         scene.world.source.update(timestamp);
         poseChanged = scene.world.poseRevision !== scene.world.source.poseRevision;
         scene.world.poseRevision = scene.world.source.poseRevision;
-      } else poseChanged = this.animation.update(timestamp);
+      } else {
+        this.animation.update(timestamp);
+        poseChanged = scene.poseRevision !== scene.pose.revision;
+        scene.poseRevision = scene.pose.revision;
+      }
       if (this.cpuProfiling) {
         this.timings.animationMs = performance.now() - start;
         for (const pose of scene.world

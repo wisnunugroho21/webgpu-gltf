@@ -107,6 +107,9 @@ test('entities render independent multi-node models with root transforms, shadow
     };
     try {
       const stats = await renderer.setWorld(world);
+      const sharedClips =
+        player.model!.resources === npc.model!.resources &&
+        player.model!.pose.clips === npc.model!.pose.clips;
       const playerUpdates = internal.scene.updates.filter(
         (u: any) => u.pose === player.model!.pose,
       );
@@ -172,6 +175,12 @@ test('entities render independent multi-node models with root transforms, shadow
       const initial = await frame();
       await oracle();
       const held = await frame();
+      player.model!.setNodeTransform(1, { translation: [3, 0, 0] });
+      world.update(0);
+      const gameplayJoint = await frame();
+      await oracle();
+      player.model!.clearNodeTransform(1);
+      await frame();
       group.setTransform({ translation: [1, 0, 0] });
       // CPU simulations may update before rendering; its persistent revision keeps
       // this root change visible even though the renderer evaluates the same time.
@@ -259,6 +268,7 @@ test('entities render independent multi-node models with root transforms, shadow
       return {
         stats,
         sharedInputs,
+        sharedClips,
         independentOutputs,
         retainedInputs,
         sharedReleasedOnce,
@@ -268,6 +278,7 @@ test('entities render independent multi-node models with root transforms, shadow
         addressing,
         initial,
         held,
+        gameplayJoint,
         moved,
         animated,
         outside,
@@ -294,7 +305,8 @@ test('entities render independent multi-node models with root transforms, shadow
   expect(result.errors).toEqual([]);
   expect(result.stats.instances).toBe(8);
   expect(
-    result.sharedInputs &&
+    result.sharedClips &&
+      result.sharedInputs &&
       result.independentOutputs &&
       result.retainedInputs &&
       result.sharedReleasedOnce,
@@ -305,6 +317,7 @@ test('entities render independent multi-node models with root transforms, shadow
   expect(new Set(result.addressing).size).toBe(8);
   expect(result.initial.dispatched).toEqual(['npc:0', 'npc:3', 'player:0', 'player:3']);
   expect(result.held.dispatched).toEqual([]);
+  expect(result.gameplayJoint.dispatched).toEqual(['player:0']);
   expect(result.moved.dispatched).toEqual(['player:0']);
   expect(result.animated.dispatched).toEqual(['npc:0', 'player:0', 'player:3']);
   expect(result.outside.dispatched).toEqual(['player:0']);

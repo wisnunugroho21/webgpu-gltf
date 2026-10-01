@@ -14,6 +14,7 @@ export class World {
   private parents = new Map<string, string>();
   private structure = 0;
   private poses = 0;
+  private modelRevisions = new WeakMap<ModelInstance, number>();
   constructor(readonly models = new ModelLibrary()) {}
   get structureRevision(): number {
     return this.structure;
@@ -37,7 +38,7 @@ export class World {
     if (this.records.has(definition.id)) throw new Error(`Duplicate entity ${definition.id}.`);
     if (definition.parent !== undefined) this.getEntity(definition.parent);
     const model = definition.model
-      ? new ModelInstance(definition.model.asset, this.models.get(definition.model.asset))
+      ? new ModelInstance(definition.model.asset, this.models.getModel(definition.model.asset))
       : undefined;
     const entity = new Entity(definition.id, definition.name, definition, model);
     this.records.set(entity.id, entity);
@@ -72,7 +73,14 @@ export class World {
       const parent = parentId === undefined ? undefined : this.getEntity(parentId);
       if (parent) visit(parent);
       entity.updateWorld(parent?.worldMatrix);
-      if (entity.model?.pose.setRootTransform(entity.worldMatrix)) this.poses++;
+      if (entity.model) {
+        entity.model.pose.setRootTransform(entity.worldMatrix);
+        const revision = entity.model.pose.revision;
+        if (revision !== this.modelRevisions.get(entity.model)) {
+          this.modelRevisions.set(entity.model, revision);
+          this.poses++;
+        }
+      }
       visited.add(entity.id);
     };
     for (const entity of this.records.values()) visit(entity);
@@ -81,8 +89,7 @@ export class World {
    * revision survives repeated evaluation so the renderer never loses dirty work. */
   update(timestampMs: number): void {
     if (!Number.isFinite(timestampMs)) throw new Error('World timestamp must be finite.');
-    for (const entity of this.records.values())
-      if (entity.model?.animation.update(timestampMs)) this.poses++;
+    for (const entity of this.records.values()) entity.model?.animation.update(timestampMs);
     this.updateTransforms();
   }
   toDocument(): SceneDocument {

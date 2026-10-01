@@ -105,6 +105,12 @@ The browser viewer uses `ViewerRenderLoop` in `src/app/render-loop.ts`. Its `sta
 
 See [frame scheduling and lifecycle](docs/frame-scheduling.md) for ownership rules and regression coverage.
 
+## Gameplay transforms
+
+Use `entity.setTransform(patch)` for placement and `entity.model.setNodeTransform(node, patch)` for persistent per-instance local TRS overrides. `clearNodeTransform(node)` resumes animation. Getters return copies, setters validate inputs, and revisions update uploads, winding, bounds, shadows and occlusion dependencies.
+
+For a single asset, declare movable subtrees with `await renderer.setAsset(asset, { movableNodes: [node] })`, then use `renderer.setNodeTransform(node, patch)`. Undeclared nodes reject edits; unrelated static instances stay grouped. World models are already prepared for gameplay movement. See [supported transform APIs](docs/transforms.md) for animation precedence, validation, revision tracking and matrix-node limitations.
+
 ## Game entities and model instances
 
 `World` stores gameplay entities identified by strings. An entity may instantiate one glTF model containing many mesh, joint and light nodes; those node indices stay local to that `ModelInstance`. Entity hierarchy, placement and component data remain outside glTF. Multiple entities can reference one loaded `Asset`, while each instance owns its pose and animation controller. Selecting an authored pose or crossfading changes model locals without resetting entity placement.
@@ -144,7 +150,7 @@ Engine scene JSON has `version: 1`, an `assets` dictionary mapping stable IDs to
 
 `setTransform()` and `world.setParent()` become visible on the next frame without GPU preparation. Creating or destroying entities changes membership: pause submission, mutate the world, await `renderer.setWorld(world)`, then resume. Rendering an uncommitted membership change throws a recoverable error instead of drawing stale entities. A failed replacement releases candidate resources and retains the previously attached scene. Empty worlds render the background. The original viewer and `setAsset()` remain available.
 
-Loaded resources are separate from instances: entities using the same `Asset` share GPU geometry, textures, material bindings, pipelines and immutable deformation inputs. Poses, animation, joint palettes, morph weights and deformation outputs remain independent. Shared allocations survive overlapping scene replacement and release after their final scene lease. See [shared model resources](docs/model-resources.md). All world model nodes are treated as movable so entity placement reaches transforms, joint palettes, bounds, winding, lights, shadows and occlusion dependencies. See [entity ownership and the scene format](docs/game-world.md) for loading, hierarchy, lifecycle and test coverage.
+Loaded resources are separate from instances: `ModelLibrary.getModel(id)` returns a CPU `LoadedModel` shared through `ModelInstance.resources`, including lazily prepared, frozen animation clips. Entities using the same `Asset` share GPU geometry, textures, material bindings, pipelines and immutable deformation inputs. Poses, animation, joint palettes, morph weights and deformation outputs remain independent. Shared allocations survive overlapping scene replacement and release after their final scene lease. See [shared model resources](docs/model-resources.md). All world model nodes are treated as movable so entity placement reaches transforms, joint palettes, bounds, winding, lights, shadows and occlusion dependencies. See [entity ownership and the scene format](docs/game-world.md) for loading, hierarchy, lifecycle and test coverage.
 
 ## How the case study informs the implementation
 

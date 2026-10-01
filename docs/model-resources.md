@@ -1,17 +1,35 @@
 # Loaded model resources and instances
 
-Load an `Asset` once into `ModelLibrary` and reference that asset from multiple entities. A `ModelInstance` owns its pose and animation controller; it does not own GPU geometry or materials. glTF and engine scene JSON stay unchanged.
+Load an `Asset` once into `ModelLibrary` and reference that asset from multiple entities. `ModelLibrary.getModel(id)` returns a shared CPU `LoadedModel`; `get(id)` still returns its original `Asset` for existing callers. Asset aliases in one library reuse the same loaded model by asset object identity. Each `ModelInstance` references the loaded model through `resources` and owns its own pose and animation controller. GPU geometry and materials belong to the separate renderer resource record. glTF and engine scene JSON stay unchanged.
 
 The renderer's `SceneBuilder` acquires a separate `ModelResources` record for each original `Asset` object. The cache belongs to one renderer, so records never cross devices or incompatible binding layouts, antialiasing configurations or transparency modes. Two separately loaded copies of a file are different assets; there is no URL/content deduplication. To change immutable geometry or material definitions, load/register a new asset object rather than mutating one already in use.
 
-| Shared loaded resources                                                       | Independent instance/scene state                          |
-| ----------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Prepared primitive geometry, buffer views, repacked attributes, index buffers | Pose arrays, animation clocks and entity transforms       |
-| Material uniforms/bind groups, textures, mip chains and samplers              | Draw records, bounds, visibility and transform bindings   |
-| Render and shadow pipeline caches                                             | Joint palettes, morph weights and deformed vertex outputs |
-| Decoded/packed base vertices, morph deltas and skin influences                | Deformation batch arenas and dirty revisions              |
+| Shared loaded resources                                                       | Independent instance/scene state                            |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Prepared animation clips and decoded key times/values                         | Per-instance mixing scratch arrays and transition snapshots |
+| Prepared primitive geometry, buffer views, repacked attributes, index buffers | Pose arrays, animation clocks and entity transforms         |
+| Material uniforms/bind groups, textures, mip chains and samplers              | Draw records, bounds, visibility and transform bindings     |
+| Render and shadow pipeline caches                                             | Joint palettes, morph weights and deformed vertex outputs   |
+| Decoded/packed base vertices, morph deltas and skin influences                | Deformation batch arenas and dirty revisions                |
 
 Compression negotiation happens once when the record is created. Geometry decoding and uploads are cached lazily by primitive/view identity. Texture caching retains slot-specific sRGB/linear interpretation, mip filtering semantics and neutral defaults. Independent deformation outputs bind the same immutable inputs while consuming their own palette and weight ranges. Batching remains per model instance; this change does not introduce cross-entity deformation batches.
+
+Prepared clips decode and validate lazily on the first instance. All instances reference the same clip objects and key arrays; these arrays/records are frozen to prevent accidental cross-instance edits. Pose locals, defaults, sampling scratch, revisions and playback controllers remain separate. Playback never mutates a prepared clip. CPU clips remain with the loaded model after GPU resource eviction.
+
+Direct callers can share without a library:
+
+```ts
+import { LoadedModel, ModelInstance } from './src';
+
+const resources = new LoadedModel(asset);
+const player = new ModelInstance('hero', resources);
+const npc = new ModelInstance('hero', resources);
+// player.pose.clips === npc.pose.clips, but their poses and clocks differ.
+player.animation.select(0);
+npc.animation.select(1);
+```
+
+The existing `new ModelInstance(id, asset)` form remains valid and creates a standalone CPU resource set. Pass the same `LoadedModel` when sharing outside a library. Asset definitions are treated as immutable; resource wrappers do not deep-copy glTF geometry/images.
 
 ## Lifetime and replacement
 
@@ -28,4 +46,4 @@ Opaque grouping merges draw lists when shared pipeline/material objects recur ac
 
 ## Verification
 
-`tests/resources.test.ts` covers shared loads, overlapping scene ownership, final eviction, idempotent release, failed loading and disposal during asynchronous creation. `browser-tests/world.spec.ts` verifies shared buffer/material/pipeline identities across independently animated entities, independent GPU outputs against the CPU oracle, complete opaque groups, retained inputs across spawn/destruction commits, and final release on an empty-world replacement. Existing viewer, animation, compression and material tests cover the single-asset path.
+`tests/world.test.ts` verifies shared clip/key identities, frozen animation data, asset aliases and independent sampling/playback. `tests/resources.test.ts` covers shared loads, overlapping scene ownership, final eviction, idempotent release, failed loading and disposal during asynchronous creation. `browser-tests/world.spec.ts` verifies shared buffer/material/pipeline identities across independently animated entities, independent GPU outputs against the CPU oracle, complete opaque groups, retained inputs across spawn/destruction commits, and final release on an empty-world replacement. Existing viewer, animation, compression and material tests cover the single-asset path.

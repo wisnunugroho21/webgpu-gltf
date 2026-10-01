@@ -1,6 +1,7 @@
 export { World } from './world';
 export { Entity } from './entity';
 export { ModelInstance, ModelLibrary } from './model';
+export { LoadedModel } from './loaded-model';
 export { loadWorld } from './load-world';
 export {
   parseSceneDocument,

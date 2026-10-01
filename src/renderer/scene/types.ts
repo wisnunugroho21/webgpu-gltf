@@ -38,6 +38,9 @@ export interface SceneStats {
 export interface Scene {
   lights: SceneLights;
   pose: Pose;
+  poseRevision?: number;
+  /** Nodes/subtrees explicitly reserved for gameplay movement during preparation. */
+  movableNodes?: ReadonlySet<number>;
   updates: PoseDraw[];
   pendingDeformations: GpuDeformation[];
   transformData: Float32Array;

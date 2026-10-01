@@ -2,11 +2,12 @@ import { mat4, quat, type ReadonlyMat4 } from 'gl-matrix';
 import type { Asset } from '../gltf/types';
 import { prepareClips, type Clip } from '../animation/tracks';
 import { PoseMixer, clonePose, type BlendSample } from '../animation/blending';
+import { transformData, type TransformData } from './transform';
 
 /** Immutable glTF defaults plus reusable mutable pose arrays. Switching clips resets all
  * properties, including those a previous clip animated but the new clip does not. */
 export class Pose {
-  readonly clips: Clip[];
+  readonly clips: readonly Clip[];
   readonly nodes: {
     translation: number[];
     rotation: number[];
@@ -41,10 +42,22 @@ export class Pose {
   private selectionKey = '';
   private selected: number[] = [];
   private candidates: number[] = [];
+  private overrides = new Map<number, Partial<TransformData>>();
+  private currentSamples: readonly BlendSample[] = [];
+  private version = 0;
+  /** Persistent dirty token, including gameplay edits made before frame evaluation. */
+  get revision(): number {
+    return this.version;
+  }
   profiling = false;
   readonly timings = { mixingMs: 0, worldMs: 0, sampledNodes: 0, visitedNodes: 0 };
-  constructor(readonly asset: Asset) {
-    this.clips = prepareClips(asset);
+  constructor(
+    readonly asset: Asset,
+    clips?: readonly Clip[],
+  ) {
+    // Instances can share prepared animation keys; all sampled locals, mixer scratch
+    // arrays and revision counters below are still allocated for this pose alone.
+    this.clips = clips ?? prepareClips(asset);
     const nodes = asset.gltf.nodes ?? [];
     this.defaults = nodes.map((node) => {
       const mesh = asset.gltf.meshes?.[node.mesh!];
@@ -121,9 +134,51 @@ export class Pose {
     return this.evaluateBlend(this.single);
   }
 
-  /** Snapshot only on transition interruption, never in the frame loop. */
+  /** Snapshot only on transition interruption, never in the frame loop. Gameplay
+   * overrides stay outside animation snapshots so clearing them resumes playback. */
   capture() {
-    return clonePose(this.nodes);
+    return clonePose(this.sampled);
+  }
+  private transformNode(index: number) {
+    if (!Number.isInteger(index) || !this.nodes[index]) throw new Error('Unknown model node.');
+    if (this.asset.gltf.nodes![index].matrix)
+      throw new Error(
+        'Node TRS overrides require a TRS node; move its entity to place matrix nodes.',
+      );
+    return this.nodes[index];
+  }
+  /** Return a copy of effective local TRS, never mutable pose storage. */
+  getNodeTransform(index: number): TransformData {
+    const node = this.transformNode(index);
+    return {
+      translation: [...node.translation],
+      rotation: [...node.rotation],
+      scale: [...node.scale],
+    };
+  }
+  /** Persistent absolute local overrides, applied after animation per supplied field.
+   * Empty patches are no-ops; unmentioned fields continue following animation. */
+  setNodeTransform(index: number, patch: Partial<TransformData>): boolean {
+    this.transformNode(index);
+    const validated = transformData(patch);
+    const next = { ...this.overrides.get(index) };
+    let supplied = false;
+    for (const path of ['translation', 'rotation', 'scale'] as const)
+      if (patch[path] !== undefined) {
+        next[path] = validated[path];
+        supplied = true;
+      }
+    if (!supplied) return false;
+    this.overrides.set(index, next);
+    this.selectionKey = '\u0000';
+    return this.evaluateBlend(this.currentSamples);
+  }
+  /** Resume animation/authored values for every overridden TRS field on this node. */
+  clearNodeTransform(index: number): boolean {
+    this.transformNode(index);
+    if (!this.overrides.delete(index)) return false;
+    this.selectionKey = '\u0000';
+    return this.evaluateBlend(this.currentSamples);
   }
   get rootMirrored(): boolean {
     return mat4.determinant(this.root) < 0;
@@ -162,12 +217,14 @@ export class Pose {
       }
     }
     if (this.profiling) this.timings.worldMs += performance.now() - start;
+    if (changed) this.version++;
     return changed;
   }
 
   evaluateBlend(samples: readonly BlendSample[]): boolean {
     const start = this.profiling ? performance.now() : 0;
     this.mixer.validate(samples);
+    this.currentSamples = samples;
     // Cache the sparse work list while layer membership stays constant. Include
     // outgoing targets once more to restore defaults on switches/zero-weight layers.
     // Interrupted fades contain arbitrary snapshots and conservatively visit all nodes.
@@ -178,6 +235,10 @@ export class Pose {
     if (!this.initialized || key !== this.selectionKey) {
       const active = new Set<number>();
       const worldTargets = new Set<number>();
+      for (const index of this.overrides.keys()) {
+        active.add(index);
+        worldTargets.add(index);
+      }
       for (const sample of samples) {
         if (!(sample.weight > 0)) continue;
         if ('pose' in sample) for (const index of this.order) active.add(index);
@@ -218,8 +279,10 @@ export class Pose {
         sampled = this.sampled[index];
       let localChanged = !this.initialized;
       for (const path of ['translation', 'rotation', 'scale', 'weights'] as const) {
-        if (sampled[path].some((value, c) => value !== node[path][c])) {
-          for (let c = 0; c < sampled[path].length; c++) node[path][c] = sampled[path][c];
+        const values =
+          path === 'weights' ? sampled[path] : (this.overrides.get(index)?.[path] ?? sampled[path]);
+        if (values.some((value, c) => value !== node[path][c])) {
+          for (let c = 0; c < values.length; c++) node[path][c] = values[c];
           if (path === 'weights') {
             node.weightsRevision++;
             changed = true;
@@ -251,6 +314,7 @@ export class Pose {
       }
     }
     this.initialized = true;
+    if (changed) this.version++;
     // Initialization must not leave a full-scene work list cached for authored mode.
     if (this.candidates === this.order) this.selectionKey = '\u0000';
     if (this.profiling) {

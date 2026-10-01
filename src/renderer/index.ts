@@ -1,4 +1,10 @@
-export { Renderer, type RendererOptions, type FrameStats, type SceneStats } from './renderer';
+export {
+  Renderer,
+  type RendererOptions,
+  type AssetOptions,
+  type FrameStats,
+  type SceneStats,
+} from './renderer';
 export type { OutputSettings, ToneMapping, SceneSampleCount } from './presentation/output';
 export type { EnvironmentImage } from './lighting/source';
 export { loadEnvironmentImage } from './lighting/source';

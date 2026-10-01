@@ -1,5 +1,12 @@
 import { expect, test, vi } from 'vitest';
-import { World, ModelLibrary, loadWorld, parseSceneDocument } from '../src/engine';
+import {
+  World,
+  ModelLibrary,
+  ModelInstance,
+  LoadedModel,
+  loadWorld,
+  parseSceneDocument,
+} from '../src/engine';
 import { animatedAsset } from './fixtures/animated';
 
 function library() {
@@ -28,6 +35,9 @@ test('one entity instantiates every model node and instances retain independent 
   const player = world.getEntity('player').model!,
     npc = world.getEntity('npc').model!;
   expect(player.asset).toBe(npc.asset);
+  expect(player.resources).toBe(npc.resources);
+  expect(player.pose.clips).toBe(npc.pose.clips);
+  expect(player.animation).not.toBe(npc.animation);
   expect(player.pose).not.toBe(npc.pose);
   expect(player.pose.nodes).toHaveLength(4);
   expect(world.entities).toHaveLength(2);
@@ -50,6 +60,29 @@ test('one entity instantiates every model node and instances retain independent 
   expect(player.pose.nodes[3].world[12]).toBe(7);
   expect(world.getEntity('player').transform.translation).toEqual([5, 0, 0]);
   expect(JSON.stringify(asset.gltf)).toBe(authored);
+});
+
+test('loaded models share frozen prepared clips while aliases and direct instances keep independent poses', () => {
+  const { models, asset } = library();
+  models.register('alias', asset, 'alias.glb');
+  expect(models.get('hero')).toBe(asset);
+  expect(models.getModel('hero')).toBe(models.getModel('alias'));
+  const loaded = new LoadedModel(asset);
+  const a = new ModelInstance('hero', loaded),
+    b = new ModelInstance('hero', loaded);
+  expect(a.pose.clips).toBe(b.pose.clips);
+  expect(a.pose.clips).toBe(loaded.clips);
+  expect(a.pose.nodes[0].weights).not.toBe(b.pose.nodes[0].weights);
+  expect(a.pose.nodes[0].world).not.toBe(b.pose.nodes[0].world);
+  const track = loaded.clips[0].tracks[0];
+  expect(Object.isFrozen(track.times) && Object.isFrozen(track.values)).toBe(true);
+  expect(() => {
+    track.values[0] = 999;
+  }).toThrow();
+  expect(() => {
+    track.node = 999;
+  }).toThrow();
+  expect(new ModelInstance('standalone', animatedAsset()).asset.gltf.asset.version).toBe('2.0');
 });
 
 test('entity parents are separate from model parents and root movement updates joints', () => {
