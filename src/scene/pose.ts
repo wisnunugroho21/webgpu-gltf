@@ -1,6 +1,7 @@
 import { mat4, quat } from 'gl-matrix';
 import type { Asset } from '../gltf/types';
-import { prepareClips, sampleTrack, type Clip } from '../animation/tracks';
+import { prepareClips, type Clip } from '../animation/tracks';
+import { PoseMixer, clonePose, type BlendSample } from '../animation/blending';
 
 /** Immutable glTF defaults plus reusable mutable pose arrays. Switching clips resets all
  * properties, including those a previous clip animated but the new clip does not. */
@@ -28,6 +29,8 @@ export class Pose {
   private sampled: Pose['defaults'];
   private worldChanged: Uint8Array;
   private initialized = false;
+  private mixer: PoseMixer;
+  private single = [{ clip: -1, time: 0, weight: 1 }];
   constructor(readonly asset: Asset) {
     this.clips = prepareClips(asset);
     const nodes = asset.gltf.nodes ?? [];
@@ -62,6 +65,7 @@ export class Pose {
       weights: [...node.weights],
     }));
     this.worldChanged = new Uint8Array(nodes.length);
+    this.mixer = new PoseMixer(this.defaults, this.clips);
     this.parents = nodes.map(() => -1);
     nodes.forEach((node, parent) =>
       node.children?.forEach((child) => {
@@ -86,13 +90,18 @@ export class Pose {
    * Revisions change only for effective world matrices or morph weights. Parent changes
    * propagate through the hierarchy; held STEP/constant values leave revisions intact. */
   evaluate(clipIndex: number, time: number): boolean {
-    this.sampled.forEach((node, i) => {
-      const original = this.defaults[i];
-      for (const path of ['translation', 'rotation', 'scale', 'weights'] as const)
-        for (let c = 0; c < original[path].length; c++) node[path][c] = original[path][c];
-    });
-    for (const track of this.clips[clipIndex]?.tracks ?? [])
-      sampleTrack(track, time, this.sampled[track.node][track.path]);
+    this.single[0].clip = clipIndex;
+    this.single[0].time = time;
+    return this.evaluateBlend(this.single);
+  }
+
+  /** Snapshot only on transition interruption, never in the frame loop. */
+  capture() {
+    return clonePose(this.nodes);
+  }
+
+  evaluateBlend(samples: readonly BlendSample[]): boolean {
+    this.mixer.evaluate(samples, this.sampled);
     this.worldChanged.fill(0);
     let changed = false;
     for (const index of this.order) {

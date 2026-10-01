@@ -2,6 +2,7 @@ import type { Geometry } from '../../gltf/geometry';
 import type { GpuMaterial } from '../materials/factory';
 import { shaderSource } from './shader';
 import type { SceneSampleCount } from '../presentation/output';
+import type { TransparencyMode } from './transparency';
 
 export interface PipelineArgs {
   buffers: GPUVertexBufferLayout[];
@@ -10,6 +11,7 @@ export interface PipelineArgs {
   features: Geometry['features'];
   doubleSided: boolean;
   blend: boolean;
+  transmission?: boolean;
   mirrored: boolean;
 }
 
@@ -30,6 +32,7 @@ export function pipelineArgs(
     features: geometry.features,
     doubleSided: material.doubleSided,
     blend: material.alphaMode === 'BLEND',
+    transmission: material.transmission,
     mirrored,
   };
 }
@@ -44,6 +47,7 @@ export class PipelineCache {
     private layout: GPUPipelineLayout,
     private format: GPUTextureFormat,
     private sampleCount: SceneSampleCount = 1,
+    private transparency: TransparencyMode = 'sorted',
   ) {}
   get size(): number {
     return this.pipelines.size;
@@ -52,12 +56,13 @@ export class PipelineCache {
     const key = JSON.stringify(args);
     let result = this.pipelines.get(key);
     if (!result) {
-      const shaderKey = JSON.stringify(args.features);
+      const weighted = this.transparency === 'weighted' && args.blend && !args.transmission;
+      const shaderKey = JSON.stringify([args.features, weighted]);
       let module = this.shaders.get(shaderKey);
       if (!module) {
         module = this.device.createShaderModule({
           label: `glTF shader ${shaderKey}`,
-          code: shaderSource(args.features),
+          code: shaderSource(args.features, weighted),
         });
         this.shaders.set(shaderKey, module);
       }
@@ -68,17 +73,34 @@ export class PipelineCache {
         fragment: {
           module,
           entryPoint: 'fragmentMain',
-          targets: [
-            {
-              format: this.format,
-              blend: args.blend
-                ? {
-                    color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
-                    alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-                  }
-                : undefined,
-            },
-          ],
+          targets: weighted
+            ? [
+                {
+                  format: 'rgba16float',
+                  blend: {
+                    color: { srcFactor: 'one', dstFactor: 'one' },
+                    alpha: { srcFactor: 'one', dstFactor: 'one' },
+                  },
+                },
+                {
+                  format: 'r16float',
+                  blend: {
+                    color: { srcFactor: 'one', dstFactor: 'one' },
+                    alpha: { srcFactor: 'one', dstFactor: 'one' },
+                  },
+                },
+              ]
+            : [
+                {
+                  format: this.format,
+                  blend: args.blend
+                    ? {
+                        color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+                        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+                      }
+                    : undefined,
+                },
+              ],
         },
         primitive: {
           topology: args.topology,
@@ -92,7 +114,7 @@ export class PipelineCache {
           depthCompare: 'less',
         },
         // Count is fixed for this cache, like attachment format and bind group layouts.
-        // Keep alpha-to-coverage off: MASK uses discard and BLEND uses glTF alpha blending.
+        // Keep alpha-to-coverage off: MASK discards; BLEND coverage belongs to OVER/OIT.
         multisample: { count: this.sampleCount },
       });
       this.pipelines.set(key, result);

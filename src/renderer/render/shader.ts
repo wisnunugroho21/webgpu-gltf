@@ -1,11 +1,12 @@
 import type { Geometry } from '../../gltf/geometry';
-import { materialTextureDeclarations, materialTextureSlots } from '../materials/slots';
+import { materialTextureDeclarations, materialShaderStruct } from '../materials/slots';
 import { materialExtensionShader } from '../materials/extensions-shader';
 import { uvLocation } from '../../gltf/texture-coordinates';
+import { punctualShader } from '../lighting/punctual-shader';
 
-/** Variants are limited to missing vertex inputs. Material values remain uniform data,
- * so changing a color or supplying a texture doesn't create another pipeline. */
-export function shaderSource(features: Geometry['features']): string {
+/** Variants cover vertex inputs and scene/weighted-transparency outputs. Material values
+ * remain uniforms, so changing a color or texture doesn't create another pipeline. */
+export function shaderSource(features: Geometry['features'], weighted = false): string {
   const uvSets = features.uvSets ?? (features.uv ? [0] : []);
   const volumeLocation = 5 + uvSets.filter((set) => set !== 0).length;
   return /* wgsl */ `
@@ -13,8 +14,7 @@ struct Frame { viewProjection: mat4x4f, eye: vec4f }
 struct Instance { world: mat4x4f, normal: mat4x4f }
 // Eight factor vec4s + twelve UV transforms = 512 bytes, matching CPU packing.
 // textureParameters = normal scale, occlusion strength, normal-map presence, authored basis.
-struct UVTransform { row0: vec4f, row1: vec4f }
-struct Material { baseColor: vec4f, emissive: vec4f, parameters: vec4f, textureParameters: vec4f, coat: vec4f, specular: vec4f, transmission: vec4f, attenuation: vec4f, uv: array<UVTransform, ${materialTextureSlots.length}> }
+${materialShaderStruct}
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(0) @binding(1) var transmissionScene: texture_2d<f32>;
 @group(0) @binding(2) var transmissionSceneSampler: sampler;
@@ -97,7 +97,9 @@ fn mappedNormal(N: vec3f, tangent: vec3f, bitangent: vec3f, sample: vec3f, scale
   return safeNormalize(T * local.x + B * local.y + N * local.z);
 }
 ${materialExtensionShader}
-@fragment fn fragmentMain(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4f {
+${punctualShader}
+${weighted ? 'struct TransparentOutput { @location(0) accumulation: vec4f, @location(1) opticalDepth: f32 }' : ''}
+@fragment fn fragmentMain(input: VertexOutput, @builtin(front_facing) front: bool) -> ${weighted ? 'TransparentOutput' : '@location(0) vec4f'} {
   // sRGB texture views decode color into linear space; factors and vertex colors are linear.
   let base = textureSample(colorTexture, colorSampler, textureUV(input, 0u)) * material.baseColor * input.color;
   // Emissive factor scales the map; it is not uniform illumination of the surface.
@@ -155,12 +157,8 @@ ${materialExtensionShader}
   ${features.normal ? '// Reverse the complete perturbed normal for double-sided back faces.\n  if (!front) { N = -N; }' : ''}
   // All texture samples and screen derivatives precede this nonuniform discard.
   if (alphaMode == 1.0 && base.a < material.parameters.z) { discard; }
-  let L = normalize(vec3f(0.4, 0.8, 0.6));
   let V = safeNormalize(frame.eye.xyz - input.world);
-  let H = safeNormalize(L + V);
-  let nl = max(dot(N, L), 0.0);
   let nv = max(dot(N, V), 0.001);
-  let vh = max(dot(V, H), 0.0);
   let metallic = clamp(material.parameters.x * mr.b, 0.0, 1.0);
   let roughness = clamp(material.parameters.y * mr.g, 0.045, 1.0);
   let ior = material.transmission.z;
@@ -171,10 +169,21 @@ ${materialExtensionShader}
   // colored specular weighting. Metallic Fresnel retains its ordinary grazing limit.
   let dielectricF90 = select(vec3f(specularWeight), min(specularColor, vec3f(1.0)) * specularWeight, ior == 0.0);
   let f90 = mix(dielectricF90, vec3f(1.0), metallic);
-  let fresnel = f0 + (vec3f(f90) - f0) * pow(1.0 - vh, 5.0);
-  let specular = specularLobe(N, L, V, roughness) * fresnel;
-  // Scalar energy reduction avoids complementary tint in colored dielectric diffuse.
-  let diffuse = (1.0 - maxChannel(fresnel)) * (1.0 - metallic) * base.rgb / 3.14159265;
+  var directDiffuse=vec3f(0.0);var directSpecular=vec3f(0.0);var coatDirect=vec3f(0.0);
+  let coatNv=max(dot(coatN,V),0.001);
+  let coatFresnel=0.04+0.96*pow(1.0-clamp(coatNv,0.0,1.0),5.0);
+  // Authored color/intensity and inverse-square/cone attenuation are linear radiance.
+  // Shadows modulate direct diffuse/specular/coat, leaving IBL, ambient and emission intact.
+  for(var i=0u;i<u32(lighting.header.x);i++) {
+    let light=lighting.lights[i];let sample=sampleLight(light,input.world);let L=sample.direction;
+    let nl=max(dot(N,L),0.0);let H=safeNormalize(L+V);let vh=max(dot(V,H),0.0);
+    let fresnel=f0+(f90-f0)*pow(1.0-vh,5.0);
+    let radiance=sample.radiance*shadowVisibility(light,input.world,N);
+    // Scalar energy reduction avoids complementary tint in colored dielectric diffuse.
+    directDiffuse+=(1.0-maxChannel(fresnel))*(1.0-metallic)*base.rgb/3.14159265*nl*radiance;
+    directSpecular+=specularLobe(N,L,V,roughness)*fresnel*nl*radiance;
+    coatDirect+=specularLobe(coatN,L,V,coatRoughness)*coatFresnel*max(dot(coatN,L),0.0)*radiance;
+  }
   // Occlusion affects only indirect light: it must not dim the direct light or emission.
   let occlusion = mix(1.0, ao, material.textureParameters.y);
   // Split-sum IBL combines roughness-prefiltered radiance with integrated BRDF terms.
@@ -187,8 +196,8 @@ ${materialExtensionShader}
   let indirectDiffuse = (1.0 - maxChannel(environmentFresnel)) * (1.0 - metallic) * base.rgb * irradiance;
   let indirectSpecular = reflected * (f0 * brdf.x + f90 * brdf.y);
   let transmissionAmount = transmissionWeight * (1.0 - metallic);
-  let diffuseLighting = diffuse * nl * 3.0 + (base.rgb * 0.12 + environment.x * indirectDiffuse) * occlusion;
-  var color = diffuseLighting * (1.0 - transmissionAmount) + specular * nl * 3.0 + environment.x * indirectSpecular * occlusion + emission;
+  let diffuseLighting = directDiffuse + (base.rgb * 0.12 + environment.x * indirectDiffuse) * occlusion;
+  var color = diffuseLighting * (1.0 - transmissionAmount) + directSpecular + environment.x * indirectSpecular * occlusion + emission;
   if (transmissionWeight > 0.0 && metallic < 1.0) {
     let transmitted = transmittedRadiance(input, N, V, thickness, roughness, ior);
     var attenuation = vec3f(1.0);
@@ -199,11 +208,9 @@ ${materialExtensionShader}
     color += transmissionAmount * (1.0 - maxChannel(environmentFresnel)) * base.rgb * transmitted.rgb * attenuation;
   }
   if (coatWeight > 0.0) {
-    let coatNv = max(dot(coatN, V), 0.001);
-    let coatFresnel = 0.04 + 0.96 * pow(1.0 - clamp(coatNv, 0.0, 1.0), 5.0);
     let coatReflection = textureSampleLevel(reflectionTexture, environmentSampler, environmentDirection(reflect(-V, coatN)), coatRoughness * environment.z).rgb;
     let coatBrdf = textureSampleLevel(brdfTexture, environmentSampler, vec2f(clamp(coatNv, 0.0, 1.0), coatRoughness), 0.0).rg;
-    let coatLight = vec3f(specularLobe(coatN, L, V, coatRoughness) * coatFresnel * max(dot(coatN, L), 0.0) * 3.0) + environment.x * coatReflection * (0.04 * coatBrdf.x + coatBrdf.y) * occlusion;
+    let coatLight = coatDirect + environment.x * coatReflection * (0.04 * coatBrdf.x + coatBrdf.y) * occlusion;
     // Coat also attenuates emission, as it lies above all base material contributions.
     color = color * (1.0 - coatWeight * coatFresnel) + coatWeight * coatLight;
   }
@@ -211,6 +218,22 @@ ${materialExtensionShader}
   let alpha = select(1.0, base.a, alphaMode == 2.0);
   // Preserve HDR linear radiance for lighting and alpha blending. Display encoding and
   // tone mapping belong exclusively to the fullscreen presentation pass.
-  return vec4f(color, alpha);
+  ${
+    weighted
+      ? `
+  let a = clamp(alpha, 0.0, 1.0);
+  // Positive, bounded depth/opacity weights favor nearer, more opaque fragments.
+  // Scale RGB by 1/256 to leave float16 accumulation headroom for bright layers.
+  // A weight floor of one also keeps low-opacity LDR contributions above float16
+  // underflow after RGB scaling; the upper bound leaves room for multiple HDR layers.
+  let weight = clamp(pow(a + 0.01, 3.0) * 8.0 * pow(1.0 - input.clip.z * 0.9, 3.0) * 1000.0, 1.0, 16.0);
+  var output: TransparentOutput;
+  output.accumulation = vec4f(clamp(color, vec3f(0), vec3f(65504)) / 256.0 * a, a) * weight;
+  // Add -log(1-alpha) instead of multiplying half-float revealage near one.
+  // It represents the same coverage product with better low-opacity precision.
+  output.opticalDepth = -log(max(1.0 - a, 0.00000001));
+  return output;`
+      : 'return vec4f(color, alpha);'
+  }
 }`;
 }

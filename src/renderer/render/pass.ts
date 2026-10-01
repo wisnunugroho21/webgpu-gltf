@@ -3,6 +3,7 @@ import type { Scene, Draw } from '../scene/types';
 import type { OutputPass } from '../presentation/output';
 import type { OrbitCamera } from '../camera/orbit-camera';
 import type { TransmissionBuffer } from './transmission';
+import type { TransparencyPass } from './transparency';
 
 export interface ScenePassContext {
   output: OutputPass;
@@ -11,6 +12,7 @@ export interface ScenePassContext {
   environmentGroup: GPUBindGroup;
   camera: OrbitCamera;
   transmission: TransmissionBuffer;
+  transparency?: TransparencyPass;
 }
 
 /** Submission consumes prepared buffers and visibility; no uploads or compute here. */
@@ -21,6 +23,7 @@ export function encodeScene(
 ): void {
   const { output, depth, frameGroup, environmentGroup, camera } = context;
   const hasTransmission = !!scene?.visibleTransmission.length;
+  const hasWeighted = !!context.transparency && !!scene?.visibleTransparent.length;
   const begin = (load: boolean): GPURenderPassEncoder =>
     encoder.beginRenderPass({
       label: 'Scene rendering',
@@ -29,14 +32,14 @@ export function encodeScene(
         output.sceneAttachment(
           { r: 0.001935, g: 0.002786, b: 0.004123, a: 1 },
           load ? 'load' : 'clear',
-          hasTransmission && !load,
+          (hasTransmission && !load) || hasWeighted,
         ),
       ],
       depthStencilAttachment: {
         view: depth.createView(),
         depthClearValue: 1,
         depthLoadOp: load ? 'load' : 'clear',
-        depthStoreOp: hasTransmission && !load ? 'store' : 'discard',
+        depthStoreOp: (hasTransmission && !load) || hasWeighted ? 'store' : 'discard',
       },
     });
   let pass = begin(false);
@@ -67,7 +70,9 @@ export function encodeScene(
       vec3.create(),
       vec3.subtract(vec3.create(), camera.target, camera.eye),
     );
-    for (const list of [scene.visibleTransmission, scene.visibleTransparent]) {
+    for (const list of hasWeighted
+      ? [scene.visibleTransmission]
+      : [scene.visibleTransmission, scene.visibleTransparent]) {
       for (const draw of list)
         draw.depth = vec3.dot(vec3.subtract(vec3.create(), draw.center, camera.eye), forward);
       list.sort((a, b) => b.depth - a.depth);
@@ -76,6 +81,23 @@ export function encodeScene(
         pass.setBindGroup(2, draw.material.bindGroup);
         submitDraw(pass, draw);
       }
+    }
+    if (hasWeighted) {
+      pass.end();
+      // Test translucent fragments against opaque/transmission depth, but never let
+      // them write depth. Accumulation/revealage are independent of submission order.
+      pass = context.transparency!.begin(encoder, depth);
+      pass.setBindGroup(0, hasTransmission ? context.transmission.group! : frameGroup);
+      pass.setBindGroup(1, scene.instances);
+      pass.setBindGroup(3, environmentGroup);
+      for (const draw of scene.visibleTransparent) {
+        pass.setPipeline(draw.pipeline);
+        pass.setBindGroup(2, draw.material.bindGroup);
+        submitDraw(pass, draw);
+      }
+      pass.end();
+      context.transparency!.composite(encoder, output);
+      return;
     }
   }
   pass.end();

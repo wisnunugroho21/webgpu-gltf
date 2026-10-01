@@ -8,18 +8,38 @@ export interface Instance {
   mirrored: boolean;
 }
 
+function sceneRoots(gltf: Gltf): number[] {
+  const nodes = gltf.nodes ?? [];
+  const scene = gltf.scenes?.[gltf.scene ?? 0];
+  if (gltf.scenes?.length && !scene) throw new Error('Invalid default scene.');
+  const children = new Set(nodes.flatMap((node) => node.children ?? []));
+  return (
+    scene?.nodes ??
+    (gltf.scenes?.length ? [] : nodes.map((_, i) => i).filter((i) => !children.has(i)))
+  );
+}
+
+/** Lights and meshes must use exactly the same selected-scene membership rules. */
+export function selectedSceneNodes(gltf: Gltf): number[] {
+  const result: number[] = [],
+    visited = new Set<number>();
+  const visit = (index: number) => {
+    const node = gltf.nodes?.[index];
+    if (!node || visited.has(index))
+      throw new Error('Scene has an invalid node, cycle, or multiple parents.');
+    visited.add(index);
+    result.push(index);
+    node.children?.forEach(visit);
+  };
+  sceneRoots(gltf).forEach(visit);
+  return result;
+}
+
 /** Traverse only the selected scene, accumulating parent * local transforms once.
  * Mesh references, rather than geometry copies, become primitive instance lists. */
 export function collectInstances(gltf: Gltf): Map<Primitive, Instance[]> {
   const nodes = gltf.nodes ?? [];
-  const children = new Set(nodes.flatMap((node) => node.children ?? []));
-  const scene = gltf.scenes?.[gltf.scene ?? 0];
-  if (gltf.scenes?.length && !scene) throw new Error('Invalid default scene.');
-  const roots =
-    scene?.nodes ??
-    (gltf.scenes?.length
-      ? []
-      : nodes.map((_, index) => index).filter((index) => !children.has(index)));
+  const roots = sceneRoots(gltf);
   const result = new Map<Primitive, Instance[]>();
   const visited = new Set<number>();
   const visit = (index: number, parent: mat4) => {

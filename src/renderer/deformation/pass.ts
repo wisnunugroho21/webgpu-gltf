@@ -6,6 +6,6 @@ import type { Scene } from '../scene/types';
 export function encodeDeformation(encoder: GPUCommandEncoder, scene: Scene): void {
   if (!scene.pendingDeformations.length) return;
   const pass = encoder.beginComputePass({ label: 'Scene deformation' });
-  for (const deformation of scene.pendingDeformations) deformation.dispatch(pass);
+  for (const deformation of scene.pendingDeformations) deformation.dispatchBatched(pass);
   pass.end();
 }

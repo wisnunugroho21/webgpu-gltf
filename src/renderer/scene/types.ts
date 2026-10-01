@@ -4,9 +4,11 @@ import type { GpuDeformation } from '../deformation/instance';
 import type { GpuMaterial } from '../materials/factory';
 import type { Resources } from '../core/resources';
 import type { Bounds } from './frustum';
+import type { PunctualLights } from '../../scene/lights';
 
 export interface Draw {
   pipeline: GPURenderPipeline;
+  shadowPipeline?: GPURenderPipeline;
   material: GpuMaterial;
   vertices: { buffer: GPUBuffer; offset: number }[];
   index?: GPUBuffer;
@@ -19,7 +21,7 @@ export interface Draw {
   bounds: Bounds[];
   visibleRuns: number[];
 }
-/** Last frame's scene submissions, excluding compute and fullscreen presentation. */
+/** Last frame's color-scene submissions, excluding shadows, compute and presentation. */
 export interface FrameStats {
   draws: number;
   instances: number;
@@ -32,6 +34,7 @@ export interface SceneStats {
   instances: number;
 }
 export interface Scene {
+  lights: PunctualLights;
   pose: Pose;
   updates: PoseDraw[];
   pendingDeformations: GpuDeformation[];

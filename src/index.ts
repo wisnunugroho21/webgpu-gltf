@@ -6,7 +6,17 @@ export type {
   SceneSampleCount,
   EnvironmentImage,
   EnvironmentSettings,
+  ShadowSettings,
+  ShadowResolution,
+  ShadowUpdate,
+  TransparencyMode,
 } from './renderer';
-export { AnimationController, type AnimationState } from './animation/controller';
+export {
+  AnimationController,
+  type AnimationState,
+  type AnimationLayer,
+  type AnimationTransition,
+} from './animation/controller';
 export { loadFiles, loadUrl, parseGlb } from './gltf/loader';
+export { loadEnvironmentImage, decodeRadiance } from './renderer';
 export type { Asset, Gltf } from './gltf/types';

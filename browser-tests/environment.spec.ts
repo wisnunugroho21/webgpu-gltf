@@ -16,11 +16,10 @@ test('GPU environment filtering preserves constant HDR radiance across faces and
       maps: { diffuse: GPUTexture; specular: GPUTexture };
       lut: GPUTexture;
     };
-    const image = {
-      width: 2,
-      height: 1,
-      pixels: new Float32Array([2, 0.5, 0.25, 1, 2, 0.5, 0.25, 1]),
-    };
+    const { loadEnvironmentImage } = await import('/src/renderer/lighting/source.ts');
+    const { hdrBytes } = await import('/tests/fixtures/hdr.ts');
+    const bytes = hdrBytes([128, 32, 16, 130, 128, 32, 16, 130]);
+    const image = await loadEnvironmentImage(new Blob([bytes.slice().buffer]));
     await lighting.setImage(image);
     const half = (bits: number) => {
       const exponent = (bits >> 10) & 31,
@@ -260,4 +259,57 @@ test('environment reflects on metals while unlit materials retain their colors',
     }
     expect(images[0].equals(images[1])).toBe(kind !== 'metal');
   }
+});
+
+test('HDR file picker preserves HDR radiance and rejects broken replacements without changing lighting', async ({
+  page,
+}) => {
+  const { constantHdr, hdrBytes } = await import('../tests/fixtures/hdr');
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/');
+  await expect(page.locator('#stats')).toContainText('4 primitive instances');
+  const stats = await page.locator('#stats').textContent();
+  await expect(page.locator('#environment-file')).toHaveAttribute('accept', /\.hdr/);
+  const studio = await page.locator('canvas').screenshot();
+  await page.locator('#environment-file').setInputFiles({
+    name: 'panorama.HDR',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from(constantHdr()),
+  });
+  await expect(page.locator('#environment-name')).toHaveText('panorama.HDR');
+  const loaded = await page.locator('canvas').screenshot();
+  expect(loaded.equals(studio)).toBe(false);
+  const pixels = await page.evaluate(async () => {
+    // Nameless blobs use content detection, with no canvas or sRGB conversion.
+    const { loadEnvironmentImage } = await import('/src/index.ts');
+    const { constantHdr } = await import('/tests/fixtures/hdr.ts');
+    return [
+      ...(await loadEnvironmentImage(new Blob([constantHdr().slice().buffer]))).pixels.slice(0, 4),
+    ];
+  });
+  expect(pixels).toEqual([2, 1, 0.5, 1]);
+  for (const buffer of [
+    Buffer.from('invalid HDR'),
+    Buffer.from(hdrBytes([255, 0, 0, 145, 0, 0, 0, 0])),
+  ]) {
+    await page
+      .locator('#environment-file')
+      .setInputFiles({ name: 'broken.hdr', mimeType: 'image/vnd.radiance', buffer });
+    await expect(page.locator('#environment-name')).toContainText('Invalid HDR environment');
+    await expect(page.locator('#environment-studio')).toBeEnabled();
+    expect((await page.locator('canvas').screenshot()).equals(loaded)).toBe(true);
+  }
+  await page.locator('#environment-file').setInputFiles({
+    name: 'panorama.pic',
+    mimeType: 'image/vnd.radiance',
+    buffer: Buffer.from(constantHdr()),
+  });
+  await expect(page.locator('#environment-name')).toHaveText('panorama.pic');
+  expect((await page.locator('canvas').screenshot()).equals(loaded)).toBe(true);
+  await page.locator('#environment-studio').click();
+  await expect(page.locator('#environment-name')).toHaveText('Studio environment');
+  expect((await page.locator('canvas').screenshot()).equals(studio)).toBe(true);
+  await expect(page.locator('#stats')).toHaveText(stats!);
+  expect(errors).toEqual([]);
 });

@@ -2,6 +2,7 @@ import { mat4, vec3 } from 'gl-matrix';
 import type { Scene } from './types';
 import { transformBounds } from './frustum';
 import { instanceFloatCount, normalMatrixOffset } from '../core/bindings';
+import { prepareDeformationBatches } from '../deformation/batch';
 
 /** Playback already evaluated the pose; this phase only updates render-side resources. */
 export function uploadPose(device: GPUDevice, scene: Scene): void {
@@ -56,4 +57,5 @@ export function uploadPose(device: GPUDevice, scene: Scene): void {
     vec3.scale(update.draw.center, vec3.add(update.draw.center, bounds.min, bounds.max), 0.5);
   }
   flushTransforms();
+  prepareDeformationBatches(scene.pendingDeformations);
 }

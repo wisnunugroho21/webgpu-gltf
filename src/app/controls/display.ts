@@ -13,4 +13,7 @@ export function bindDisplayControls(renderer: Renderer): void {
   };
   element('tone-mapping').addEventListener('change', update);
   element('exposure').addEventListener('input', update);
+  const shadows = element<HTMLInputElement>('shadows');
+  shadows.checked = renderer.shadowSettings.enabled;
+  shadows.addEventListener('change', () => renderer.setShadows({ enabled: shadows.checked }));
 }

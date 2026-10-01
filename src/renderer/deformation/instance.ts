@@ -2,13 +2,14 @@ import type { Deformation } from '../../scene/deformation';
 import type { Geometry } from '../../gltf/geometry';
 import { Resources, uploadBuffer } from '../core/resources';
 import { DeformationCompute } from './compute';
+import type { DeformationBatchSlot } from './batch';
 import {
   GpuDeformationInputCache,
   uploadDeformationStorage,
   type GpuDeformationInputs,
 } from './inputs';
 
-/** Node-owned GPU output and pose uploads consuming scene-shared immutable inputs. The output is
+/** Independent node pose/output ranges consuming scene-shared immutable inputs. The output is
  * bound as STORAGE in compute and VERTEX in the subsequent render pass, without a CPU copy. */
 export class GpuDeformation {
   readonly output: GPUBuffer;
@@ -16,6 +17,18 @@ export class GpuDeformation {
   readonly inputs: GpuDeformationInputs;
   readonly group: GPUBindGroup;
   readonly count: number;
+  get outputOffset(): number {
+    return this.batch?.outputOffset ?? 0;
+  }
+  get outputSize(): number {
+    return this.source.byteLength;
+  }
+  get paletteOffset(): number {
+    return this.batch?.paletteOffset ?? 0;
+  }
+  get weightsOffset(): number {
+    return this.batch?.weightsOffset ?? 0;
+  }
   private paletteData: Float32Array;
   private weightsData: Float32Array;
   private paletteBuffer: GPUBuffer;
@@ -30,6 +43,7 @@ export class GpuDeformation {
     readonly data: Deformation,
     private compute: DeformationCompute,
     cache = new GpuDeformationInputCache(device, resources),
+    readonly batch?: DeformationBatchSlot,
   ) {
     this.inputs = cache.get(data);
     this.count = this.inputs.count;
@@ -39,8 +53,8 @@ export class GpuDeformation {
     this.jointRevisions = data.activeJoints.map(() => -1);
     const storage = (array: ArrayBufferView, label: string, dynamic = false) =>
       uploadDeformationStorage(device, resources, array, label, dynamic);
-    this.paletteBuffer = storage(this.paletteData, 'Joint palette', true);
-    this.weightsBuffer = storage(this.weightsData, 'Morph weights', true);
+    this.paletteBuffer = batch?.batch.palette ?? storage(this.paletteData, 'Joint palette', true);
+    this.weightsBuffer = batch?.batch.weights ?? storage(this.weightsData, 'Morph weights', true);
     const parameters = uploadBuffer(
       device,
       resources,
@@ -54,13 +68,15 @@ export class GpuDeformation {
       'Deformation counts',
     );
     // COPY_SRC permits numeric GPU regression tests; playback never maps or reads output.
-    this.output = resources.own(
-      device.createBuffer({
-        label: 'Deformed vertex output',
-        size: this.source.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_SRC,
-      }),
-    );
+    this.output =
+      batch?.batch.output ??
+      resources.own(
+        device.createBuffer({
+          label: 'Deformed vertex output',
+          size: this.source.byteLength,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_SRC,
+        }),
+      );
     this.group = device.createBindGroup({
       layout: compute.layout,
       entries: [
@@ -71,7 +87,19 @@ export class GpuDeformation {
         this.paletteBuffer,
         this.weightsBuffer,
         this.output,
-      ].map((buffer, binding) => ({ binding, resource: { buffer } })),
+      ].map((buffer, binding) => ({
+        binding,
+        resource: {
+          buffer,
+          ...(binding === 4
+            ? { offset: this.paletteOffset, size: this.paletteData.byteLength }
+            : binding === 5
+              ? { offset: this.weightsOffset, size: this.weightsData.byteLength }
+              : binding === 6
+                ? { offset: this.outputOffset, size: this.outputSize }
+                : {}),
+        },
+      })),
     });
     this.update();
   }
@@ -125,14 +153,22 @@ export class GpuDeformation {
     if (paletteChanged && this.data.skinned) {
       this.data.updatePalette();
       this.data.palette.forEach((matrix, i) => this.paletteData.set(matrix, i * 16));
-      this.device.queue.writeBuffer(this.paletteBuffer, 0, this.paletteData.buffer as ArrayBuffer);
+      this.device.queue.writeBuffer(
+        this.paletteBuffer,
+        this.paletteOffset,
+        this.paletteData.buffer as ArrayBuffer,
+      );
       this.jointRevisions.forEach((_, i) => {
         this.jointRevisions[i] = this.data.jointRevision(this.data.activeJoints[i]);
       });
     }
     if (weightsChanged && this.data.weights.length) {
       this.weightsData.set(this.data.weights);
-      this.device.queue.writeBuffer(this.weightsBuffer, 0, this.weightsData.buffer as ArrayBuffer);
+      this.device.queue.writeBuffer(
+        this.weightsBuffer,
+        this.weightsOffset,
+        this.weightsData.buffer as ArrayBuffer,
+      );
       this.weightsRevision = this.data.weightsRevision;
     }
     this.pending = true;
@@ -142,6 +178,16 @@ export class GpuDeformation {
     pass.setPipeline(this.compute.pipeline);
     pass.setBindGroup(0, this.group);
     pass.dispatchWorkgroups(Math.ceil(this.count / 64));
+    this.pending = false;
+  }
+  /** Call prepareDeformationBatches(pending) in the upload phase first. The first compatible member
+   * encodes the whole active batch; later members only acknowledge their output. */
+  dispatchBatched(pass: GPUComputePassEncoder): void {
+    if (!this.batch) {
+      this.dispatch(pass);
+      return;
+    }
+    this.batch.batch.encode(pass);
     this.pending = false;
   }
 }

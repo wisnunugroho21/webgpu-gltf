@@ -1,5 +1,6 @@
 import { materialLayoutEntries } from '../materials/factory';
 import type { OrbitCamera } from '../camera/orbit-camera';
+import { lightingFloats, type PunctualLighting } from '../lighting/punctual';
 
 // Instance = world mat4 + inverse-transpose normal mat4, matching render/shader.ts.
 export const instanceFloatCount = 32;
@@ -12,6 +13,7 @@ export class SceneBindings {
   readonly instances: GPUBindGroupLayout;
   readonly materials: GPUBindGroupLayout;
   readonly pipeline: GPUPipelineLayout;
+  readonly shadowPipeline: GPUPipelineLayout;
   readonly frame: GPUBindGroup;
   readonly frameData = new Float32Array(frameFloatCount);
   private frameBuffer: GPUBuffer;
@@ -22,6 +24,7 @@ export class SceneBindings {
   constructor(
     private device: GPUDevice,
     environmentLayout: GPUBindGroupLayout,
+    private lighting: PunctualLighting,
   ) {
     const frameLayout = device.createBindGroupLayout({
       entries: [
@@ -32,6 +35,16 @@ export class SceneBindings {
         },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage', minBindingSize: lightingFloats * 4 },
+        },
+        {
+          binding: 4,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage', minBindingSize: 4 },
+        },
       ],
     });
     this.frameLayout = frameLayout;
@@ -45,6 +58,9 @@ export class SceneBindings {
       ],
     });
     this.materials = device.createBindGroupLayout({ entries: materialLayoutEntries });
+    this.shadowPipeline = device.createPipelineLayout({
+      bindGroupLayouts: [lighting.shadowLayout, this.instances, this.materials],
+    });
     this.pipeline = device.createPipelineLayout({
       bindGroupLayouts: [frameLayout, this.instances, this.materials, environmentLayout],
     });
@@ -71,6 +87,8 @@ export class SceneBindings {
         { binding: 0, resource: { buffer: this.frameBuffer } },
         { binding: 1, resource: view },
         { binding: 2, resource: this.transmissionSampler },
+        { binding: 3, resource: { buffer: this.lighting.buffer } },
+        { binding: 4, resource: { buffer: this.lighting.shadowBuffer } },
       ],
     });
   }

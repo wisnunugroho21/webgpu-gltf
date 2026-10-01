@@ -1,8 +1,6 @@
-export interface EnvironmentImage {
-  width: number;
-  height: number;
-  pixels: Float32Array;
-}
+import { decodeRadiance } from './radiance';
+import type { EnvironmentImage } from './types';
+export type { EnvironmentImage } from './types';
 
 /** Public maps are equirectangular RGBA arrays in linear radiance units, allowing HDR
  * values above one without tying lighting to an image decoder or asset file format. */
@@ -47,9 +45,17 @@ export function studioEnvironment(): EnvironmentImage {
   return { width, height, pixels };
 }
 
-/** Browser-decoded PNG/JPEG panoramas are sRGB images, converted once to linear pixels.
- * They are LDR sources; callers can supply linear HDR arrays through the renderer API. */
+/** Radiance files decode straight to linear HDR. PNG/JPEG panoramas use the browser
+ * decoder and convert sRGB once. Sniff the signature so nameless Blobs work too. */
 export async function loadEnvironmentImage(blob: Blob): Promise<EnvironmentImage> {
+  const signature = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
+  const name = (blob as Blob & { name?: string }).name ?? '';
+  if (
+    (signature[0] === 35 && signature[1] === 63) ||
+    /\.(hdr|pic)$/i.test(name) ||
+    /^(image\/(vnd\.radiance|x-hdr)|application\/x-hdr)$/i.test(blob.type)
+  )
+    return decodeRadiance(new Uint8Array(await blob.arrayBuffer()));
   const bitmap = await createImageBitmap(blob);
   try {
     const canvas = document.createElement('canvas');

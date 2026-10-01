@@ -61,7 +61,15 @@ describe('animation playback controller', () => {
     delete asset.gltf.animations;
     const pose = new Pose(asset);
     animation.setPose(pose);
-    expect(animation.state).toEqual({ clips: [], clip: -1, time: 0, playing: true, duration: 0 });
+    expect(animation.state).toEqual({
+      clips: [],
+      clip: -1,
+      time: 0,
+      playing: true,
+      duration: 0,
+      layers: [{ clip: -1, time: 0, weight: 1 }],
+      transition: undefined,
+    });
     expect(animation.update(1000)).toBe(true);
     expect(animation.update(2000)).toBe(false);
     expect(pose.nodes[3].weights).toEqual([0.75]);

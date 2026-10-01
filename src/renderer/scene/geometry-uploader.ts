@@ -4,7 +4,7 @@ import type { GpuDeformation } from '../deformation/instance';
 import { Resources, uploadBuffer } from '../core/resources';
 
 /** Scene-scoped upload caches preserve interleaved views and shared index buffers.
- * Node-owned deformation outputs replace only the deformable vertex binding. */
+ * Independent deformation output ranges replace only the deformable vertex binding. */
 export class GeometryUploader {
   private views = new Map<number, GPUBuffer>();
   private indexBuffers = new Map<Primitive, GPUBuffer>();
@@ -16,7 +16,8 @@ export class GeometryUploader {
 
   upload(primitive: Primitive, geometry: Geometry, deformation?: GpuDeformation) {
     const vertices = geometry.bindings.map((binding) => {
-      if (deformation?.source === binding.source) return { buffer: deformation.output, offset: 0 };
+      if (deformation?.source === binding.source)
+        return { buffer: deformation.output, offset: deformation.outputOffset };
       if (typeof binding.source !== 'number') {
         const buffer = uploadBuffer(
           this.device,

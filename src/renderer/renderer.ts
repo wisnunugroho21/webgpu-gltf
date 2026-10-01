@@ -15,13 +15,25 @@ import { SceneVisibility } from './scene/visibility';
 import { encodeDeformation } from './deformation/pass';
 import { encodeScene } from './render/pass';
 import { TransmissionBuffer } from './render/transmission';
+import { TransparencyPass, type TransparencyMode } from './render/transparency';
+import {
+  PunctualLighting,
+  type ShadowResolution,
+  type ShadowSettings,
+  type ShadowUpdate,
+} from './lighting/punctual';
 export type { FrameStats, SceneStats } from './scene/types';
 
 export interface RendererOptions {
+  /** Fixed at creation. Weighted OIT avoids primitive sorting; sorted keeps classic OVER. */
+  transparency?: TransparencyMode;
   /** Fixed at creation because attachments and all scene pipelines must agree. */
   sampleCount?: SceneSampleCount;
   /** Conservative per-instance bounds testing; enabled by default. */
   frustumCulling?: boolean;
+  shadows?: boolean;
+  /** Fixed at creation. All shadow maps use this single-sample depth resolution. */
+  shadowResolution?: ShadowResolution;
 }
 export class Renderer {
   readonly camera: OrbitCamera;
@@ -34,6 +46,13 @@ export class Renderer {
   private builder: SceneBuilder;
   private viewport: Viewport;
   private transmission: TransmissionBuffer;
+  private lighting: PunctualLighting;
+  get shadowSettings(): Readonly<ShadowSettings> {
+    return this.lighting.settings;
+  }
+  setShadows(settings: ShadowUpdate): void {
+    this.lighting.setSettings(settings);
+  }
   private cullingEnabled = true;
   private lastFrame: FrameStats = { draws: 0, instances: 0, culledInstances: 0 };
   get frameStats(): Readonly<FrameStats> {
@@ -90,7 +109,14 @@ export class Renderer {
     options: RendererOptions = {},
   ): Promise<Renderer> {
     const sampleCount = options.sampleCount ?? 4;
+    const transparencyMode = options.transparency ?? 'weighted';
+    if (transparencyMode !== 'weighted' && transparencyMode !== 'sorted')
+      throw new Error('Transparency must be weighted or sorted.');
     const frustumCulling = options.frustumCulling ?? true;
+    const shadows = options.shadows ?? true;
+    const shadowResolution = options.shadowResolution ?? 512;
+    if (typeof shadows !== 'boolean' || ![256, 512, 1024].includes(shadowResolution))
+      throw new Error('Invalid shadow options.');
     if (typeof frustumCulling !== 'boolean') throw new Error('Frustum culling must be a boolean.');
     if (sampleCount !== 1 && sampleCount !== 4)
       throw new Error('Scene sample count must be 1 (off) or 4 (MSAA).');
@@ -106,16 +132,32 @@ export class Renderer {
     }
     const format = navigator.gpu.getPreferredCanvasFormat();
     let output: OutputPass | undefined;
+    let transparency: TransparencyPass | undefined;
     let environment: EnvironmentLighting;
     try {
       output = await OutputPass.create(device, format, sampleCount);
+      if (transparencyMode === 'weighted')
+        transparency = await TransparencyPass.create(device, sampleCount);
       environment = await EnvironmentLighting.create(device);
     } catch (error) {
       output?.destroy();
+      transparency?.destroy();
       device.destroy();
       throw error;
     }
-    const renderer = new Renderer(canvas, device, context, format, onError, output, environment);
+    const renderer = new Renderer(
+      canvas,
+      device,
+      context,
+      format,
+      onError,
+      output,
+      environment,
+      shadowResolution,
+      shadows,
+      transparencyMode,
+      transparency,
+    );
     renderer.setFrustumCulling(frustumCulling);
     device.addEventListener('uncapturederror', (event) => {
       renderer.stop();
@@ -138,14 +180,25 @@ export class Renderer {
     private onError: (message: string) => void,
     private output: OutputPass,
     private environment: EnvironmentLighting,
+    shadowResolution: ShadowResolution,
+    shadows: boolean,
+    readonly transparencyMode: TransparencyMode,
+    private transparency?: TransparencyPass,
   ) {
     context.configure({ device, format, alphaMode: 'opaque' });
     const mipmaps = new MipmapGenerator(device);
     this.camera = new OrbitCamera(canvas);
     this.viewport = new Viewport(canvas, device, output);
-    this.bindings = new SceneBindings(device, environment.layout);
+    this.lighting = new PunctualLighting(device, shadowResolution, shadows);
+    this.bindings = new SceneBindings(device, environment.layout, this.lighting);
     this.transmission = new TransmissionBuffer(device, this.bindings);
-    this.builder = new SceneBuilder(device, this.bindings, mipmaps, this.sampleCount);
+    this.builder = new SceneBuilder(
+      device,
+      this.bindings,
+      mipmaps,
+      this.sampleCount,
+      transparencyMode,
+    );
     this.frameRequest = requestAnimationFrame(this.render);
   }
 
@@ -191,10 +244,15 @@ export class Renderer {
     this.viewport.resize();
     if (scene?.transmission.length)
       this.transmission.resize(this.viewport.width, this.viewport.height);
+    if (scene?.transparent.length)
+      this.transparency?.resize(this.viewport.width, this.viewport.height);
     this.bindings.uploadCamera(this.camera, this.viewport.width / this.viewport.height);
+    if (scene) this.lighting.update(scene);
     const encoder = this.device.createCommandEncoder();
     // Phase 2: compute consumes uploaded inputs. Paused/static poses reuse their output.
     if (scene) encodeDeformation(encoder, scene);
+    // Shadow rendering consumes the same completed deformation output as the color pass.
+    if (scene) this.lighting.encode(encoder, scene);
     // Phase 3: render consumes completed deformation output in the same submission.
     this.lastFrame.draws = 0;
     this.lastFrame.instances = 0;
@@ -208,6 +266,7 @@ export class Renderer {
       environmentGroup: this.environment.bindGroup,
       camera: this.camera,
       transmission: this.transmission,
+      transparency: this.transparency,
     });
     // Presentation follows scene rendering: tone mapping happens once, after all blending.
     this.output.encode(encoder, this.context.getCurrentTexture().createView());
@@ -224,8 +283,10 @@ export class Renderer {
     this.scene?.resources.destroy();
     this.viewport.destroy();
     this.transmission.destroy();
+    this.transparency?.destroy();
     this.output.destroy();
     this.environment.destroy();
+    this.lighting.destroy();
     this.bindings.destroy();
     this.camera.destroy();
     this.context.unconfigure();

@@ -126,6 +126,11 @@ export const materialTextureSlots: readonly MaterialTextureSlot[] = [
 ];
 
 export const materialFactorFloats = 32;
+/** Shared by color and alpha-tested shadow shaders; keep field order in sync with packing. */
+export const materialShaderStruct = /* wgsl */ `
+struct UVTransform { row0: vec4f, row1: vec4f }
+struct Material { baseColor: vec4f, emissive: vec4f, parameters: vec4f, textureParameters: vec4f, coat: vec4f, specular: vec4f, transmission: vec4f, attenuation: vec4f, uv: array<UVTransform, ${materialTextureSlots.length}> }
+`;
 export const materialUniformByteSize = (materialFactorFloats + materialTextureSlots.length * 8) * 4;
 
 /** Visibility is supplied by the renderer so the schema also works in CPU-only tests. */

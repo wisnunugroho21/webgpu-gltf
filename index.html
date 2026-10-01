@@ -58,10 +58,14 @@
           aria-label="Exposure in EV"
         />
         <output id="exposure-value" for="exposure">0.0 EV</output>
+        <label><input id="shadows" type="checkbox" checked /> Shadows</label>
       </section>
       <section id="environment-controls" class="toolbar" aria-label="Environment lighting controls">
         <label class="button"
-          >Open environment<input id="environment-file" type="file" accept=".png,.jpg,.jpeg"
+          >Open environment<input
+            id="environment-file"
+            type="file"
+            accept=".hdr,.pic,.png,.jpg,.jpeg"
         /></label>
         <button id="environment-studio">Studio</button>
         <span id="environment-name" role="status">Studio environment</span>
@@ -79,6 +83,18 @@
         ></label>
         <button id="animation-play">Pause</button>
         <button id="animation-restart">Restart</button>
+        <label
+          >Fade (s)
+          <input
+            id="animation-fade"
+            type="number"
+            min="0"
+            max="5"
+            step="0.1"
+            value="0.3"
+            aria-label="Crossfade duration"
+        /></label>
+        <output id="animation-blend" aria-live="off"></output>
         <input
           id="animation-time"
           type="range"
@@ -110,9 +126,9 @@
           draws. All five core glTF material textures are supported: base color, metallic/roughness,
           normal, occlusion, and emissive. Lighting uses a directional light with a small ambient
           term, plus environment diffuse light and roughness-dependent reflections. Open an
-          equirectangular PNG/JPEG panorama or use the built-in studio environment. Animation,
-          linear blend skinning, and morph targets are supported. Four-sample MSAA smooths geometry
-          edges before tone mapping.
+          equirectangular HDR or PNG/JPEG panorama or use the built-in studio environment.
+          Animation, linear blend skinning, and morph targets are supported. Four-sample MSAA
+          smooths geometry edges before tone mapping.
         </p>
         <p id="warnings"></p>
       </details>

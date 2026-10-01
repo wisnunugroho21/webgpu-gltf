@@ -18,7 +18,9 @@ test('playback uploads and dispatches only affected transforms, weights and infl
       deformation: {
         paletteBuffer: GPUBuffer;
         weightsBuffer: GPUBuffer;
-        dispatch(pass: GPUComputePassEncoder): void;
+        paletteOffset: number;
+        weightsOffset: number;
+        dispatchBatched(pass: GPUComputePassEncoder): void;
       };
     };
     const internal = renderer as unknown as {
@@ -57,12 +59,22 @@ test('playback uploads and dispatches only affected transforms, weights and infl
     try {
       await renderer.setAsset(asset);
       const scene = internal.scene;
-      const buffers = new Map<GPUBuffer, { node: number; kind: string }>();
+      const buffers = new Map<GPUBuffer, Map<number, { node: number; kind: string }>>();
+      const track = (buffer: GPUBuffer, offset: number, info: { node: number; kind: string }) => {
+        if (!buffers.has(buffer)) buffers.set(buffer, new Map());
+        buffers.get(buffer)!.set(offset, info);
+      };
       for (const update of scene.updates) {
-        buffers.set(update.deformation.paletteBuffer, { node: update.node, kind: 'palette' });
-        buffers.set(update.deformation.weightsBuffer, { node: update.node, kind: 'weights' });
-        const dispatch = update.deformation.dispatch.bind(update.deformation);
-        update.deformation.dispatch = (pass) => {
+        track(update.deformation.paletteBuffer, update.deformation.paletteOffset, {
+          node: update.node,
+          kind: 'palette',
+        });
+        track(update.deformation.weightsBuffer, update.deformation.weightsOffset, {
+          node: update.node,
+          kind: 'weights',
+        });
+        const dispatch = update.deformation.dispatchBatched.bind(update.deformation);
+        update.deformation.dispatchBatched = (pass) => {
           dispatched.push(update.node);
           dispatch(pass);
         };
@@ -71,7 +83,8 @@ test('playback uploads and dispatches only affected transforms, weights and infl
       internal.device.queue.writeBuffer = (...args) => {
         const [buffer, offset, , , size] = args;
         if (buffer === scene.transformBuffer) writes.push({ kind: 'transform', offset, size });
-        else if (buffers.has(buffer)) writes.push({ ...buffers.get(buffer)!, offset, size });
+        else if (buffers.has(buffer))
+          writes.push({ ...buffers.get(buffer)!.get(offset)!, offset, size });
         writeBuffer(...args);
       };
       const frame = async (timestamp: number) => {

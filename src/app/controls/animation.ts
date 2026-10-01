@@ -8,9 +8,13 @@ export class AnimationControls {
     private unavailable: () => boolean,
   ) {
     renderer.animation.onChange = () => this.update();
-    element('animation-clip').addEventListener('change', () =>
-      renderer.animation.select(Number(element<HTMLSelectElement>('animation-clip').value)),
-    );
+    element('animation-clip').addEventListener('change', () => {
+      const index = Number(element<HTMLSelectElement>('animation-clip').value);
+      const seconds = Number(element<HTMLInputElement>('animation-fade').value);
+      if (index >= 0 && renderer.animation.state.playing && seconds > 0 && Number.isFinite(seconds))
+        renderer.animation.crossFadeTo(index, seconds);
+      else renderer.animation.select(index);
+    });
     element('animation-play').addEventListener('click', () =>
       renderer.animation.setPlaying(!renderer.animation.state.playing),
     );
@@ -39,9 +43,13 @@ export class AnimationControls {
     timeline.max = String(state.duration);
     timeline.value = String(state.time);
     timeline.disabled = this.unavailable() || state.clip < 0 || state.duration === 0;
-    element<HTMLButtonElement>('animation-play').disabled = this.unavailable() || state.clip < 0;
+    element<HTMLButtonElement>('animation-play').disabled =
+      this.unavailable() || (state.clip < 0 && !state.transition);
     element('animation-play').textContent = state.playing ? 'Pause' : 'Play';
     element('animation-clock').textContent =
       `${state.time.toFixed(2)} / ${state.duration.toFixed(2)} s`;
+    element('animation-blend').textContent = state.transition
+      ? `Blending ${Math.round(state.transition.progress * 100)}%`
+      : '';
   }
 }

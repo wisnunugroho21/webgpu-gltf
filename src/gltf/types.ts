@@ -99,6 +99,7 @@ export interface Material {
 }
 export interface Gltf {
   asset: { version: string; minVersion?: string };
+  extensions?: { KHR_lights_punctual?: { lights: PunctualLight[] } };
   buffers?: {
     uri?: string;
     byteLength: number;
@@ -116,6 +117,7 @@ export interface Gltf {
     scale?: number[];
     skin?: number;
     weights?: number[];
+    extensions?: { KHR_lights_punctual?: { light: number } };
   }[];
   scenes?: { nodes?: number[] }[];
   scene?: number;
@@ -131,6 +133,14 @@ export interface Gltf {
   extensionsUsed?: string[];
   skins?: { joints: number[]; inverseBindMatrices?: number; skeleton?: number }[];
   animations?: Animation[];
+}
+export interface PunctualLight {
+  name?: string;
+  type: 'directional' | 'point' | 'spot';
+  color?: number[];
+  intensity?: number;
+  range?: number;
+  spot?: { innerConeAngle?: number; outerConeAngle?: number };
 }
 export interface Animation {
   name?: string;

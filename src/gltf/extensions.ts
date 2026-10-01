@@ -1,5 +1,6 @@
 /** Required extensions are accepted only when their data has a rendering implementation. */
 export const supportedExtensions = [
+  'KHR_lights_punctual',
   'EXT_meshopt_compression',
   'KHR_draco_mesh_compression',
   'KHR_mesh_quantization',

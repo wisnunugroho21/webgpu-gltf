@@ -110,8 +110,14 @@ test('scene preparation shares immutable deformation buffers and releases them o
     let originalBuffers: GPUBuffer[] = [],
       failedBuffers: GPUBuffer[] = [],
       replacementBuffers: GPUBuffer[] = [];
+    const batchedAsset = () => {
+      const asset = animatedAsset();
+      asset.gltf.nodes!.push({ mesh: 0, skin: 0, weights: [-0.3] });
+      asset.gltf.scenes![0].nodes.push(4);
+      return asset;
+    };
     try {
-      await renderer.setAsset(animatedAsset());
+      await renderer.setAsset(batchedAsset());
       renderer.animation.setPlaying(false);
       const original = internal.scene;
       const [a, b] = original.updates.map((update) => update.deformation);
@@ -121,8 +127,7 @@ test('scene preparation shares immutable deformation buffers and releases them o
         (r): r is GPUBuffer => r instanceof GPUBuffer,
       );
       originalBuffers.forEach(track);
-      // Fail at the second node's incompatible skin, after the first node uploaded
-      // shared data. Every candidate allocation must be released, preserving the scene.
+      // Fail during material preparation after deformation uploaded shared data. Every candidate allocation must be released, preserving the scene.
       const createBuffer = internal.device.createBuffer.bind(internal.device);
       internal.device.createBuffer = (descriptor) => {
         const buffer = createBuffer(descriptor);
@@ -130,9 +135,8 @@ test('scene preparation shares immutable deformation buffers and releases them o
         track(buffer);
         return buffer;
       };
-      const invalid = animatedAsset();
-      invalid.gltf.skins.push({ joints: [1] });
-      invalid.gltf.nodes[3].skin = 1;
+      const invalid = batchedAsset();
+      invalid.gltf.materials![0].pbrMetallicRoughness!.baseColorTexture = { index: 99 };
       let rejected = false;
       try {
         await renderer.setAsset(invalid);
@@ -145,7 +149,7 @@ test('scene preparation shares immutable deformation buffers and releases them o
         rejected &&
         internal.scene === original &&
         originalBuffers.every((buffer) => destructions.get(buffer) === 0);
-      await renderer.setAsset(animatedAsset());
+      await renderer.setAsset(batchedAsset());
       renderer.animation.setPlaying(false);
       fresh = internal.scene.updates[0].deformation.inputs.base !== a.inputs.base;
       replacementBuffers = internal.scene.resources.owned.filter(
@@ -165,6 +169,9 @@ test('scene preparation shares immutable deformation buffers and releases them o
       preserved,
       fresh,
       errors,
+      arenasAllocated: [originalBuffers, failedBuffers, replacementBuffers].every((buffers) =>
+        buffers.some((buffer) => buffer.label === 'Batched deformed vertex output'),
+      ),
       originalDestroyedOnce: originalBuffers.every((b) => destructions.get(b) === 1),
       failedDestroyedOnce:
         failedBuffers.length > 0 && failedBuffers.every((b) => destructions.get(b) === 1),
@@ -173,6 +180,7 @@ test('scene preparation shares immutable deformation buffers and releases them o
   });
   expect(result.errors).toEqual([]);
   expect(result.shared && result.independent && result.preserved && result.fresh).toBe(true);
+  expect(result.arenasAllocated).toBe(true);
   expect(
     result.originalDestroyedOnce && result.failedDestroyedOnce && result.replacementDestroyedOnce,
   ).toBe(true);

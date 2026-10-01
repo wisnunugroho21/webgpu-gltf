@@ -2,7 +2,7 @@ import type { Asset, Material, TextureInfo } from '../../gltf/types';
 import { Resources, uploadBuffer } from '../core/resources';
 import { createMaterialLayoutEntries, materialTextureSlots } from './slots';
 import { materialUniform } from './uniform';
-import { MipmapGenerator, mipLevelCount } from '../textures/mipmaps';
+import { MipmapGenerator, mipLevelCount, type MipmapFilter } from '../textures/mipmaps';
 import { samplerDescriptor } from '../textures/samplers';
 
 export interface GpuMaterial {
@@ -59,14 +59,21 @@ export class MaterialFactory {
     return result;
   }
 
-  private async image(index: number, format: GPUTextureFormat): Promise<GPUTexture> {
+  private async image(
+    index: number,
+    format: GPUTextureFormat,
+    filter: MipmapFilter,
+  ): Promise<GPUTexture> {
     // The same source image can serve a color slot and a data slot. Include its format
     // in the cache key so data never accidentally receives an sRGB transfer function.
-    const key = `${index}/${format}`;
+    // Generated chains depend on filtering semantics. Authored chains are unchanged,
+    // so they can still share one allocation across translucent and opaque slots.
+    const decoded = this.asset.decodedImages?.get(index);
+    const effectiveFilter = decoded && decoded.levels.length > 1 ? 'area' : filter;
+    const key = `${index}/${format}/${effectiveFilter}`;
     let result = this.images.get(key);
     if (!result) {
       result = (async () => {
-        const decoded = this.asset.decodedImages?.get(index);
         if (decoded) {
           const base = decoded.levels[0];
           if (!base) throw new Error('Decoded texture has no mip levels.');
@@ -101,7 +108,7 @@ export class MaterialFactory {
               [level.width, level.height],
             );
           }
-          if (generate) await this.mipmaps.generate(texture);
+          if (generate) await this.mipmaps.generate(texture, filter);
           return texture;
         }
         const blob = this.asset.images[index];
@@ -129,7 +136,7 @@ export class MaterialFactory {
             { texture, premultipliedAlpha: false },
             [bitmap.width, bitmap.height],
           );
-          await this.mipmaps.generate(texture);
+          await this.mipmaps.generate(texture, filter);
           return texture;
         } finally {
           bitmap.close();
@@ -157,13 +164,14 @@ export class MaterialFactory {
     label: string,
     format: GPUTextureFormat,
     neutral: readonly number[],
+    filter: MipmapFilter,
   ) {
     const reference = info ? this.asset.gltf.textures?.[info.index] : undefined;
     if (info && reference?.source === undefined)
       throw new Error(`${label} texture has no image source.`);
     return {
       texture: reference
-        ? await this.image(reference.source!, format)
+        ? await this.image(reference.source!, format, filter)
         : this.defaultTexture(format, neutral, `${label} neutral default`),
       sampler: this.sampler(reference?.sampler),
     };
@@ -184,6 +192,7 @@ export class MaterialFactory {
         slot.label,
         slot.format,
         slot.neutral,
+        slot.shaderName === 'color' && definition.alphaMode === 'BLEND' ? 'alpha-weighted' : 'area',
       );
       textureEntries.push(
         { binding: slot.samplerBinding, resource: sampler },

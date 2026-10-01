@@ -138,8 +138,8 @@ fn linearToSrgb(v: vec3f) -> vec3f {
     return this.hdrView;
   }
   /** Geometry blends per sample in linear HDR. Normally discard MSAA samples after
-   * resolve; a transmission continuation stores then loads them so coverage and depth
-   * survive the opaque snapshot. Tone mapping still happens only after the final resolve. */
+   * resolve; transmission/OIT continuations store then load them so coverage survives
+   * snapshots and per-sample compositing. Tone mapping follows the final resolve. */
   sceneAttachment(
     clearValue: GPUColor,
     loadOp: GPULoadOp = 'clear',
