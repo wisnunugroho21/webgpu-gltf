@@ -63,7 +63,6 @@ export class Renderer {
   private height = 0;
   private frameData = new Float32Array(20);
   private compute?: DeformationCompute;
-  private deformationDirty = false;
   // Keep the original public playback API as small delegates for existing consumers.
   get onAnimationChange(): (() => void) | undefined {
     return this.animation.onChange;
@@ -444,14 +443,27 @@ export class Renderer {
         0,
         scene.transformData.buffer as ArrayBuffer,
       );
-    this.deformationDirty = true;
+  }
+
+  /** Encode deformation only after pose inputs have been uploaded. End this pass before
+   * rendering so compute storage writes are available as vertex reads in the next pass.
+   * New deformation kernels belong here; queue uploads belong in uploadPose. */
+  private encodeDeformation(encoder: GPUCommandEncoder, scene: Scene, poseChanged: boolean): void {
+    if (!poseChanged || !scene.updates.some((update) => update.deformation)) return;
+    const pass = encoder.beginComputePass({ label: 'Scene deformation' });
+    for (const update of scene.updates) update.deformation?.dispatch(pass);
+    pass.end();
   }
 
   private render = (timestamp: number): void => {
     if (this.disposed) return;
-    if (this.scene) {
+    const scene = this.scene;
+    let poseChanged = false;
+    // Phase 1: sample animation and upload its inputs before encoding any GPU work.
+    if (scene) {
       try {
-        if (this.animation.update(timestamp)) this.uploadPose(this.scene);
+        poseChanged = this.animation.update(timestamp);
+        if (poseChanged) this.uploadPose(scene);
       } catch (error) {
         this.stop();
         this.onError(error instanceof Error ? error.message : String(error));
@@ -463,15 +475,19 @@ export class Renderer {
     this.frameData.set(this.camera.eye, 16);
     this.device.queue.writeBuffer(this.frameBuffer, 0, this.frameData);
     const encoder = this.device.createCommandEncoder();
-    // Ending compute before render establishes storage-write → vertex-read ordering in
-    // the same submission. Paused poses keep their output and need no dispatch or readback.
-    if (this.deformationDirty && this.scene?.updates.some((update) => update.deformation)) {
-      const computePass = encoder.beginComputePass({ label: 'Scene deformation' });
-      for (const update of this.scene.updates) update.deformation?.dispatch(computePass);
-      computePass.end();
-    }
-    this.deformationDirty = false;
+    // Phase 2: compute consumes uploaded inputs. Paused/static poses reuse their output.
+    if (scene) this.encodeDeformation(encoder, scene, poseChanged);
+    // Phase 3: render consumes completed deformation output in the same submission.
+    this.encodeRender(encoder, scene);
+    this.device.queue.submit([encoder.finish()]);
+    this.frameRequest = requestAnimationFrame(this.render);
+  };
+
+  /** Draw submission consumes prepared buffers; it neither uploads poses nor dispatches
+   * deformation. Keep additional render passes after encodeDeformation in the frame loop. */
+  private encodeRender(encoder: GPUCommandEncoder, scene: Scene | undefined): void {
     const pass = encoder.beginRenderPass({
+      label: 'Scene rendering',
       colorAttachments: [
         {
           view: this.context.getCurrentTexture().createView(),
@@ -487,7 +503,6 @@ export class Renderer {
         depthStoreOp: 'discard',
       },
     });
-    const scene = this.scene;
     if (scene) {
       pass.setBindGroup(0, this.frameGroup);
       pass.setBindGroup(1, scene.instances);
@@ -513,9 +528,7 @@ export class Renderer {
       }
     }
     pass.end();
-    this.device.queue.submit([encoder.finish()]);
-    this.frameRequest = requestAnimationFrame(this.render);
-  };
+  }
 
   private draw(pass: GPURenderPassEncoder, draw: Draw): void {
     draw.vertices.forEach((binding, slot) =>
