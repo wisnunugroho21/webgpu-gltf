@@ -19,15 +19,11 @@ test('opaque occlusion removes hidden instances without changing pixels, and inv
         shadows: false,
       });
       const internal = renderer as unknown as {
-        render(t: number): void;
-        stop(): void;
         device: GPUDevice;
         occlusion: { pending: boolean; readback: GPUBuffer };
       };
-      internal.stop();
       const frame = async () => {
-        internal.render(0);
-        internal.stop();
+        renderer.render(0);
         await internal.device.queue.onSubmittedWorkDone();
         // Test harness waits for asynchronous visibility; production frames never wait.
         for (let i = 0; internal.occlusion.pending && i < 100; i++)
@@ -141,14 +137,10 @@ test('scale threshold culls tiny projected instances and reacts to zoom and view
       shadows: false,
     });
     const internal = renderer as unknown as {
-      render(t: number): void;
-      stop(): void;
       device: GPUDevice;
     };
-    internal.stop();
     const frame = async () => {
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       return renderer.frameStats;
     };
@@ -211,15 +203,11 @@ test('BLEND, discarded MASK and transmission cannot hide opaque background geome
         shadows: false,
       });
       const internal = renderer as unknown as {
-        render(t: number): void;
-        stop(): void;
         device: GPUDevice;
         occlusion: { pending: boolean };
       };
-      internal.stop();
       const frame = async () => {
-        internal.render(0);
-        internal.stop();
+        renderer.render(0);
         await internal.device.queue.onSubmittedWorkDone();
         for (let i = 0; internal.occlusion.pending && i < 100; i++)
           await new Promise((resolve) => setTimeout(resolve, 1));
@@ -295,13 +283,10 @@ test('hidden animated meshes keep computing and updating shadows, pose changes i
       shadows: true,
     });
     const internal = renderer as unknown as {
-      render(t: number): void;
-      stop(): void;
       device: GPUDevice;
       scene: import('../src/renderer/scene/types').Scene;
       occlusion: { pending: boolean };
     };
-    internal.stop();
     const events: string[] = [];
     const device = internal.device;
     const create = device.createCommandEncoder.bind(device);
@@ -327,8 +312,7 @@ test('hidden animated meshes keep computing and updating shadows, pose changes i
     };
     const frame = async () => {
       events.length = 0;
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await device.queue.onSubmittedWorkDone();
       for (let i = 0; internal.occlusion.pending && i < 100; i++)
         await new Promise((resolve) => setTimeout(resolve, 1));

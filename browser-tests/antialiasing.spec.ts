@@ -155,15 +155,11 @@ test('renderer supports explicit single-sample mode and defaults to four samples
       try {
         samples.push(renderer.sampleCount);
         await renderer.setAsset(demoAsset());
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        );
+        if (!renderer.render(0)) throw new Error('Initial frame failed.');
         canvas.style.width = '123px';
         canvas.style.height = '117px';
         await renderer.setAsset(demoAsset());
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        );
+        if (!renderer.render(16)) throw new Error('Resized replacement frame failed.');
       } finally {
         renderer.destroy();
         canvas.remove();

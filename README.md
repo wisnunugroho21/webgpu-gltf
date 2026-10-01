@@ -48,6 +48,7 @@ See the [October 2026 code review](docs/review.md) for verified fixes, test resu
 | `src/index.ts`, `src/renderer/index.ts`                             | Public rendering, settings, statistics, animation and loading exports             |
 | `src/main.ts`                                                       | Viewer bootstrap                                                                  |
 | `src/app/viewer.ts`, `src/app/dom.ts`                               | Application state, serialized loading, status and shared DOM helpers              |
+| `src/app/render-loop.ts`                                            | Viewer-owned browser scheduling adapter, cancellation and frame failure handling  |
 | `src/app/controls/`                                                 | Separate animation, environment and display widgets                               |
 | `src/app/demo.ts`, `src/app/style.css`                              | Offline demo and viewer presentation                                              |
 | `src/gltf/types.ts`, `src/gltf/loader.ts`                           | Typed glTF subset, JSON/GLB parsing, URI resolution and image loading             |
@@ -72,7 +73,37 @@ See the [October 2026 code review](docs/review.md) for verified fixes, test resu
 | `src/renderer/presentation/output.ts`                               | HDR/MSAA targets, linear resolve, exposure, tone mapping and presentation         |
 | `src/renderer/camera/orbit-camera.ts`                               | Orbit controls, framing and WebGPU depth projection                               |
 
-The original `Renderer` and `AnimationController` APIs are preserved. Internal feature modules now live in the directories above; imports of those implementation files should use their new paths.
+The existing settings and playback APIs remain available. `Renderer.create()` now prepares an idle renderer; callers explicitly submit frames with `render(timestampMs)`. The viewer retains continuous rendering through its scheduling adapter. Internal feature modules live in the directories above; imports of those implementation files should use their new paths.
+
+## Explicit frames and engine integration
+
+Creating a renderer and loading an asset do not start a frame loop. The caller controls when a frame happens and supplies a finite timestamp in **milliseconds**, using a consistent, nondecreasing clock. Browser RAF timestamps work; engines may supply their own simulation clock. This lets gameplay and physics finish before rendering preparation begins.
+
+```ts
+import { Renderer, loadUrl } from './src';
+
+const renderer = await Renderer.create(canvas, showError);
+await renderer.setAsset(await loadUrl(modelUrl));
+renderer.render(0); // One frame; the caller schedules any later frames.
+```
+
+Inside an engine's existing frame callback, the order can be:
+
+```ts
+function frame(timestampMs: number) {
+  gameplay.update(); // Engine-owned simulation policy and timestep.
+  physics.step();
+  if (!renderer.render(timestampMs)) engine.stop();
+}
+```
+
+`render()` synchronously prepares/uploads the current pose and camera, records compute, shadows, scene and presentation, and submits once. It returns `true` after submission, without waiting for GPU completion. Animation is evaluated inside this preparation using the supplied clock; do not also call `renderer.animation.update()` separately. A nonfinite timestamp throws without disabling the renderer. Frame/GPU/device failures invoke `showError` once and disable further frames; `render()` then returns `false`. Calls after `destroy()` also return `false`. Cancel the owner's loop before destroying the renderer; destruction is idempotent.
+
+The browser viewer uses `ViewerRenderLoop` in `src/app/render-loop.ts`. Its `start()` schedules one RAF chain, `stop()` cancels pending work, and `destroy()` permanently disables scheduling. Generation checks ignore cancelled callbacks arriving after stop/restart. The adapter owns scheduling only; `Viewer` stops it on fatal errors and destroys it before the renderer on page exit. Playback controls, camera movement, resize, model/environment loading and rendering while animation is paused retain their existing viewer behavior. Engines can call the public frame method directly without importing viewer code.
+
+**Migration:** embedding applications that previously relied on automatic frames from `Renderer.create()` must call `render()` from their own loop. Browser tests and benchmarks now use that public method rather than private render/stop hooks.
+
+See [frame scheduling and lifecycle](docs/frame-scheduling.md) for ownership rules and regression coverage.
 
 ## How the case study informs the implementation
 

@@ -46,10 +46,8 @@ test('static groups in animated scenes match separate draws through parent motio
       cpuProfiling: true,
     });
     const internal = renderer as any;
-    internal.stop();
     const frame = async () => {
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       return canvas.toDataURL();
     };

@@ -14,7 +14,6 @@ test('overlapping scene/environment preparation stays ordered and callback failu
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
     const internal = renderer as any;
-    internal.stop();
     const device: GPUDevice = internal.device;
     let depth = 0,
       maximumDepth = 0;
@@ -76,8 +75,7 @@ test('overlapping scene/environment preparation stays ordered and callback failu
       const attached = internal.scene.pose.asset === notified;
       // Encoding after the failed notification catches accidentally destroyed scene buffers.
       device.pushErrorScope('validation');
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await device.queue.onSubmittedWorkDone();
       const gpuError = await device.popErrorScope();
       return {

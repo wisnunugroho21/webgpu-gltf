@@ -1,0 +1,13 @@
+# Caller-owned rendering
+
+The renderer exposes `render(timestampMs): boolean`. Creation, asset loading and settings changes prepare resources/state but do not schedule frames. The engine or application decides when to render, after its gameplay and physics updates. Timestamps are finite milliseconds from one nondecreasing clock; animation sampling consumes that clock during frame preparation.
+
+The frame retains pose/camera/light uploads and visibility preparation → GPU deformation → shadows → scene → presentation → one submission. The method returns after command submission. Occlusion readback remains asynchronous and never blocks the owner loop. CPU timings still describe the synchronous rendering call, excluding gameplay and physics before it.
+
+The viewer's `ViewerRenderLoop` adapter owns browser RAF callbacks. Starting twice retains one chain. Stopping cancels the pending request; callback-generation checks also reject already queued callbacks after a restart. Destruction prevents further starts and does not destroy the renderer itself. Viewer teardown cancels the adapter first, then destroys the renderer.
+
+Fatal frame/GPU failures are reported once and disable future submissions. The public method returns false on failure or disposal, allowing an engine to stop its loop. A bad timestamp throws without making the renderer unusable. Destruction is idempotent and suppresses expected device-loss notifications from teardown. Failed scene replacements still retain the previous usable asset; they are separate from fatal frame failures.
+
+Existing embedding code must replace implicit continuous rendering with calls from its own scheduler. The browser viewer preserves continuous animation, camera controls and resize handling through the adapter. Settings/seek changes become visible on the next caller-owned frame. Animation evaluation remains inside renderer preparation for this migration; engines should not also call `renderer.animation.update()` and discard the resulting dirty-pose signal.
+
+`tests/render-loop.test.ts` exercises one-chain ownership, exact timestamp forwarding, cancellation, stale callbacks, stop/restart during rendering, thrown callbacks and permanent disposal. Architecture tests prohibit RAF calls in renderer modules. `browser-tests/manual-frames.spec.ts` verifies idle creation/loading, one submission per explicit frame, gameplay/physics before uploads, compute/render ordering, resize, adapter cancellation, terminal failures and disposal against real WebGPU. The existing GPU tests and occlusion benchmark use public `render()` calls; viewer regressions verify continuous playback and controls through the adapter.

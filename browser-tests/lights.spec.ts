@@ -15,16 +15,12 @@ test('authored light color, intensity, distance, cone and animation reach HDR sh
       shadows: false,
     });
     const internal = renderer as unknown as {
-      stop(): void;
-      render(t: number): void;
       device: GPUDevice;
     };
-    internal.stop();
     renderer.setEnvironment({ intensity: 0 });
     renderer.setOutput({ toneMapping: 'none' });
     const pixel = async () => {
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       const image = new Image();
       image.src = canvas.toDataURL();
@@ -151,17 +147,13 @@ test('directional, spot and point shadows darken receivers; camera culling retai
       shadowResolution: 256,
     });
     const internal = renderer as unknown as {
-      stop(): void;
-      render(t: number): void;
       device: GPUDevice;
       lighting: { encode(encoder: GPUCommandEncoder, scene: unknown): void };
     };
-    internal.stop();
     renderer.setEnvironment({ intensity: 0 });
     renderer.setOutput({ toneMapping: 'none' });
     const pixels = async () => {
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       const image = new Image();
       image.src = canvas.toDataURL();
@@ -259,11 +251,8 @@ test('shadow MASK coverage uses the selected transformed UVs; glass and BLEND do
       shadowResolution: 256,
     });
     const internal = renderer as unknown as {
-      stop(): void;
-      render(t: number): void;
       device: GPUDevice;
     };
-    internal.stop();
     renderer.setEnvironment({ intensity: 0 });
     renderer.setOutput({ toneMapping: 'none' });
     const imageCanvas = document.createElement('canvas');
@@ -280,8 +269,7 @@ test('shadow MASK coverage uses the selected transformed UVs; glass and BLEND do
       imageCanvas.toBlob((blob) => resolve(blob!)),
     );
     const pixels = async () => {
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       const picture = new Image();
       picture.src = canvas.toDataURL();
@@ -376,11 +364,8 @@ test('shadows follow computed deformation and reuse static poses; unrelated anim
       shadowResolution: 256,
     });
     const internal = renderer as unknown as {
-      stop(): void;
-      render(t: number): void;
       device: GPUDevice;
     };
-    internal.stop();
     const asset = animatedAsset();
     const node = asset.gltf.nodes!.push({}) - 1;
     asset.gltf.scenes![0].nodes!.push(node);
@@ -408,8 +393,7 @@ test('shadows follow computed deformation and reuse static poses; unrelated anim
     };
     const frame = async () => {
       events.length = 0;
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       return [...events];
     };

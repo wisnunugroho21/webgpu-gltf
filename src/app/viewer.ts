@@ -6,10 +6,12 @@ import { element, disableControls, errorMessage } from './dom';
 import { AnimationControls } from './controls/animation';
 import { bindDisplayControls } from './controls/display';
 import { bindEnvironmentControls } from './controls/environment';
+import { ViewerRenderLoop } from './render-loop';
 
 /** Application state and serialized loading. Widgets don't own renderer lifetime. */
 export class Viewer {
   private renderer?: Renderer;
+  private renderLoop?: ViewerRenderLoop;
   private animationControls?: AnimationControls;
   private busy = false;
   private failed = false;
@@ -20,6 +22,7 @@ export class Viewer {
         this.fail(message),
       );
       this.renderer = renderer;
+      this.renderLoop = new ViewerRenderLoop(renderer);
       this.animationControls = new AnimationControls(renderer, () => this.busy || this.failed);
       bindDisplayControls(renderer);
       bindEnvironmentControls(renderer, (source, name) =>
@@ -30,17 +33,29 @@ export class Viewer {
       );
       this.bindModelControls();
       element('reset').addEventListener('click', () => renderer.camera.reset());
-      window.addEventListener('pagehide', () => renderer.destroy(), { once: true });
+      window.addEventListener('pagehide', this.pageHide, { once: true });
+      if (!this.failed) this.renderLoop.start();
       await this.show(demoAsset, 'Built-in instancing scene');
     } catch (error) {
       this.fail(errorMessage(error));
+      this.destroy();
     }
   }
 
   private fail(message: string): void {
     this.failed = true;
+    this.renderLoop?.stop();
     element('status').textContent = message;
     disableControls(true);
+  }
+
+  private pageHide = (): void => this.destroy();
+
+  /** Cancel the owner loop before releasing any resources it could draw from. */
+  destroy(): void {
+    this.renderLoop?.destroy();
+    this.renderer?.destroy();
+    window.removeEventListener('pagehide', this.pageHide);
   }
 
   /** Model and environment loading share a lock and control restoration. */

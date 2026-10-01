@@ -13,11 +13,8 @@ test('extension maps decode their channels and UV transforms like equivalent fac
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
     const internal = renderer as unknown as {
-      stop(): void;
-      render(t: number): void;
       device: GPUDevice;
     };
-    internal.stop();
     renderer.setEnvironment({ intensity: 0 });
     renderer.setOutput({ toneMapping: 'none' });
     const image = document.createElement('canvas');
@@ -32,8 +29,7 @@ test('extension maps decode their channels and UV transforms like equivalent fac
       );
     const blob = await new Promise<Blob>((resolve) => image.toBlob((value) => resolve(value!)));
     const pixel = async () => {
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       const png = new Image();
       png.src = canvas.toDataURL();
@@ -232,11 +228,8 @@ test('glass preserves opaque HDR radiance, applies volume absorption and survive
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
     const internal = renderer as unknown as {
-      stop(): void;
-      render(t: number): void;
       device: GPUDevice;
     };
-    internal.stop();
     renderer.setEnvironment({ intensity: 0 });
     renderer.setOutput({ toneMapping: 'none' });
     const render = async (thickness: number, scale = 1, distance?: number) => {
@@ -275,8 +268,7 @@ test('glass preserves opaque HDR radiance, applies volume absorption and survive
       renderer.camera.yaw = renderer.camera.pitch = 0;
       renderer.camera.distance = 4;
       renderer.camera.radius = 1;
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       const png = new Image();
       png.src = canvas.toDataURL();
@@ -298,8 +290,7 @@ test('glass preserves opaque HDR radiance, applies volume absorption and survive
       const scaled = await render(0.5, 2, 1);
       // Removing transmission restores the ordinary one-pass path without stale bindings.
       await renderer.setAsset(materialAsset({ extensions: { KHR_materials_unlit: {} } }));
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       return {
         thin,

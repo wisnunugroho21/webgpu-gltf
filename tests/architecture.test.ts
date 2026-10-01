@@ -44,6 +44,13 @@ test('renderer modules do not depend on viewer controls or fixtures', () => {
   }
 });
 
+test('renderer modules do not schedule browser frames', () => {
+  for (const [path, source] of Object.entries(sources)) {
+    if (path.includes('/src/renderer/'))
+      expect(source, path).not.toMatch(/\b(?:requestAnimationFrame|cancelAnimationFrame)\s*\(/);
+  }
+});
+
 test('source modules have no circular static dependencies', () => {
   const visited = new Set<string>();
   const active: string[] = [];

@@ -24,8 +24,6 @@ test('playback uploads and dispatches only affected transforms, weights and infl
       };
     };
     const internal = renderer as unknown as {
-      stop(): void;
-      render(timestamp: number): void;
       device: GPUDevice;
       scene: {
         updates: Update[];
@@ -33,7 +31,6 @@ test('playback uploads and dispatches only affected transforms, weights and infl
         pose: { clips: { tracks: { interpolation: string }[] }[] };
       };
     };
-    internal.stop(); // Drive deterministic frames; don't race the automatic RAF loop.
     const asset = animatedAsset();
     asset.gltf.nodes.push(
       { mesh: 0, weights: [0.3], translation: [-2, 0, 0] },
@@ -88,8 +85,7 @@ test('playback uploads and dispatches only affected transforms, weights and infl
         writeBuffer(...args);
       };
       const frame = async (timestamp: number) => {
-        internal.render(timestamp);
-        internal.stop();
+        renderer.render(timestamp);
         await internal.device.queue.onSubmittedWorkDone();
       };
       const clear = () => {

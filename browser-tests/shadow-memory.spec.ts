@@ -42,7 +42,6 @@ test('shadow capacity follows light faces, shrinks, releases, and refreshes both
       shadowResolution: 512,
     });
     const internal = renderer as any;
-    internal.stop();
     const device: GPUDevice = internal.device;
     const layouts = [
       internal.bindings.pipeline,
@@ -84,8 +83,7 @@ test('shadow capacity follows light faces, shrinks, releases, and refreshes both
     }[] = [];
     const frame = async (name: string) => {
       device.pushErrorScope('validation');
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await device.queue.onSubmittedWorkDone();
       const error = await device.popErrorScope();
       snapshots.push({

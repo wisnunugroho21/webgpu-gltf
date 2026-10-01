@@ -66,8 +66,8 @@ export class Renderer {
   readonly animation = new AnimationController();
   private scene?: Scene;
   private bindings: SceneBindings;
-  private frameRequest = 0;
   private disposed = false;
+  private failed = false;
   private visibility = new SceneVisibility();
   private builder: SceneBuilder;
   private viewport: Viewport;
@@ -228,13 +228,11 @@ export class Renderer {
       throw error;
     }
     device.addEventListener('uncapturederror', (event) => {
-      renderer.stop();
-      onError(`GPU error: ${event.error.message}`);
+      renderer.fail(`GPU error: ${event.error.message}`);
     });
     void device.lost.then((info) => {
       if (!renderer.disposed) {
-        renderer.stop();
-        onError(`WebGPU device lost: ${info.message || info.reason}. Reload to reconnect.`);
+        renderer.fail(`WebGPU device lost: ${info.message || info.reason}. Reload to reconnect.`);
       }
     });
     return renderer;
@@ -269,7 +267,6 @@ export class Renderer {
     );
     // Attach input listeners only once all fallible GPU initialization has succeeded.
     this.camera = new OrbitCamera(canvas);
-    this.frameRequest = requestAnimationFrame(this.render);
   }
 
   /** Prepare a replacement fully before swapping. A failed load leaves the current model usable. */
@@ -280,11 +277,11 @@ export class Renderer {
       return await prepareGpu(
         this.device,
         async () => {
-          if (this.disposed) throw new Error('Renderer was disposed.');
+          if (this.disposed || this.failed) throw new Error('Renderer is disposed or failed.');
           return this.builder.prepare(asset, resources);
         },
         (candidate) => {
-          if (this.disposed) throw new Error('Renderer was disposed.');
+          if (this.disposed || this.failed) throw new Error('Renderer is disposed or failed.');
           const previous = this.scene;
           candidate.pose.profiling = this.cpuProfiling;
           this.scene = candidate;
@@ -382,8 +379,13 @@ export class Renderer {
     return encoder.finish();
   }
 
-  private render = (timestamp: number): void => {
-    if (this.disposed) return;
+  /** Submit exactly one frame using the caller's clock in milliseconds (for example
+   * a RAF timestamp or engine simulation time). Gameplay/physics run before this call.
+   * No scheduling or GPU waits occur here. False tells the owner to stop rendering
+   * after disposal or a fatal frame/device error, reported through onError once. */
+  render(timestamp: number): boolean {
+    if (this.disposed || this.failed) return false;
+    if (!Number.isFinite(timestamp)) throw new Error('Frame timestamp must be finite.');
     try {
       const scene = this.scene;
       const start = this.cpuProfiling ? performance.now() : 0;
@@ -409,21 +411,23 @@ export class Renderer {
         this.timings.submissionMs = submitted - encoded;
         this.timings.totalMs = submitted - start;
       }
-      this.frameRequest = requestAnimationFrame(this.render);
+      return true;
     } catch (error) {
       // Resize, visibility preparation and command encoding can fail too. Stop the
-      // loop and surface those errors through the same callback as pose failures.
-      this.stop();
-      this.onError(error instanceof Error ? error.message : String(error));
+      // renderer and surface errors through the same callback as pose failures.
+      this.fail(error instanceof Error ? error.message : String(error));
+      return false;
     }
-  };
+  }
 
-  private stop(): void {
-    cancelAnimationFrame(this.frameRequest);
+  private fail(message: string): void {
+    if (this.disposed || this.failed) return;
+    this.failed = true;
+    this.onError(message);
   }
   destroy(): void {
+    if (this.disposed) return;
     this.disposed = true;
-    this.stop();
     this.scene?.resources.destroy();
     this.viewport.destroy();
     this.transmission.destroy();

@@ -16,12 +16,9 @@ test('renderer blends skin and morph poses before compute, preserves phase order
       shadows: false,
     });
     const internal = renderer as unknown as {
-      stop(): void;
-      render(timestamp: number): void;
       device: GPUDevice;
       scene: import('../src/renderer/scene/types').Scene;
     };
-    internal.stop();
     const phases: string[] = [];
     let maxError = 0;
     const frames: string[][] = [];
@@ -76,8 +73,7 @@ test('renderer blends skin and morph poses before compute, preserves phase order
       const frame = async (timestamp: number) => {
         phases.length = 0;
         dispatchCount = 0;
-        internal.render(timestamp);
-        internal.stop();
+        renderer.render(timestamp);
         await device.queue.onSubmittedWorkDone();
         frames.push([...phases]);
         dispatchCounts.push(dispatchCount);

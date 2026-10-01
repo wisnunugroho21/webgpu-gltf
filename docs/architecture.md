@@ -30,6 +30,7 @@ const renderer = await Renderer.create(canvas, showError);
 await renderer.setAsset(await loadUrl(modelUrl));
 renderer.animation.setPlaying(false);
 renderer.setFrustumCulling(true);
+renderer.render(0); // Caller owns scheduling and supplies milliseconds.
 ```
 
 Feature implementation paths moved during the refactor. Imports of internal files must use their new locations; application consumers should prefer the public entry points above. The code map in the README lists the new locations.
@@ -58,7 +59,8 @@ Preparation delegates vertex/index uploads to `GeometryUploader`. Its view and i
 | `OutputPass`          | HDR/MSAA attachments and presentation resources                                | Resize or renderer disposal                                                     |
 | `EnvironmentLighting` | Environment maps and lighting parameters/LUT                                   | Environment replacement or renderer disposal, according to resource lifetime    |
 | `PunctualLighting`    | Light records, neutral depth, lazy shadow matrix/depth resources               | Capacity changes release map allocations; renderer disposal releases everything |
-| `Renderer`            | Device/context, camera controls, RAF loop and subsystem coordination           | `destroy()`                                                                     |
+| `Renderer`            | Device/context, camera controls and explicit frame/subsystem coordination      | `destroy()`                                                                     |
+| `ViewerRenderLoop`    | Browser RAF scheduling, pending handle and callback generation                 | `stop()` cancels; `destroy()` permanently disables the adapter                  |
 
 Bind groups and pipelines do not have explicit destroy methods. Their references disappear with their owners. Layouts are fixed for the renderer lifetime; texture presence never changes the material interface.
 
@@ -75,7 +77,11 @@ flowchart LR
     F --> G[One queue submission]
 ```
 
-The frame loop in `Renderer` explicitly coordinates these phases. `uploadFrame()` owns CPU updates and queue uploads; `encodeFrame()` records compute and rendering without pose uploads; `render()` submits and schedules the next frame. Exceptions throughout all three steps stop playback and reach the error callback.
+The caller owns the frame loop. `Renderer.create()` prepares resources without scheduling any frame. An engine can update gameplay and physics, then call public `render(timestampMs)` using its consistent clock in milliseconds. `uploadFrame()` owns CPU updates and queue uploads; `encodeFrame()` records compute and rendering without pose uploads; `render()` submits exactly once and returns success. It neither schedules work nor waits for GPU completion. Animation sampling remains part of preparation; callers must not evaluate the controller separately and consume its dirty result before rendering.
+
+The viewer's `app/render-loop.ts` adapter owns one RAF chain. It forwards timestamps, stops when `render()` returns false, cancels pending callbacks on shutdown, and rejects callbacks from earlier generations after restart. `Viewer` owns both adapter and renderer lifetimes, stops scheduling on its error path, and destroys the adapter before releasing GPU resources. Renderer modules have no scheduling or application dependencies. Scheduler injection supports CPU tests without WebGPU.
+
+Frame preparation/encoding failures and asynchronous GPU/device failures disable the renderer and report through its callback once. Later frame calls return false; disposed renderers also return false. Invalid nonfinite timestamps throw without changing availability. Failed/disposed renderers reject scene commits, and idempotent destruction releases allocations. Engines own their own loop shutdown and device-recovery policy.
 
 1. Clear pending deformation records. Sample and blend animation local poses, then call `scene/pose-upload.ts` only if the pose changed or initial output needs preparation. Dirty transform records are coalesced only when adjacent.
 2. Resize HDR/depth targets together through `Viewport`, upload the camera through `SceneBindings`, and update light/shadow records from relevant pose revisions. CPU visibility selects instance runs from current bounds, projected size and valid occlusion history, then uploads any query rectangles before encoding.

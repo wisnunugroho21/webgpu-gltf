@@ -13,14 +13,10 @@ test('culls individual instances without changing pixels, and follows camera and
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
     const internal = renderer as unknown as {
-      stop(): void;
-      render(t: number): void;
       device: GPUDevice;
     };
-    internal.stop();
     const frame = async () => {
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
     };
     try {
@@ -90,8 +86,6 @@ test('updates skinned and morphed bounds while offscreen, including blended noni
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
     const internal = renderer as unknown as {
-      stop(): void;
-      render(t: number): void;
       device: GPUDevice;
       scene: {
         pose: {
@@ -102,11 +96,9 @@ test('updates skinned and morphed bounds while offscreen, including blended noni
         updates: { deformation?: { dispatch(pass: GPUComputePassEncoder): void } }[];
       };
     };
-    internal.stop();
     let dispatches = 0;
     const frame = async () => {
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
     };
     try {

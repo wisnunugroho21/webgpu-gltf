@@ -156,9 +156,8 @@ test('scene preparation shares immutable deformation buffers and releases them o
         (r): r is GPUBuffer => r instanceof GPUBuffer,
       );
       replacementBuffers.forEach(track);
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      );
+      if (!renderer.render(0)) throw new Error('Replacement frame failed.');
+      await internal.device.queue.onSubmittedWorkDone();
     } finally {
       renderer.destroy();
       canvas.remove();

@@ -148,13 +148,10 @@ test('weighted transparency is stable across intersecting draw/triangle order, o
           frustumCulling: false,
         });
         const internal = renderer as unknown as {
-          stop(): void;
-          render(time: number): void;
           device: GPUDevice;
           output: { texture: GPUTexture };
           scene: import('../src/renderer/scene/types').Scene;
         };
-        internal.stop();
         renderer.setEnvironment({ intensity: 0 });
         const textures = new Map<GPUTexture, number>();
         const create = internal.device.createTexture.bind(internal.device);
@@ -175,8 +172,7 @@ test('weighted transparency is stable across intersecting draw/triangle order, o
           renderer.camera.radius = 1;
           renderer.camera.distance = 4;
           renderer.camera.pitch = renderer.camera.yaw = 0;
-          internal.render(0);
-          internal.stop();
+          renderer.render(0);
           const texture = internal.output.texture;
           const row = Math.ceil((texture.width * 8) / 256) * 256;
           const buffer = internal.device.createBuffer({

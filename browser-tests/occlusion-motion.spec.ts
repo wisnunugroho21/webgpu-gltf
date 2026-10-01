@@ -16,7 +16,6 @@ test('unrelated animation reuses history and in-flight transparent results inval
       shadows: true,
     });
     const internal = renderer as any;
-    internal.stop();
     const asset = demoAsset();
     asset.gltf.materials.push({
       alphaMode: 'BLEND',
@@ -53,8 +52,7 @@ test('unrelated animation reuses history and in-flight transparent results inval
     }));
     const device: GPUDevice = internal.device;
     const frame = async (wait = true) => {
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await device.queue.onSubmittedWorkDone();
       if (wait)
         for (let i = 0; internal.occlusion.pending && i < 200; i++)

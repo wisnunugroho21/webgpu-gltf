@@ -66,17 +66,13 @@ test('meshopt placeholder buffers decode skins, morphs and animation before GPU 
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
     const internal = renderer as unknown as {
-      stop(): void;
-      render(t: number): void;
       device: GPUDevice;
     };
-    internal.stop();
     try {
       await renderer.setAsset(asset);
       renderer.animation.setPlaying(false);
       renderer.animation.seek(1);
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       return { equal, errors };
     } finally {
@@ -104,19 +100,15 @@ test('Draco required assets decode in the worker and render normalized integer c
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
     const internal = renderer as unknown as {
-      stop(): void;
-      render(t: number): void;
       device: GPUDevice;
     };
-    internal.stop();
     try {
       renderer.setOutput({ toneMapping: 'none' });
       await renderer.setAsset(asset);
       renderer.camera.target.set([0, 0, 0]);
       renderer.camera.distance = 4;
       renderer.camera.yaw = renderer.camera.pitch = 0;
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       const image = new Image();
       image.src = canvas.toDataURL();
@@ -153,11 +145,8 @@ test('ETC1S and UASTC KTX2 retain mipmaps and match PNG in color and data slots'
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
     const internal = renderer as unknown as {
-      stop(): void;
-      render(t: number): void;
       device: GPUDevice;
     };
-    internal.stop();
     renderer.setEnvironment({ intensity: 0 });
     renderer.setOutput({ toneMapping: 'none' });
     const pixel = async (asset: Awaited<ReturnType<typeof loadFiles>>) => {
@@ -165,8 +154,7 @@ test('ETC1S and UASTC KTX2 retain mipmaps and match PNG in color and data slots'
       renderer.camera.target.set([0, 0, 0]);
       renderer.camera.distance = 4;
       renderer.camera.yaw = renderer.camera.pitch = 0;
-      internal.render(0);
-      internal.stop();
+      renderer.render(0);
       await internal.device.queue.onSubmittedWorkDone();
       const image = new Image();
       image.src = canvas.toDataURL();

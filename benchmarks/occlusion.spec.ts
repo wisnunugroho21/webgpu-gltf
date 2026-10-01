@@ -27,7 +27,6 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
           cpuProfiling: true,
         });
         const internal = renderer as any;
-        internal.stop();
         const device: GPUDevice = internal.device;
         const info = device.adapterInfo;
         adapterInfo = {
@@ -167,8 +166,7 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
                 else if (mode !== 'static') renderer.seek(frame * 0.025);
                 queries = 0;
                 const start = performance.now();
-                internal.render(frame * 25);
-                internal.stop();
+                renderer.render(frame * 25);
                 const encoded = performance.now() - start;
                 await device.queue.onSubmittedWorkDone();
                 for (let i = 0; internal.occlusion.pending && i < 500; i++)
