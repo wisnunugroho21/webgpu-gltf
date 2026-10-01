@@ -67,7 +67,7 @@ The frame loop in `Renderer` explicitly coordinates these phases:
 2. Resize HDR/depth targets together through `Viewport`, and upload the camera through `SceneBindings`.
 3. `deformation/pass.ts` encodes pending compute dispatches and ends the pass before vertex reads.
 4. `SceneVisibility` creates contiguous visible instance runs using current bounds and the same view-projection matrix uploaded to the GPU. Visibility does not suppress changed pose uploads or compute work.
-5. `render/pass.ts` submits opaque state groups and sorted visible transparent draws. It does not decode assets, upload poses, or dispatch deformation.
+5. `render/pass.ts` submits opaque state groups. When transmission is visible, `TransmissionBuffer` copies the resolved opaque HDR image before a continuation pass loads stored color/depth samples and draws transmitting and alpha-blended instances. Rendering does not decode assets, upload poses, or dispatch deformation.
 6. `OutputPass` presents the resolved linear HDR image. Submit the command buffer once.
 
 Held or paused poses reuse output buffers. Conservative bounds update with the same pose dependencies as deformation. Skinned outputs are world-space; moving only the mesh node does not change their geometry. Culling preserves original transform indices through `firstInstance` rather than repacking instance buffers.
@@ -84,7 +84,7 @@ Held or paused poses reuse output buffers. Conservative bounds update with the s
 | Lighting or postprocessing           | `renderer/lighting/`, `renderer/presentation/`                    | Linear HDR through blending/MSAA resolve; encode sRGB once                            |
 | Browser controls                     | `app/controls/`, `app/viewer.ts`                                  | One loading lock and renderer-independent core modules                                |
 
-`core/bindings.ts` names frame/instance record sizes and creates the explicit layouts. Changing a record also requires updating its WGSL struct, upload offsets and binding validation. Keep pipeline keys limited to immutable state; material values and texture identities remain uniform/binding data.
+`materials/uniform.ts` validates and packs one 512-byte uniform for core and extension materials. `materials/slots.ts` owns all twelve texture slots. `TransmissionBuffer` owns a snapshot separate from render attachments, allocating it only for transmitting scenes and resizing it with the viewport. The snapshot is reused across model replacements and destroyed with the renderer. `SceneBindings` also owns the neutral snapshot texture. `core/bindings.ts` names frame/instance record sizes and creates the explicit layouts. Changing a record also requires updating its WGSL struct, upload offsets and binding validation. Keep pipeline keys limited to immutable state; material values and texture identities remain uniform/binding data.
 
 ## Verification
 

@@ -50,7 +50,32 @@ export interface Material {
   alphaMode?: 'OPAQUE' | 'MASK' | 'BLEND';
   alphaCutoff?: number;
   doubleSided?: boolean;
-  extensions?: Record<string, unknown>;
+  extensions?: {
+    KHR_materials_unlit?: Record<string, unknown>;
+    KHR_materials_emissive_strength?: { emissiveStrength?: number };
+    KHR_materials_ior?: { ior?: number };
+    KHR_materials_specular?: {
+      specularFactor?: number;
+      specularTexture?: TextureInfo;
+      specularColorFactor?: number[];
+      specularColorTexture?: TextureInfo;
+    };
+    KHR_materials_clearcoat?: {
+      clearcoatFactor?: number;
+      clearcoatTexture?: TextureInfo;
+      clearcoatRoughnessFactor?: number;
+      clearcoatRoughnessTexture?: TextureInfo;
+      clearcoatNormalTexture?: TextureInfo & { scale?: number };
+    };
+    KHR_materials_transmission?: { transmissionFactor?: number; transmissionTexture?: TextureInfo };
+    KHR_materials_volume?: {
+      thicknessFactor?: number;
+      thicknessTexture?: TextureInfo;
+      attenuationDistance?: number;
+      attenuationColor?: number[];
+    };
+    [name: string]: unknown;
+  };
 }
 export interface Gltf {
   asset: { version: string; minVersion?: string };

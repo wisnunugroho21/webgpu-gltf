@@ -109,7 +109,10 @@ fn linearToSrgb(v: vec3f) -> vec3f {
       label: 'Linear HDR scene',
       size: [width, height],
       format: hdrFormat,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_SRC,
     });
     this.hdrView = this.texture.createView();
     if (this.sampleCount > 1) {
@@ -134,17 +137,29 @@ fn linearToSrgb(v: vec3f) -> vec3f {
     if (!this.hdrView) throw new Error('HDR output must be resized before rendering.');
     return this.hdrView;
   }
-  /** Geometry and transparency blend per sample in linear HDR. Resolve once at pass
-   * end, before the nonlinear presentation curve. Discard the temporary samples after
-   * resolving; only the single-sampled texture is read by tone mapping. */
-  sceneAttachment(clearValue: GPUColor): GPURenderPassColorAttachment {
+  /** Geometry blends per sample in linear HDR. Normally discard MSAA samples after
+   * resolve; a transmission continuation stores then loads them so coverage and depth
+   * survive the opaque snapshot. Tone mapping still happens only after the final resolve. */
+  sceneAttachment(
+    clearValue: GPUColor,
+    loadOp: GPULoadOp = 'clear',
+    preserveSamples = false,
+  ): GPURenderPassColorAttachment {
     return {
       view: this.multisampledView ?? this.view,
       resolveTarget: this.sampleCount > 1 ? this.view : undefined,
       clearValue,
-      loadOp: 'clear',
-      storeOp: this.sampleCount > 1 ? 'discard' : 'store',
+      loadOp,
+      storeOp: this.sampleCount > 1 && !preserveSamples ? 'discard' : 'store',
     };
+  }
+  /** A transmission pass samples this copy, never its own live render attachment. */
+  copyScene(encoder: GPUCommandEncoder, target: GPUTexture): void {
+    if (!this.texture) throw new Error('HDR output must be resized before copying.');
+    encoder.copyTextureToTexture({ texture: this.texture }, { texture: target }, [
+      this.width,
+      this.height,
+    ]);
   }
   encode(encoder: GPUCommandEncoder, target: GPUTextureView): void {
     if (!this.group) throw new Error('HDR output must be resized before presentation.');

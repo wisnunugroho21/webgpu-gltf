@@ -1,4 +1,5 @@
 import type { Asset, Gltf } from './types';
+import { supportedExtensions } from './extensions';
 
 type Resolve = (uri: string) => Promise<ArrayBuffer>;
 const decoder = new TextDecoder();
@@ -70,7 +71,7 @@ async function load(data: ArrayBuffer, resolve: Resolve): Promise<Asset> {
   if (gltf.asset?.version !== '2.0' || (gltf.asset.minVersion && gltf.asset.minVersion !== '2.0'))
     throw new Error('Only glTF 2.0 is supported.');
   const unsupported = (gltf.extensionsRequired ?? []).filter(
-    (name) => !['KHR_materials_unlit', 'KHR_texture_transform'].includes(name),
+    (name) => !(supportedExtensions as readonly string[]).includes(name),
   );
   if (unsupported.length)
     throw new Error(`Required extensions are unsupported: ${unsupported.join(', ')}`);

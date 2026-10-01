@@ -15,6 +15,9 @@ export class SceneBindings {
   readonly frame: GPUBindGroup;
   readonly frameData = new Float32Array(frameFloatCount);
   private frameBuffer: GPUBuffer;
+  private frameLayout: GPUBindGroupLayout;
+  private transmissionSampler: GPUSampler;
+  private neutralScene: GPUTexture;
 
   constructor(
     private device: GPUDevice,
@@ -27,8 +30,11 @@ export class SceneBindings {
           visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
           buffer: { type: 'uniform', minBindingSize: this.frameData.byteLength },
         },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
       ],
     });
+    this.frameLayout = frameLayout;
     this.instances = device.createBindGroupLayout({
       entries: [
         {
@@ -46,9 +52,26 @@ export class SceneBindings {
       size: this.frameData.byteLength,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.frame = device.createBindGroup({
-      layout: frameLayout,
-      entries: [{ binding: 0, resource: { buffer: this.frameBuffer } }],
+    this.transmissionSampler = device.createSampler({ minFilter: 'linear', magFilter: 'linear' });
+    this.neutralScene = device.createTexture({
+      label: 'Neutral transmission scene',
+      size: [1, 1],
+      format: 'rgba16float',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    device.queue.writeTexture({ texture: this.neutralScene }, new Uint16Array(4), {}, [1, 1]);
+    this.frame = this.withTransmission(this.neutralScene.createView());
+  }
+
+  /** Same frame layout for opaque and glass passes; only the snapshot resource differs. */
+  withTransmission(view: GPUTextureView): GPUBindGroup {
+    return this.device.createBindGroup({
+      layout: this.frameLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.frameBuffer } },
+        { binding: 1, resource: view },
+        { binding: 2, resource: this.transmissionSampler },
+      ],
     });
   }
 
@@ -60,5 +83,6 @@ export class SceneBindings {
 
   destroy(): void {
     this.frameBuffer.destroy();
+    this.neutralScene.destroy();
   }
 }

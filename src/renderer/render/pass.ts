@@ -2,6 +2,7 @@ import { vec3 } from 'gl-matrix';
 import type { Scene, Draw } from '../scene/types';
 import type { OutputPass } from '../presentation/output';
 import type { OrbitCamera } from '../camera/orbit-camera';
+import type { TransmissionBuffer } from './transmission';
 
 export interface ScenePassContext {
   output: OutputPass;
@@ -9,6 +10,7 @@ export interface ScenePassContext {
   frameGroup: GPUBindGroup;
   environmentGroup: GPUBindGroup;
   camera: OrbitCamera;
+  transmission: TransmissionBuffer;
 }
 
 /** Submission consumes prepared buffers and visibility; no uploads or compute here. */
@@ -18,19 +20,26 @@ export function encodeScene(
   context: ScenePassContext,
 ): void {
   const { output, depth, frameGroup, environmentGroup, camera } = context;
-  const pass = encoder.beginRenderPass({
-    label: 'Scene rendering',
-    colorAttachments: [
-      // Resolve coverage in linear radiance, before the presentation pass tone maps it.
-      output.sceneAttachment({ r: 0.001935, g: 0.002786, b: 0.004123, a: 1 }),
-    ],
-    depthStencilAttachment: {
-      view: depth.createView(),
-      depthClearValue: 1,
-      depthLoadOp: 'clear',
-      depthStoreOp: 'discard',
-    },
-  });
+  const hasTransmission = !!scene?.visibleTransmission.length;
+  const begin = (load: boolean): GPURenderPassEncoder =>
+    encoder.beginRenderPass({
+      label: 'Scene rendering',
+      colorAttachments: [
+        // Resolve coverage in linear radiance, before the presentation pass tone maps it.
+        output.sceneAttachment(
+          { r: 0.001935, g: 0.002786, b: 0.004123, a: 1 },
+          load ? 'load' : 'clear',
+          hasTransmission && !load,
+        ),
+      ],
+      depthStencilAttachment: {
+        view: depth.createView(),
+        depthClearValue: 1,
+        depthLoadOp: load ? 'load' : 'clear',
+        depthStoreOp: hasTransmission && !load ? 'store' : 'discard',
+      },
+    });
+  let pass = begin(false);
   if (scene) {
     pass.setBindGroup(0, frameGroup);
     pass.setBindGroup(1, scene.instances);
@@ -44,17 +53,29 @@ export function encodeScene(
           if (draw.pipeline === pipeline && draw.visibleRuns.length) submitDraw(pass, draw);
       }
     }
+    // Finish/resolve opaque rendering before taking the background snapshot. Store
+    // MSAA samples and depth for the continuation pass so geometric coverage survives.
+    if (hasTransmission) {
+      pass.end();
+      context.transmission.capture(encoder, output);
+      pass = begin(true);
+      pass.setBindGroup(0, context.transmission.group!);
+      pass.setBindGroup(1, scene.instances);
+      pass.setBindGroup(3, environmentGroup);
+    }
     const forward = vec3.normalize(
       vec3.create(),
       vec3.subtract(vec3.create(), camera.target, camera.eye),
     );
-    for (const draw of scene.visibleTransparent)
-      draw.depth = vec3.dot(vec3.subtract(vec3.create(), draw.center, camera.eye), forward);
-    scene.visibleTransparent.sort((a, b) => b.depth - a.depth);
-    for (const draw of scene.visibleTransparent) {
-      pass.setPipeline(draw.pipeline);
-      pass.setBindGroup(2, draw.material.bindGroup);
-      submitDraw(pass, draw);
+    for (const list of [scene.visibleTransmission, scene.visibleTransparent]) {
+      for (const draw of list)
+        draw.depth = vec3.dot(vec3.subtract(vec3.create(), draw.center, camera.eye), forward);
+      list.sort((a, b) => b.depth - a.depth);
+      for (const draw of list) {
+        pass.setPipeline(draw.pipeline);
+        pass.setBindGroup(2, draw.material.bindGroup);
+        submitDraw(pass, draw);
+      }
     }
   }
   pass.end();

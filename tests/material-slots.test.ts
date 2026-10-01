@@ -4,10 +4,10 @@ import { shaderSource } from '../src/renderer/render/shader';
 
 describe('material texture interface', () => {
   it('keeps the explicit material bindings identical across all vertex-input variants', () => {
-    const bindings = Array.from({ length: 11 }, (_, binding) => binding);
+    const bindings = Array.from({ length: 25 }, (_, binding) => binding);
     const entries = createMaterialLayoutEntries(2); // fragment-stage bit; no browser globals
     expect(entries.map((entry) => entry.binding)).toEqual(bindings);
-    expect(entries[0].buffer).toEqual({ type: 'uniform', minBindingSize: 224 });
+    expect(entries[0].buffer).toEqual({ type: 'uniform', minBindingSize: 512 });
     for (const normal of [false, true])
       for (const uvSets of [[], [0], [1], [0, 1], [0, 7]])
         for (const color of [0, 3, 4])
@@ -27,7 +27,16 @@ describe('material texture interface', () => {
       ['metallicRoughness', 'rgba8unorm', [255, 255, 255, 255]],
       ['normal', 'rgba8unorm', [128, 128, 255, 255]],
       ['occlusion', 'rgba8unorm', [255, 255, 255, 255]],
+      ['clearcoat', 'rgba8unorm', [255, 255, 255, 255]],
+      ['clearcoatRoughness', 'rgba8unorm', [255, 255, 255, 255]],
+      ['clearcoatNormal', 'rgba8unorm', [128, 128, 255, 255]],
+      ['specularStrength', 'rgba8unorm', [255, 255, 255, 255]],
+      ['specularColor', 'rgba8unorm-srgb', [255, 255, 255, 255]],
+      ['transmission', 'rgba8unorm', [255, 255, 255, 255]],
+      ['thickness', 'rgba8unorm', [255, 255, 255, 255]],
     ]);
-    expect(materialTextureSlots.map((slot) => slot.read({}))).toEqual(new Array(5).fill(undefined));
+    expect(materialTextureSlots.map((slot) => slot.read({}))).toEqual(
+      new Array(12).fill(undefined),
+    );
   });
 });

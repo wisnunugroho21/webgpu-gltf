@@ -63,6 +63,7 @@ export class SceneBuilder {
     const uploader = new GeometryUploader(this.device, asset, resources);
     const opaque: Scene['opaque'] = new Map();
     const transparent: Draw[] = [];
+    const transmission: Draw[] = [];
     const allDraws: Draw[] = [];
     const transforms: number[] = [];
     const min = vec3.fromValues(Infinity, Infinity, Infinity);
@@ -110,7 +111,7 @@ export class SceneBuilder {
         // Mirrored transforms reverse winding, so they require a separate frontFace pipeline.
         // Blended instances are individual draws because their camera order can change each frame.
         const batches =
-          material.alphaMode === 'BLEND'
+          material.alphaMode === 'BLEND' || material.transmission
             ? run.map((instance) => [instance])
             : [run.filter((i) => !i.mirrored), run.filter((i) => i.mirrored)].filter(
                 (batch) => batch.length,
@@ -165,7 +166,8 @@ export class SceneBuilder {
               mirrored: alternatives[1],
               worldRevision: -1,
             });
-          if (material.alphaMode === 'BLEND') transparent.push(draw);
+          if (material.transmission) transmission.push(draw);
+          else if (material.alphaMode === 'BLEND') transparent.push(draw);
           else
             for (const option of alternatives) {
               const group = opaque.get(option) ?? new Map<GpuMaterial, Draw[]>();
@@ -206,6 +208,8 @@ export class SceneBuilder {
       opaque,
       transparent,
       visibleTransparent: [],
+      transmission,
+      visibleTransmission: [],
       draws: allDraws,
       min,
       max,

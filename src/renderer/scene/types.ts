@@ -42,6 +42,8 @@ export interface Scene {
   opaque: Map<GPURenderPipeline, Map<GpuMaterial, Draw[]>>;
   transparent: Draw[];
   visibleTransparent: Draw[];
+  transmission: Draw[];
+  visibleTransmission: Draw[];
   draws: Draw[];
   stats: SceneStats;
   min: vec3;

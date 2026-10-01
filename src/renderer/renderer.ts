@@ -14,6 +14,7 @@ import { uploadPose } from './scene/pose-upload';
 import { SceneVisibility } from './scene/visibility';
 import { encodeDeformation } from './deformation/pass';
 import { encodeScene } from './render/pass';
+import { TransmissionBuffer } from './render/transmission';
 export type { FrameStats, SceneStats } from './scene/types';
 
 export interface RendererOptions {
@@ -32,6 +33,7 @@ export class Renderer {
   private visibility = new SceneVisibility();
   private builder: SceneBuilder;
   private viewport: Viewport;
+  private transmission: TransmissionBuffer;
   private cullingEnabled = true;
   private lastFrame: FrameStats = { draws: 0, instances: 0, culledInstances: 0 };
   get frameStats(): Readonly<FrameStats> {
@@ -142,6 +144,7 @@ export class Renderer {
     this.camera = new OrbitCamera(canvas);
     this.viewport = new Viewport(canvas, device, output);
     this.bindings = new SceneBindings(device, environment.layout);
+    this.transmission = new TransmissionBuffer(device, this.bindings);
     this.builder = new SceneBuilder(device, this.bindings, mipmaps, this.sampleCount);
     this.frameRequest = requestAnimationFrame(this.render);
   }
@@ -186,6 +189,8 @@ export class Renderer {
       }
     }
     this.viewport.resize();
+    if (scene?.transmission.length)
+      this.transmission.resize(this.viewport.width, this.viewport.height);
     this.bindings.uploadCamera(this.camera, this.viewport.width / this.viewport.height);
     const encoder = this.device.createCommandEncoder();
     // Phase 2: compute consumes uploaded inputs. Paused/static poses reuse their output.
@@ -202,6 +207,7 @@ export class Renderer {
       frameGroup: this.bindings.frame,
       environmentGroup: this.environment.bindGroup,
       camera: this.camera,
+      transmission: this.transmission,
     });
     // Presentation follows scene rendering: tone mapping happens once, after all blending.
     this.output.encode(encoder, this.context.getCurrentTexture().createView());
@@ -217,6 +223,7 @@ export class Renderer {
     this.stop();
     this.scene?.resources.destroy();
     this.viewport.destroy();
+    this.transmission.destroy();
     this.output.destroy();
     this.environment.destroy();
     this.bindings.destroy();

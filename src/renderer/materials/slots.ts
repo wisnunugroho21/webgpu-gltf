@@ -60,14 +60,84 @@ export const materialTextureSlots: readonly MaterialTextureSlot[] = [
     neutral: [255, 255, 255, 255],
     read: (material) => material.occlusionTexture,
   },
+  {
+    label: 'Clearcoat',
+    shaderName: 'clearcoat',
+    samplerBinding: 11,
+    textureBinding: 12,
+    format: 'rgba8unorm',
+    neutral: [255, 255, 255, 255],
+    read: (m) => m.extensions?.KHR_materials_clearcoat?.clearcoatTexture,
+  },
+  {
+    label: 'Clearcoat roughness',
+    shaderName: 'clearcoatRoughness',
+    samplerBinding: 13,
+    textureBinding: 14,
+    format: 'rgba8unorm',
+    neutral: [255, 255, 255, 255],
+    read: (m) => m.extensions?.KHR_materials_clearcoat?.clearcoatRoughnessTexture,
+  },
+  {
+    label: 'Clearcoat normal',
+    shaderName: 'clearcoatNormal',
+    samplerBinding: 15,
+    textureBinding: 16,
+    format: 'rgba8unorm',
+    neutral: [128, 128, 255, 255],
+    read: (m) => m.extensions?.KHR_materials_clearcoat?.clearcoatNormalTexture,
+  },
+  {
+    label: 'Specular strength',
+    shaderName: 'specularStrength',
+    samplerBinding: 17,
+    textureBinding: 18,
+    format: 'rgba8unorm',
+    neutral: [255, 255, 255, 255],
+    read: (m) => m.extensions?.KHR_materials_specular?.specularTexture,
+  },
+  {
+    label: 'Specular color',
+    shaderName: 'specularColor',
+    samplerBinding: 19,
+    textureBinding: 20,
+    format: 'rgba8unorm-srgb',
+    neutral: [255, 255, 255, 255],
+    read: (m) => m.extensions?.KHR_materials_specular?.specularColorTexture,
+  },
+  {
+    label: 'Transmission',
+    shaderName: 'transmission',
+    samplerBinding: 21,
+    textureBinding: 22,
+    format: 'rgba8unorm',
+    neutral: [255, 255, 255, 255],
+    read: (m) => m.extensions?.KHR_materials_transmission?.transmissionTexture,
+  },
+  {
+    label: 'Thickness',
+    shaderName: 'thickness',
+    samplerBinding: 23,
+    textureBinding: 24,
+    format: 'rgba8unorm',
+    neutral: [255, 255, 255, 255],
+    read: (m) => m.extensions?.KHR_materials_volume?.thicknessTexture,
+  },
 ];
+
+export const materialFactorFloats = 32;
+export const materialUniformByteSize = (materialFactorFloats + materialTextureSlots.length * 8) * 4;
 
 /** Visibility is supplied by the renderer so the schema also works in CPU-only tests. */
 export function createMaterialLayoutEntries(
   visibility: GPUShaderStageFlags,
 ): GPUBindGroupLayoutEntry[] {
   return [
-    { binding: 0, visibility, buffer: { type: 'uniform', minBindingSize: 224 } },
+    {
+      binding: 0,
+      visibility,
+      buffer: { type: 'uniform', minBindingSize: materialUniformByteSize },
+    },
     ...materialTextureSlots.flatMap((slot): GPUBindGroupLayoutEntry[] => [
       { binding: slot.samplerBinding, visibility, sampler: { type: 'filtering' } },
       {

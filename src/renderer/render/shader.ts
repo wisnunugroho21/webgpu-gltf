@@ -1,19 +1,23 @@
 import type { Geometry } from '../../gltf/geometry';
-import { materialTextureDeclarations } from '../materials/slots';
+import { materialTextureDeclarations, materialTextureSlots } from '../materials/slots';
+import { materialExtensionShader } from '../materials/extensions-shader';
 import { uvLocation } from '../../gltf/texture-coordinates';
 
 /** Variants are limited to missing vertex inputs. Material values remain uniform data,
  * so changing a color or supplying a texture doesn't create another pipeline. */
 export function shaderSource(features: Geometry['features']): string {
   const uvSets = features.uvSets ?? (features.uv ? [0] : []);
+  const volumeLocation = 5 + uvSets.filter((set) => set !== 0).length;
   return /* wgsl */ `
 struct Frame { viewProjection: mat4x4f, eye: vec4f }
 struct Instance { world: mat4x4f, normal: mat4x4f }
-// 64 bytes of factors + five 32-byte UV transforms = 224 bytes, matching CPU packing.
+// Eight factor vec4s + twelve UV transforms = 512 bytes, matching CPU packing.
 // textureParameters = normal scale, occlusion strength, normal-map presence, authored basis.
 struct UVTransform { row0: vec4f, row1: vec4f }
-struct Material { baseColor: vec4f, emissive: vec4f, parameters: vec4f, textureParameters: vec4f, uv: array<UVTransform, 5> }
+struct Material { baseColor: vec4f, emissive: vec4f, parameters: vec4f, textureParameters: vec4f, coat: vec4f, specular: vec4f, transmission: vec4f, attenuation: vec4f, uv: array<UVTransform, ${materialTextureSlots.length}> }
 @group(0) @binding(0) var<uniform> frame: Frame;
+@group(0) @binding(1) var transmissionScene: texture_2d<f32>;
+@group(0) @binding(2) var transmissionSceneSampler: sampler;
 @group(1) @binding(0) var<storage, read> instances: array<Instance>;
 @group(2) @binding(0) var<uniform> material: Material;
 ${materialTextureDeclarations}
@@ -43,6 +47,9 @@ struct VertexOutput {
   ${uvSets.map((set) => `@location(${uvLocation(set, uvSets)}) uv${set}: vec2f,`).join('\n  ')}
   @location(3) color: vec4f,
   @location(4) tangent: vec4f,
+  @location(${volumeLocation}) toLocalX: vec3f,
+  @location(${volumeLocation + 1}) toLocalY: vec3f,
+  @location(${volumeLocation + 2}) toLocalZ: vec3f,
 }
 @vertex fn vertexMain(input: VertexInput) -> VertexOutput {
   let model = instances[input.instance];
@@ -62,6 +69,10 @@ struct VertexOutput {
   output.tangent = vec4f((model.world * vec4f(input.tangent.xyz, 0.0)).xyz, input.tangent.w * reflected);`
       : 'output.tangent = vec4f(0.0);'
   }
+  // Normal-matrix columns are inverse-world rows: convert a world ray to mesh space.
+  output.toLocalX = model.normal[0].xyz;
+  output.toLocalY = model.normal[1].xyz;
+  output.toLocalZ = model.normal[2].xyz;
   return output;
 }
 
@@ -76,15 +87,16 @@ fn textureUV(input: VertexOutput, slot: u32) -> vec2f {
 }
 
 fn safeNormalize(v: vec3f) -> vec3f { return v * inverseSqrt(max(dot(v, v), 0.000001)); }
-fn mappedNormal(N: vec3f, tangent: vec3f, bitangent: vec3f, sample: vec3f) -> vec3f {
+fn mappedNormal(N: vec3f, tangent: vec3f, bitangent: vec3f, sample: vec3f, scale: f32) -> vec3f {
   // Gram-Schmidt corrects interpolated tangents and nonuniform node scales.
   let T = safeNormalize(tangent - N * dot(N, tangent));
   let handedness = select(-1.0, 1.0, dot(cross(N, T), bitangent) >= 0.0);
   let B = cross(N, T) * handedness;
-  let local = vec3f(sample.xy * material.textureParameters.x, sample.z);
+  let local = vec3f(sample.xy * scale, sample.z);
   if (dot(T, T) < 0.001 || dot(local, local) < 0.000001) { return N; }
   return safeNormalize(T * local.x + B * local.y + N * local.z);
 }
+${materialExtensionShader}
 @fragment fn fragmentMain(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   // sRGB texture views decode color into linear space; factors and vertex colors are linear.
   let base = textureSample(colorTexture, colorSampler, textureUV(input, 0u)) * material.baseColor * input.color;
@@ -97,27 +109,49 @@ fn mappedNormal(N: vec3f, tangent: vec3f, bitangent: vec3f, sample: vec3f) -> ve
   let normalUV = textureUV(input, 3u);
   let normalSample = textureSample(normalTexture, normalSampler, normalUV).xyz * 2.0 - 1.0;
   let ao = textureSample(occlusionTexture, occlusionSampler, textureUV(input, 4u)).r;
+  let coatWeight = textureSample(clearcoatTexture, clearcoatSampler, textureUV(input, 5u)).r * material.coat.x;
+  let coatRoughness = clamp(textureSample(clearcoatRoughnessTexture, clearcoatRoughnessSampler, textureUV(input, 6u)).g * material.coat.y, 0.045, 1.0);
+  let coatUV = textureUV(input, 7u);
+  let coatSample = textureSample(clearcoatNormalTexture, clearcoatNormalSampler, coatUV).xyz * 2.0 - 1.0;
+  let specularWeight = textureSample(specularStrengthTexture, specularStrengthSampler, textureUV(input, 8u)).a * material.specular.w;
+  let specularColor = textureSample(specularColorTexture, specularColorSampler, textureUV(input, 9u)).rgb * material.specular.rgb;
+  let transmissionWeight = textureSample(transmissionTexture, transmissionSampler, textureUV(input, 10u)).r * material.transmission.x;
+  let thickness = textureSample(thicknessTexture, thicknessSampler, textureUV(input, 11u)).g * material.transmission.y;
   let alphaMode = material.emissive.w; // 0 = opaque, 1 = mask, 2 = blend
   var N = ${features.normal ? 'safeNormalize(input.normal)' : 'safeNormalize(cross(dpdx(input.world), dpdy(input.world)))'};
   ${features.normal ? '' : '// Screen derivatives already follow the visible surface orientation.\n  if (dot(N, frame.eye.xyz - input.world) < 0.0) { N = -N; }'}
   // Assets such as DamagedHelmet omit tangents. Recover a triangle-local basis from
   // position and UV derivatives, preserving mirrored UV orientation. This is a
   // fallback, not MikkTSpace generation; authored tangents give seam-consistent results.
+  var coatN = N; // Clearcoat starts from the geometric normal, independent of the base map.
   let px = dpdx(input.world); let py = dpdy(input.world);
   let ux = dpdx(normalUV); let uy = dpdy(normalUV);
   let determinant = ux.x * uy.y - ux.y * uy.x;
   ${
     features.normal && features.tangent
       ? `if (material.textureParameters.z == 1.0 && material.textureParameters.w == 1.0) {
-    N = mappedNormal(N, input.tangent.xyz, cross(N, input.tangent.xyz) * input.tangent.w, normalSample);
+    N = mappedNormal(N, input.tangent.xyz, cross(N, input.tangent.xyz) * input.tangent.w, normalSample, material.textureParameters.x);
   } else`
       : ''
   }
   if (material.textureParameters.z == 1.0 && abs(determinant) > 0.00000001) {
     let T = (px * uy.y - py * ux.y) / determinant;
     let B = (py * ux.x - px * uy.x) / determinant;
-    N = mappedNormal(N, T, B, normalSample);
+    N = mappedNormal(N, T, B, normalSample, material.textureParameters.x);
   }
+  let cx = dpdx(coatUV); let cy = dpdy(coatUV);
+  let coatDeterminant = cx.x * cy.y - cx.y * cy.x;
+  ${
+    features.normal && features.tangent
+      ? `if (material.coat.w == 1.0 && material.attenuation.w == 1.0) {
+    coatN = mappedNormal(coatN, input.tangent.xyz, cross(coatN, input.tangent.xyz) * input.tangent.w, coatSample, material.coat.z);
+  } else`
+      : ''
+  }
+  if (material.coat.w == 1.0 && abs(coatDeterminant) > 0.00000001) {
+    coatN = mappedNormal(coatN, (px * cy.y - py * cx.y) / coatDeterminant, (py * cx.x - px * cy.x) / coatDeterminant, coatSample, material.coat.z);
+  }
+  ${features.normal ? 'if (!front) { coatN = -coatN; }' : ''}
   ${features.normal ? '// Reverse the complete perturbed normal for double-sided back faces.\n  if (!front) { N = -N; }' : ''}
   // All texture samples and screen derivatives precede this nonuniform discard.
   if (alphaMode == 1.0 && base.a < material.parameters.z) { discard; }
@@ -126,19 +160,21 @@ fn mappedNormal(N: vec3f, tangent: vec3f, bitangent: vec3f, sample: vec3f) -> ve
   let H = safeNormalize(L + V);
   let nl = max(dot(N, L), 0.0);
   let nv = max(dot(N, V), 0.001);
-  let nh = max(dot(N, H), 0.0);
   let vh = max(dot(V, H), 0.0);
   let metallic = clamp(material.parameters.x * mr.b, 0.0, 1.0);
   let roughness = clamp(material.parameters.y * mr.g, 0.045, 1.0);
-  let a2 = pow(roughness, 4.0);
-  let d = nh * nh * (a2 - 1.0) + 1.0;
-  let distribution = a2 / max(3.14159265 * d * d, 0.000001);
-  let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
-  let visibility = nl / (nl * (1.0 - k) + k) * nv / (nv * (1.0 - k) + k);
-  let f0 = mix(vec3f(0.04), base.rgb, metallic);
-  let fresnel = f0 + (vec3f(1.0) - f0) * pow(1.0 - vh, 5.0);
-  let specular = distribution * visibility * fresnel / max(4.0 * nl * nv, 0.001);
-  let diffuse = (vec3f(1.0) - fresnel) * (1.0 - metallic) * base.rgb / 3.14159265;
+  let ior = material.transmission.z;
+  let dielectricF0 = select(pow((ior - 1.0) / (ior + 1.0), 2.0), 1.0, ior == 0.0);
+  // Clamp color*IOR reflectance BEFORE strength; strength also scales grazing reflectance.
+  let f0 = mix(min(vec3f(dielectricF0) * specularColor, vec3f(1.0)) * specularWeight, base.rgb, metallic);
+  // Infinite-IOR compatibility keeps dielectric Fresnel angle independent, including
+  // colored specular weighting. Metallic Fresnel retains its ordinary grazing limit.
+  let dielectricF90 = select(vec3f(specularWeight), min(specularColor, vec3f(1.0)) * specularWeight, ior == 0.0);
+  let f90 = mix(dielectricF90, vec3f(1.0), metallic);
+  let fresnel = f0 + (vec3f(f90) - f0) * pow(1.0 - vh, 5.0);
+  let specular = specularLobe(N, L, V, roughness) * fresnel;
+  // Scalar energy reduction avoids complementary tint in colored dielectric diffuse.
+  let diffuse = (1.0 - maxChannel(fresnel)) * (1.0 - metallic) * base.rgb / 3.14159265;
   // Occlusion affects only indirect light: it must not dim the direct light or emission.
   let occlusion = mix(1.0, ao, material.textureParameters.y);
   // Split-sum IBL combines roughness-prefiltered radiance with integrated BRDF terms.
@@ -146,12 +182,31 @@ fn mappedNormal(N: vec3f, tangent: vec3f, bitangent: vec3f, sample: vec3f) -> ve
   let irradiance = textureSampleLevel(irradianceTexture, environmentSampler, environmentDirection(N), 0.0).rgb;
   let reflected = textureSampleLevel(reflectionTexture, environmentSampler, environmentDirection(reflect(-V, N)), roughness * environment.z).rgb;
   let brdf = textureSampleLevel(brdfTexture, environmentSampler, vec2f(clamp(nv, 0.0, 1.0), roughness), 0.0).rg;
-  let environmentFresnel = f0 + (max(vec3f(1.0 - roughness), f0) - f0) * pow(1.0 - clamp(nv, 0.0, 1.0), 5.0);
+  let environmentFresnel = f0 + (max(vec3f(f90 - roughness), f0) - f0) * pow(1.0 - clamp(nv, 0.0, 1.0), 5.0);
   // Irradiance already includes the Lambertian 1/pi normalization.
-  let indirectDiffuse = (1.0 - environmentFresnel) * (1.0 - metallic) * base.rgb * irradiance;
-  let indirectSpecular = reflected * (f0 * brdf.x + brdf.y);
-  let indirect = base.rgb * 0.12 + environment.x * (indirectDiffuse + indirectSpecular);
-  var color = (diffuse + specular) * nl * 3.0 + indirect * occlusion + emission;
+  let indirectDiffuse = (1.0 - maxChannel(environmentFresnel)) * (1.0 - metallic) * base.rgb * irradiance;
+  let indirectSpecular = reflected * (f0 * brdf.x + f90 * brdf.y);
+  let transmissionAmount = transmissionWeight * (1.0 - metallic);
+  let diffuseLighting = diffuse * nl * 3.0 + (base.rgb * 0.12 + environment.x * indirectDiffuse) * occlusion;
+  var color = diffuseLighting * (1.0 - transmissionAmount) + specular * nl * 3.0 + environment.x * indirectSpecular * occlusion + emission;
+  if (transmissionWeight > 0.0 && metallic < 1.0) {
+    let transmitted = transmittedRadiance(input, N, V, thickness, roughness, ior);
+    var attenuation = vec3f(1.0);
+    // Beer-Lambert absorption: omitted distance is encoded as inverse distance zero.
+    if (transmitted.w > 0.0 && material.transmission.w > 0.0) {
+      attenuation = pow(material.attenuation.rgb, vec3f(transmitted.w * material.transmission.w));
+    }
+    color += transmissionAmount * (1.0 - maxChannel(environmentFresnel)) * base.rgb * transmitted.rgb * attenuation;
+  }
+  if (coatWeight > 0.0) {
+    let coatNv = max(dot(coatN, V), 0.001);
+    let coatFresnel = 0.04 + 0.96 * pow(1.0 - clamp(coatNv, 0.0, 1.0), 5.0);
+    let coatReflection = textureSampleLevel(reflectionTexture, environmentSampler, environmentDirection(reflect(-V, coatN)), coatRoughness * environment.z).rgb;
+    let coatBrdf = textureSampleLevel(brdfTexture, environmentSampler, vec2f(clamp(coatNv, 0.0, 1.0), coatRoughness), 0.0).rg;
+    let coatLight = vec3f(specularLobe(coatN, L, V, coatRoughness) * coatFresnel * max(dot(coatN, L), 0.0) * 3.0) + environment.x * coatReflection * (0.04 * coatBrdf.x + coatBrdf.y) * occlusion;
+    // Coat also attenuates emission, as it lies above all base material contributions.
+    color = color * (1.0 - coatWeight * coatFresnel) + coatWeight * coatLight;
+  }
   if (material.parameters.w == 1.0) { color = base.rgb; } // KHR_materials_unlit
   let alpha = select(1.0, base.a, alphaMode == 2.0);
   // Preserve HDR linear radiance for lighting and alpha blending. Display encoding and

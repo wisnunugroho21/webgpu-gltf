@@ -1,7 +1,7 @@
 import type { Asset, Material, TextureInfo } from '../../gltf/types';
 import { Resources, uploadBuffer } from '../core/resources';
 import { createMaterialLayoutEntries, materialTextureSlots } from './slots';
-import { textureCoordinates } from '../../gltf/texture-coordinates';
+import { materialUniform } from './uniform';
 import { MipmapGenerator, mipLevelCount } from '../textures/mipmaps';
 import { samplerDescriptor } from '../textures/samplers';
 
@@ -9,6 +9,7 @@ export interface GpuMaterial {
   bindGroup: GPUBindGroup;
   alphaMode: 'OPAQUE' | 'MASK' | 'BLEND';
   doubleSided: boolean;
+  transmission?: boolean;
 }
 
 export const materialLayoutEntries = createMaterialLayoutEntries(GPUShaderStage.FRAGMENT);
@@ -138,7 +139,6 @@ export class MaterialFactory {
           (() => {
             throw new Error(`Missing material ${index}.`);
           })());
-    const pbr = definition.pbrMetallicRoughness ?? {};
     const textureEntries: GPUBindGroupEntry[] = [];
     for (const slot of materialTextureSlots) {
       const { texture, sampler } = await this.textureBinding(
@@ -153,42 +153,7 @@ export class MaterialFactory {
       );
     }
     const alphaMode = definition.alphaMode ?? 'OPAQUE';
-    if (!['OPAQUE', 'MASK', 'BLEND'].includes(alphaMode))
-      throw new Error('Invalid material alpha mode.');
-    // Four material vec4s followed by five pairs of UV-transform rows = 224 bytes.
-    const values = new Float32Array(56);
-    materialTextureSlots.forEach((slot, i) =>
-      values.set(textureCoordinates(slot.read(definition)), 16 + i * 8),
-    );
-    values.set(pbr.baseColorFactor ?? [1, 1, 1, 1], 0);
-    values.set(definition.emissiveFactor ?? [0, 0, 0], 4);
-    values[7] = { OPAQUE: 0, MASK: 1, BLEND: 2 }[alphaMode];
-    values.set(
-      [
-        pbr.metallicFactor ?? 1,
-        pbr.roughnessFactor ?? 1,
-        definition.alphaCutoff ?? 0.5,
-        definition.extensions?.KHR_materials_unlit ? 1 : 0,
-      ],
-      8,
-    );
-    values.set(
-      [
-        definition.normalTexture?.scale ?? 1,
-        definition.occlusionTexture?.strength ?? 1,
-        definition.normalTexture ? 1 : 0,
-        // Authored tangents describe TEXCOORD_0. A different or transformed normal UV
-        // basis must be recovered from derivatives of that slot's effective coordinates.
-        Number(
-          values[40] === 1 &&
-            values[41] === 0 &&
-            values[43] === 0 &&
-            values[44] === 0 &&
-            values[45] === 1,
-        ),
-      ],
-      12,
-    );
+    const values = materialUniform(definition);
     const uniform = uploadBuffer(
       this.device,
       this.resources,
@@ -200,6 +165,14 @@ export class MaterialFactory {
       layout: this.layout,
       entries: [{ binding: 0, resource: { buffer: uniform } }, ...textureEntries],
     });
-    return { bindGroup, alphaMode, doubleSided: definition.doubleSided ?? false };
+    return {
+      bindGroup,
+      alphaMode,
+      doubleSided:
+        values[24] > 0 && values[25] > 0 && values[11] === 0
+          ? false
+          : (definition.doubleSided ?? false),
+      transmission: values[24] > 0 && values[11] === 0,
+    };
   }
 }

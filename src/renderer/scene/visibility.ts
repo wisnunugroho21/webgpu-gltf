@@ -22,5 +22,8 @@ export class SceneVisibility {
     scene.visibleTransparent.length = 0;
     for (const draw of scene.transparent)
       if (draw.visibleRuns.length) scene.visibleTransparent.push(draw);
+    scene.visibleTransmission.length = 0;
+    for (const draw of scene.transmission)
+      if (draw.visibleRuns.length) scene.visibleTransmission.push(draw);
   }
 }
