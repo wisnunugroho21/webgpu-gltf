@@ -30,23 +30,25 @@ Models with animation clips show a clip selector, Play/Pause, Restart, and a tim
 
 ## Code map
 
-| Module                      | Responsibility                                                                 |
-| --------------------------- | ------------------------------------------------------------------------------ |
-| `src/main.ts`               | UI events, serialized loading, status and errors                               |
-| `src/gltf/types.ts`         | Typed subset of the glTF JSON schema                                           |
-| `src/gltf/loader.ts`        | JSON/GLB parsing, URI resolution, buffer and image loading                     |
-| `src/gltf/accessors.ts`     | Strided component decoding, normalization, sparse overlays, bounds checks      |
-| `src/gltf/geometry.ts`      | Canonical GPU layouts, exceptional repacking, index/topology conversion        |
-| `src/gltf/scene.ts`         | Selected-scene traversal, world/normal matrices, instance collection           |
-| `src/gltf/animation.ts`     | Validated animation tracks, interpolation, clip metadata, reusable node poses  |
-| `src/gltf/deformation.ts`   | Node-owned morph streams, inverse binds, joint palettes, linear blend skinning |
-| `src/renderer/resources.ts` | Padded uploads and explicit GPU allocation ownership                           |
-| `src/renderer/materials.ts` | Cached images/samplers/material bind groups and uniform packing                |
-| `src/renderer/shader.ts`    | Commented WGSL generated for available vertex inputs                           |
-| `src/renderer/pipelines.ts` | Immutable-state pipeline keys and cached async compilation                     |
-| `src/renderer/renderer.ts`  | Scene preparation, batching, transparent ordering, rendering and disposal      |
-| `src/renderer/camera.ts`    | Orbit controls, scene framing, WebGPU depth projection                         |
-| `src/demo.ts`               | Original procedural glTF demo                                                  |
+| Module                               | Responsibility                                                                |
+| ------------------------------------ | ----------------------------------------------------------------------------- |
+| `src/main.ts`                        | UI events, serialized loading, status and errors                              |
+| `src/gltf/types.ts`                  | Typed subset of the glTF JSON schema                                          |
+| `src/gltf/loader.ts`                 | JSON/GLB parsing, URI resolution, buffer and image loading                    |
+| `src/gltf/accessors.ts`              | Strided component decoding, normalization, sparse overlays, bounds checks     |
+| `src/gltf/geometry.ts`               | Canonical GPU layouts, exceptional repacking, index/topology conversion       |
+| `src/gltf/scene.ts`                  | Selected-scene traversal, world/normal matrices, instance collection          |
+| `src/gltf/animation.ts`              | Validated animation tracks, interpolation, clip metadata, reusable node poses |
+| `src/gltf/deformation.ts`            | Validated deformation inputs, joint palettes, bounds, CPU reference evaluator |
+| `src/renderer/deformation.ts`        | Compute pipeline, node-owned GPU buffers, pose uploads and dispatch           |
+| `src/renderer/deformation-shader.ts` | WGSL morphing and linear blend skinning kernel                                |
+| `src/renderer/resources.ts`          | Padded uploads and explicit GPU allocation ownership                          |
+| `src/renderer/materials.ts`          | Cached images/samplers/material bind groups and uniform packing               |
+| `src/renderer/shader.ts`             | Commented WGSL generated for available vertex inputs                          |
+| `src/renderer/pipelines.ts`          | Immutable-state pipeline keys and cached async compilation                    |
+| `src/renderer/renderer.ts`           | Scene preparation, batching, transparent ordering, rendering and disposal     |
+| `src/renderer/camera.ts`             | Orbit controls, scene framing, WebGPU depth projection                        |
+| `src/demo.ts`                        | Original procedural glTF demo                                                 |
 
 ## How the case study informs the implementation
 
@@ -123,7 +125,13 @@ The implementation follows the [glTF animation and skinning rules](https://regis
 - **Morph targets** add weighted POSITION/NORMAL/TANGENT deltas to immutable base attributes. Node weights override mesh defaults, and omitted weights are zero. Sparse target accessors are supported. Tangent morphs change XYZ while preserving the base handedness component.
 - **Skinning** supports JOINTS_n/WEIGHTS_n influence sets, normalized integer weights, and optional float MAT4 inverse-bind matrices. Missing inverse binds are identity matrices. Joint matrices are `jointWorld * inverseBind`; weights are normalized across all influence sets for each vertex. Skinning follows morphing. Skinned positions are already world-space, so their draw uses an identity instance transform: the skinned mesh node's transform is not applied a second time. Normals use the inverse transpose of the blended transform and tangents use its linear part.
 
-Deformation currently runs on the **CPU**, using reusable float streams and joint palettes, then uploads changed streams to WebGPU buffers with COPY_DST usage. Static scenes retain the optimized instanced path. Paused poses do no deformation work until a seek or clip change. This implementation prioritizes readable, testable support and avoids introducing large deformation shader variants or extra bind group layouts. It is not intended for crowds or very large deforming meshes; moving skinning/morphing into a WebGPU compute stage is the next performance improvement.
+Deformation runs in a **WebGPU compute pass** before drawing. CPU animation sampling still evaluates node transforms and computes `jointWorld * inverseBind` palettes, but playback uploads only those matrices, morph weights, and instance transforms. Immutable base vertices, dense decoded morph deltas, and joint influences are uploaded when loading. Each 64-thread workgroup processes vertices independently, with a bounds guard for the final partial workgroup. Every invocation starts from the immutable base, applies morph deltas, then skins the result. The output buffer has STORAGE and VERTEX usage and is bound directly for drawing; there is no per-frame vertex upload or GPU readback.
+
+The shared compute pipeline uses one explicit bind group layout for skin-only, morph-only, and combined deformation. Unused slots receive neutral buffers. Base, target, and output records contain three vec4s (position, normal, tangent), for a 48-byte stride matching [WGSL alignment rules](https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size). Position W is one, normal W and morph delta W are zero, and tangent W preserves handedness. Influence records contain a vec4u of joint indices followed by a vec4f of weights. The kernel computes inverse-transpose normals from the blended matrix's cofactors and determinant, with an identity fallback for singular transforms.
+
+The renderer ends the compute pass before starting the render pass in the same command encoder. WebGPU orders these uses of the output buffer; no shader barrier or CPU wait is required between passes. Paused poses retain their GPU output until a seek or clip change. Static scenes retain the optimized instanced path and do not create a compute pipeline. Buffers and workgroup counts are checked against device limits; oversized deformation inputs are rejected rather than silently truncated. Outputs are owned by the scene and destroyed together on replacement or a failed load.
+
+The CPU deformation evaluator remains an oracle for tests and runs once on load for exact initial camera bounds. Playback uses precomputed base/delta bounds, expands them for signed morph weights, and unions joint-transformed envelopes to estimate transparent draw centers. This takes work proportional to target/joint counts rather than vertex counts and avoids GPU readbacks. Those conservative centers can be less accurate than centers of the deformed vertices; intersecting transparent meshes still have the usual draw-sorting limitations. GPU inputs currently belong to each deforming node; large crowds would benefit from sharing immutable deformation buffers and batching dispatches.
 
 Playback is single-clip and looping, with no blending, crossfades, animation-pointer extensions, or runtime retargeting. Camera framing uses the initial authored pose rather than the whole animation's swept bounds; zoom out if a clip moves beyond the initial view. Degenerate transforms use a safe normal-matrix fallback; collapsed geometry has no well-defined surface normal. Models containing unsupported required extensions remain rejected.
 
@@ -131,7 +139,7 @@ For programmatic playback, await `renderer.setAsset(asset)`, then use `selectAni
 
 ## Extending the renderer
 
-Keep material texture slots on the same explicit bind group layout across variants, with neutral defaults. Decode color textures as sRGB and data textures as linear. Add shader flags only when they materially change the interface or algorithm. Dynamic transforms already use a COPY_DST storage buffer and a separate pose update phase; GPU compute deformation can reuse that boundary. Larger scenes should split buffers at device limits. Keep new rendering features isolated from file parsing and test their layout or ordering edge cases.
+Keep material texture slots on the same explicit bind group layout across variants, with neutral defaults. Decode color textures as sRGB and data textures as linear. Add shader flags only when they materially change the interface or algorithm. Preserve the separate pose-upload, compute, and render phases when adding deformation features. Larger scenes should split buffers at device limits. Keep new rendering features isolated from file parsing and test their layout or ordering edge cases.
 
 ## Verification
 
@@ -144,6 +152,8 @@ Keep material texture slots on the same explicit bind group layout across varian
 The DamagedHelmet regression loads the public Khronos GLB with all five material textures and requires network access. It is skipped by default. To include it in PowerShell:
 
 `tests/animation.test.ts` also covers key clamping, STEP boundaries, cubic tangent timing, normalized and shortest-path rotations, clip resets, morph-before-skin ordering, inverse binds, independent node weights, sparse targets, multiple influence sets, and malformed inputs. `browser-tests/animation.spec.ts` verifies rendered changes during node motion, skinning, and morph playback, paused-frame stability, scrubbing, and authored-pose restoration. Optional network tests load Khronos SimpleSkin and AnimatedMorphCube. Set TEST_REMOTE_MODELS as below to include these public-asset regressions.
+
+`browser-tests/compute.spec.ts` dispatches the production kernel on the real GPU and reads output back only for testing. It compares positions, normals, and tangents against the CPU oracle for skin-only, morph-only, combined, sparse, multiple-influence, reflected/nonuniform, and singular cases. Its 69-vertex fixtures exercise partial workgroups, and repeated dispatches change weights and joint matrices to detect accumulation and stale uploads.
 
 ```powershell
 $env:TEST_REMOTE_MODELS = '1'

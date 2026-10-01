@@ -8,6 +8,7 @@ import { OrbitCamera } from './camera';
 import { MaterialFactory, materialLayoutEntries, type GpuMaterial } from './materials';
 import { PipelineCache, pipelineArgs } from './pipelines';
 import { Resources, uploadBuffer } from './resources';
+import { DeformationCompute, GpuDeformation } from './deformation';
 
 interface Draw {
   pipeline: GPURenderPipeline;
@@ -37,8 +38,7 @@ interface Scene {
 interface PoseDraw {
   draw: Draw;
   node: number;
-  deformation?: Deformation;
-  uploads: { data: Float32Array; buffer: GPUBuffer }[];
+  deformation?: GpuDeformation;
   normal: mat4;
   localCenter: vec3;
   front: GPURenderPipeline;
@@ -64,6 +64,8 @@ export class Renderer {
   private playing = true;
   private lastTime = 0;
   private poseDirty = false;
+  private compute?: DeformationCompute;
+  private deformationDirty = false;
   onAnimationChange?: () => void;
   get animationState() {
     return {
@@ -199,6 +201,15 @@ export class Renderer {
     const pose = new Pose(asset);
     const updates: PoseDraw[] = [];
     const primitiveInstances = collectInstances(asset.gltf);
+    if (
+      !this.compute &&
+      [...primitiveInstances].some(
+        ([primitive, instances]) =>
+          primitive.targets?.length ||
+          instances.some((instance) => asset.gltf.nodes![instance.node].skin !== undefined),
+      )
+    )
+      this.compute = await DeformationCompute.create(this.device);
     const materials = new MaterialFactory(this.device, asset, resources, this.materialLayout);
     const pipelines = new PipelineCache(this.device, this.pipelineLayout, this.format);
     const views = new Map<number, GPUBuffer>();
@@ -217,14 +228,18 @@ export class Renderer {
         pose.clips.length > 0 ||
         !!primitive.targets?.length ||
         instances.some((instance) => asset.gltf.nodes![instance.node].skin !== undefined);
-      // Pose-dependent geometry needs node-owned streams; static scenes retain instancing.
+      // Pose-dependent geometry needs node-owned output; static scenes retain instancing.
       for (const run of independent ? instances.map((instance) => [instance]) : [instances]) {
         const deformation =
           primitive.targets?.length || asset.gltf.nodes![run[0].node].skin !== undefined
-            ? new Deformation(asset, primitive, run[0].node, pose)
+            ? new GpuDeformation(
+                this.device,
+                resources,
+                new Deformation(asset, primitive, run[0].node, pose),
+                this.compute!,
+              )
             : undefined;
         const geometry = deformation ? deformation.geometry(baseGeometry) : baseGeometry;
-        const uploads: PoseDraw['uploads'] = [];
         const material = await materials.get(primitive.material);
         const materialDefinition = asset.gltf.materials?.[primitive.material!];
         if (
@@ -237,6 +252,8 @@ export class Renderer {
         )
           throw new Error('Textured primitive is missing TEXCOORD_0.');
         const vertices = geometry.bindings.map((binding) => {
+          if (deformation?.source === binding.source)
+            return { buffer: deformation.output, offset: 0 };
           if (typeof binding.source !== 'number') {
             const buffer = uploadBuffer(
               this.device,
@@ -245,8 +262,6 @@ export class Renderer {
               GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
               'Repacked attributes',
             );
-            if (deformation?.streams.some((stream) => stream.values === binding.source))
-              uploads.push({ data: binding.source, buffer });
             return { buffer, offset: 0 };
           }
           let buffer = views.get(binding.source);
@@ -297,8 +312,8 @@ export class Renderer {
         for (const batch of batches) {
           const firstInstance = transforms.length / 32;
           for (const instance of batch) {
-            const world = deformation?.skinned ? mat4.create() : instance.world;
-            transforms.push(...world, ...(deformation?.skinned ? world : instance.normal));
+            const world = deformation?.data.skinned ? mat4.create() : instance.world;
+            transforms.push(...world, ...(deformation?.data.skinned ? world : instance.normal));
             // Eight transformed AABB corners give conservative world-space framing bounds.
             for (let corner = 0; corner < 8; corner++) {
               const point = vec3.transformMat4(
@@ -315,7 +330,7 @@ export class Renderer {
             }
           }
           const pipeline = await pipelines.get(
-            pipelineArgs(geometry, material, deformation?.skinned ? false : batch[0].mirrored),
+            pipelineArgs(geometry, material, deformation?.data.skinned ? false : batch[0].mirrored),
           );
           const draw: Draw = {
             pipeline,
@@ -326,7 +341,7 @@ export class Renderer {
             count: geometry.count,
             firstInstance,
             instanceCount: batch.length,
-            center: deformation?.skinned
+            center: deformation?.data.skinned
               ? vec3.clone(localCenter)
               : vec3.transformMat4(vec3.create(), localCenter, batch[0].world),
             depth: 0,
@@ -342,7 +357,6 @@ export class Renderer {
               draw,
               node: batch[0].node,
               deformation,
-              uploads,
               normal: mat4.create(),
               localCenter: vec3.clone(localCenter),
               front: alternatives[0],
@@ -424,40 +438,21 @@ export class Renderer {
     scene.pose.evaluate(this.clip, this.time);
     for (const update of scene.updates) {
       update.deformation?.update();
-      for (const upload of update.uploads)
-        this.device.queue.writeBuffer(
-          upload.buffer,
-          0,
-          upload.data.buffer as ArrayBuffer,
-          upload.data.byteOffset,
-          upload.data.byteLength,
-        );
       const world = scene.pose.nodes[update.node].world;
-      if (update.deformation?.skinned) mat4.identity(update.normal);
+      if (update.deformation?.data.skinned) mat4.identity(update.normal);
       else {
         if (!mat4.invert(update.normal, world)) mat4.identity(update.normal);
         mat4.transpose(update.normal, update.normal);
       }
       const offset = update.draw.firstInstance * 32;
-      scene.transformData.set(update.deformation?.skinned ? update.normal : world, offset);
+      scene.transformData.set(update.deformation?.data.skinned ? update.normal : world, offset);
       scene.transformData.set(update.normal, offset + 16);
       update.draw.pipeline =
-        !update.deformation?.skinned && mat4.determinant(world) < 0
+        !update.deformation?.data.skinned && mat4.determinant(world) < 0
           ? update.mirrored
           : update.front;
-      if (update.deformation) {
-        const values = update.deformation.streams[0].values;
-        for (let c = 0; c < 3; c++) {
-          let min = Infinity,
-            max = -Infinity;
-          for (let v = c; v < values.length; v += 3) {
-            min = Math.min(min, values[v]);
-            max = Math.max(max, values[v]);
-          }
-          update.localCenter[c] = (min + max) * 0.5;
-        }
-      }
-      if (update.deformation?.skinned) vec3.copy(update.draw.center, update.localCenter);
+      update.deformation?.data.center(update.localCenter);
+      if (update.deformation?.data.skinned) vec3.copy(update.draw.center, update.localCenter);
       else vec3.transformMat4(update.draw.center, update.localCenter, world);
     }
     if (scene.updates.length)
@@ -467,6 +462,7 @@ export class Renderer {
         scene.transformData.buffer as ArrayBuffer,
       );
     this.poseDirty = false;
+    this.deformationDirty = true;
   }
 
   private render = (timestamp: number): void => {
@@ -495,6 +491,14 @@ export class Renderer {
     this.frameData.set(this.camera.eye, 16);
     this.device.queue.writeBuffer(this.frameBuffer, 0, this.frameData);
     const encoder = this.device.createCommandEncoder();
+    // Ending compute before render establishes storage-write → vertex-read ordering in
+    // the same submission. Paused poses keep their output and need no dispatch or readback.
+    if (this.deformationDirty && this.scene?.updates.some((update) => update.deformation)) {
+      const computePass = encoder.beginComputePass({ label: 'Scene deformation' });
+      for (const update of this.scene.updates) update.deformation?.dispatch(computePass);
+      computePass.end();
+    }
+    this.deformationDirty = false;
     const pass = encoder.beginRenderPass({
       colorAttachments: [
         {

@@ -1,4 +1,4 @@
-import { mat4 } from 'gl-matrix';
+import { mat4, vec3 } from 'gl-matrix';
 import { decodeAccessor } from './accessors';
 import type { Asset, Primitive } from './types';
 import type { Geometry, VertexBinding } from './geometry';
@@ -12,18 +12,26 @@ interface Stream {
   targets: (number[] | undefined)[];
 }
 
-/** Node-specific CPU deformation intentionally lives outside draw submission. Source arrays
- * are immutable; reusable destination streams are uploaded only when a pose changes.
- * Morphing precedes linear blend skinning, as required by glTF. */
+/** Decode and validate immutable deformation inputs once. The CPU evaluator is a reference
+ * for tests and exact initial framing only; playback uses the compute shader. */
 export class Deformation {
   readonly streams: Stream[] = [];
   private joints: number[] = [];
   private inverseBind: mat4[] = [];
-  private palette: mat4[] = [];
-  private influences: { joints: number[]; weights: number[] }[] = [];
+  readonly palette: mat4[] = [];
+  readonly influences: { joints: number[]; weights: number[] }[] = [];
   private blend = mat4.create();
   private normal = mat4.create();
   readonly skinned: boolean;
+  private ranges: { min: vec3; max: vec3 }[] = [];
+  private boundMin = vec3.create();
+  private boundMax = vec3.create();
+  private corner = vec3.create();
+  private unionMin = vec3.create();
+  private unionMax = vec3.create();
+  get weights(): number[] {
+    return this.pose.nodes[this.node].weights;
+  }
   constructor(
     asset: Asset,
     readonly primitive: Primitive,
@@ -129,7 +137,64 @@ export class Deformation {
         )
           throw new Error('Skin vertex has no positive joint weights.');
     }
+    const position = this.streams[0];
+    // Separate delta intervals let positive and negative morph weights expand a conservative
+    // envelope without walking vertices or reading GPU results during playback.
+    for (const values of [position.base, ...position.targets]) {
+      const min = vec3.fromValues(Infinity, Infinity, Infinity);
+      const max = vec3.fromValues(-Infinity, -Infinity, -Infinity);
+      if (values) {
+        for (let i = 0; i < values.length; i++) {
+          const c = i % 3;
+          min[c] = Math.min(min[c], values[i]);
+          max[c] = Math.max(max[c], values[i]);
+        }
+      } else {
+        vec3.zero(min);
+        vec3.zero(max);
+      }
+      this.ranges.push({ min, max });
+    }
     this.update();
+  }
+
+  updatePalette(): void {
+    this.joints.forEach((joint, i) =>
+      mat4.multiply(this.palette[i], this.pose.nodes[joint].world, this.inverseBind[i]),
+    );
+  }
+
+  /** A union of joint-transformed envelopes contains every normalized, nonnegative blend.
+   * This trades exact transparent centers for no per-frame vertex work or GPU readback. */
+  center(out: vec3): void {
+    vec3.copy(this.boundMin, this.ranges[0].min);
+    vec3.copy(this.boundMax, this.ranges[0].max);
+    this.weights.forEach((weight, i) => {
+      const range = this.ranges[i + 1];
+      for (let c = 0; c < 3; c++) {
+        this.boundMin[c] += weight * (weight < 0 ? range.max[c] : range.min[c]);
+        this.boundMax[c] += weight * (weight < 0 ? range.min[c] : range.max[c]);
+      }
+    });
+    if (!this.skinned) {
+      vec3.scale(out, vec3.add(out, this.boundMin, this.boundMax), 0.5);
+      return;
+    }
+    const min = this.unionMin,
+      max = this.unionMax;
+    vec3.set(min, Infinity, Infinity, Infinity);
+    vec3.set(max, -Infinity, -Infinity, -Infinity);
+    for (const matrix of this.palette)
+      for (let i = 0; i < 8; i++) {
+        for (let c = 0; c < 3; c++)
+          this.corner[c] = i & (1 << c) ? this.boundMax[c] : this.boundMin[c];
+        vec3.transformMat4(this.corner, this.corner, matrix);
+        for (let c = 0; c < 3; c++) {
+          min[c] = Math.min(min[c], this.corner[c]);
+          max[c] = Math.max(max[c], this.corner[c]);
+        }
+      }
+    for (let c = 0; c < 3; c++) out[c] = (min[c] + max[c]) * 0.5;
   }
 
   /** Replace only deformable attributes. UV/color streams retain their original layout. */
@@ -173,6 +238,8 @@ export class Deformation {
     return { ...base, bindings, positions: Array.from(this.streams[0].values) };
   }
 
+  /** CPU oracle used once for exact initial bounds, and by numeric GPU regression tests.
+   * Never call this during playback: GpuDeformation.update uploads pose inputs instead. */
   update(): void {
     const weights = this.pose.nodes[this.node].weights;
     for (const stream of this.streams) {
@@ -186,9 +253,7 @@ export class Deformation {
       });
     }
     if (!this.skinned) return;
-    this.joints.forEach((joint, i) =>
-      mat4.multiply(this.palette[i], this.pose.nodes[joint].world, this.inverseBind[i]),
-    );
+    this.updatePalette();
     const count = this.streams[0].values.length / 3;
     for (let v = 0; v < count; v++) {
       for (let m = 0; m < 16; m++) this.blend[m] = 0;
