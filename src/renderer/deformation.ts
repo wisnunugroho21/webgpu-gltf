@@ -58,6 +58,9 @@ export class GpuDeformation {
   private weightsData: Float32Array;
   private paletteBuffer: GPUBuffer;
   private weightsBuffer: GPUBuffer;
+  private jointRevisions: number[];
+  private weightsRevision = -1;
+  private pending = true;
 
   constructor(
     private device: GPUDevice,
@@ -71,6 +74,7 @@ export class GpuDeformation {
     this.source = this.inputs.source;
     this.paletteData = new Float32Array(Math.max(16, data.palette.length * 16));
     this.weightsData = new Float32Array(Math.max(1, data.weights.length));
+    this.jointRevisions = data.activeJoints.map(() => -1);
     const storage = (array: ArrayBufferView, label: string, dynamic = false) =>
       uploadDeformationStorage(device, resources, array, label, dynamic);
     this.paletteBuffer = storage(this.paletteData, 'Joint palette', true);
@@ -139,19 +143,43 @@ export class GpuDeformation {
     return { ...geometry, bindings };
   }
 
-  update(): void {
-    this.data.updatePalette();
-    this.data.palette.forEach((matrix, i) => this.paletteData.set(matrix, i * 16));
-    this.weightsData.set(this.data.weights);
-    if (this.data.skinned)
+  /** Renderer playback uses revisions; explicit update() still uploads all pose inputs
+   * for callers/tests that directly modify the CPU reference arrays. */
+  updateChanged(): boolean {
+    // Mesh-node transforms don't skin vertices; only positively weighted joint slots
+    // and this node's morph weights affect its output. First output is still mandatory.
+    const paletteChanged =
+      this.data.skinned &&
+      this.jointRevisions.some(
+        (revision, i) => revision !== this.data.jointRevision(this.data.activeJoints[i]),
+      );
+    const weightsChanged =
+      !!this.data.weights.length && this.weightsRevision !== this.data.weightsRevision;
+    if (paletteChanged || weightsChanged) this.update(paletteChanged, weightsChanged);
+    return this.pending;
+  }
+
+  update(paletteChanged = true, weightsChanged = true): void {
+    if (paletteChanged && this.data.skinned) {
+      this.data.updatePalette();
+      this.data.palette.forEach((matrix, i) => this.paletteData.set(matrix, i * 16));
       this.device.queue.writeBuffer(this.paletteBuffer, 0, this.paletteData.buffer as ArrayBuffer);
-    if (this.data.weights.length)
+      this.jointRevisions.forEach((_, i) => {
+        this.jointRevisions[i] = this.data.jointRevision(this.data.activeJoints[i]);
+      });
+    }
+    if (weightsChanged && this.data.weights.length) {
+      this.weightsData.set(this.data.weights);
       this.device.queue.writeBuffer(this.weightsBuffer, 0, this.weightsData.buffer as ArrayBuffer);
+      this.weightsRevision = this.data.weightsRevision;
+    }
+    this.pending = true;
   }
 
   dispatch(pass: GPUComputePassEncoder): void {
     pass.setPipeline(this.compute.pipeline);
     pass.setBindGroup(0, this.group);
     pass.dispatchWorkgroups(Math.ceil(this.count / 64));
+    this.pending = false;
   }
 }

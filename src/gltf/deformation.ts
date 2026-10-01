@@ -19,7 +19,8 @@ interface Stream extends DeformationStream {
 export class Deformation {
   readonly inputs: DeformationInputs;
   readonly streams: Stream[];
-  private joints: number[] = [];
+  readonly jointNodes: readonly number[] = [];
+  readonly activeJoints: readonly number[] = [];
   private inverseBind: mat4[] = [];
   readonly palette: mat4[] = [];
   readonly influences: readonly SkinInfluences[];
@@ -34,6 +35,12 @@ export class Deformation {
   private unionMax = vec3.create();
   get weights(): number[] {
     return this.pose.nodes[this.node].weights;
+  }
+  get weightsRevision(): number {
+    return this.pose.nodes[this.node].weightsRevision;
+  }
+  jointRevision(index: number): number {
+    return this.pose.nodes[this.jointNodes[index]].worldRevision;
   }
   constructor(
     asset: Asset,
@@ -60,7 +67,7 @@ export class Deformation {
         skin.joints.some((j) => !pose.nodes[j])
       )
         throw new Error('Invalid skin joint list.');
-      this.joints = skin.joints;
+      this.jointNodes = skin.joints;
       const accessor = asset.gltf.accessors?.[skin.inverseBindMatrices!];
       if (
         skin.inverseBindMatrices !== undefined &&
@@ -76,6 +83,7 @@ export class Deformation {
       );
       this.palette = skin.joints.map(() => mat4.create());
       this.influences = cache.getInfluences(primitive);
+      this.activeJoints = cache.getActiveJoints(primitive);
       // The same primitive may use different skins. Validate every palette, including
       // cache hits, rather than accepting the first node's joint range for all nodes.
       if (this.influences.some((set) => set.joints.some((j) => j >= skin.joints.length)))
@@ -85,7 +93,7 @@ export class Deformation {
   }
 
   updatePalette(): void {
-    this.joints.forEach((joint, i) =>
+    this.jointNodes.forEach((joint, i) =>
       mat4.multiply(this.palette[i], this.pose.nodes[joint].world, this.inverseBind[i]),
     );
   }
@@ -110,11 +118,13 @@ export class Deformation {
       max = this.unionMax;
     vec3.set(min, Infinity, Infinity, Infinity);
     vec3.set(max, -Infinity, -Infinity, -Infinity);
-    for (const matrix of this.palette)
+    // Unused skin joints cannot move this primitive; exclude them from both update
+    // dependencies and the conservative envelope used for transparent sorting.
+    for (const joint of this.activeJoints)
       for (let i = 0; i < 8; i++) {
         for (let c = 0; c < 3; c++)
           this.corner[c] = i & (1 << c) ? this.boundMax[c] : this.boundMin[c];
-        vec3.transformMat4(this.corner, this.corner, matrix);
+        vec3.transformMat4(this.corner, this.corner, this.palette[joint]);
         for (let c = 0; c < 3; c++) {
           min[c] = Math.min(min[c], this.corner[c]);
           max[c] = Math.max(max[c], this.corner[c]);

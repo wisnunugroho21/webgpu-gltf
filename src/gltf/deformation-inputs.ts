@@ -24,6 +24,7 @@ export interface DeformationInputs {
 export class DeformationInputCache {
   private vertices = new Map<Primitive, DeformationInputs>();
   private influences = new Map<Primitive, readonly SkinInfluences[]>();
+  private activeJoints = new Map<Primitive, readonly number[]>();
   readonly noInfluences: readonly SkinInfluences[] = [];
   constructor(private asset: Asset) {}
 
@@ -133,6 +134,14 @@ export class DeformationInputCache {
       )
         throw new Error('Skin vertex has no positive joint weights.');
     this.influences.set(primitive, influences);
+    const active = new Set<number>();
+    for (const set of influences)
+      for (let i = 0; i < set.joints.length; i++) if (set.weights[i] > 0) active.add(set.joints[i]);
+    this.activeJoints.set(primitive, [...active]);
     return influences;
+  }
+  getActiveJoints(primitive: Primitive): readonly number[] {
+    this.getInfluences(primitive);
+    return this.activeJoints.get(primitive)!;
   }
 }

@@ -18,6 +18,7 @@ export class AnimationController {
   private playing = true;
   private lastTimestamp?: number;
   private dirty = false;
+  private initialize = false;
   onChange?: () => void;
 
   get state(): AnimationState {
@@ -34,6 +35,9 @@ export class AnimationController {
    * the current pose and playback. The first clip plays automatically when available. */
   setPose(pose: Pose): void {
     this.pose = pose;
+    // A newly prepared scene still needs its first GPU deformation dispatch even if
+    // the first sampled values equal the authored pose.
+    this.initialize = true;
     this.clips = pose.clips.map((clip) => clip.name);
     this.playing = true;
     this.select(pose.clips.length ? 0 : -1);
@@ -67,8 +71,9 @@ export class AnimationController {
     this.onChange?.();
   }
 
-  /** Milliseconds from requestAnimationFrame become seconds for glTF tracks. Returning
-   * false lets paused/static frames reuse both transforms and computed vertex buffers. */
+  /** Milliseconds from requestAnimationFrame become seconds for glTF tracks. Time and UI
+   * notifications continue through held poses, but returning false skips GPU pose work.
+   * First attachment returns true once to initialize deformation outputs. */
   update(timestamp: number): boolean {
     if (!this.pose) return false;
     const delta =
@@ -80,9 +85,10 @@ export class AnimationController {
       this.dirty = true;
     }
     if (!this.dirty) return false;
-    this.pose.evaluate(this.clip, this.time);
+    const changed = this.pose.evaluate(this.clip, this.time) || this.initialize;
+    this.initialize = false;
     this.dirty = false;
     this.onChange?.();
-    return true;
+    return changed;
   }
 }

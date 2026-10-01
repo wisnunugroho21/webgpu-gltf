@@ -135,6 +135,8 @@ export class Pose {
     scale: number[];
     weights: number[];
     world: mat4;
+    worldRevision: number;
+    weightsRevision: number;
   }[];
   private parents: number[];
   private order: number[] = [];
@@ -145,6 +147,10 @@ export class Pose {
     weights: number[];
   }[];
   private local = mat4.create();
+  private world = mat4.create();
+  private sampled: Pose['defaults'];
+  private worldChanged: Uint8Array;
+  private initialized = false;
   constructor(readonly asset: Asset) {
     this.clips = prepareClips(asset);
     const nodes = asset.gltf.nodes ?? [];
@@ -169,7 +175,16 @@ export class Pose {
       scale: [...node.scale],
       weights: [...node.weights],
       world: mat4.create(),
+      worldRevision: 0,
+      weightsRevision: 0,
     }));
+    this.sampled = this.defaults.map((node) => ({
+      translation: [...node.translation],
+      rotation: [...node.rotation],
+      scale: [...node.scale],
+      weights: [...node.weights],
+    }));
+    this.worldChanged = new Uint8Array(nodes.length);
     this.parents = nodes.map(() => -1);
     nodes.forEach((node, parent) =>
       node.children?.forEach((child) => {
@@ -190,17 +205,35 @@ export class Pose {
     if (visited.size !== nodes.length) throw new Error('Cycle in node hierarchy.');
     this.evaluate(-1, 0);
   }
-  evaluate(clipIndex: number, time: number): void {
-    this.nodes.forEach((node, i) => {
+  /** Compare the final sampled pose, not the temporary reset to authored defaults.
+   * Revisions change only for effective world matrices or morph weights. Parent changes
+   * propagate through the hierarchy; held STEP/constant values leave revisions intact. */
+  evaluate(clipIndex: number, time: number): boolean {
+    this.sampled.forEach((node, i) => {
       const original = this.defaults[i];
       for (const path of ['translation', 'rotation', 'scale', 'weights'] as const)
         for (let c = 0; c < original[path].length; c++) node[path][c] = original[path][c];
     });
     for (const track of this.clips[clipIndex]?.tracks ?? [])
-      sampleTrack(track, time, this.nodes[track.node][track.path]);
+      sampleTrack(track, time, this.sampled[track.node][track.path]);
+    this.worldChanged.fill(0);
+    let changed = false;
     for (const index of this.order) {
       const node = this.nodes[index],
-        definition = this.asset.gltf.nodes![index];
+        definition = this.asset.gltf.nodes![index],
+        sampled = this.sampled[index];
+      let localChanged = !this.initialized;
+      for (const path of ['translation', 'rotation', 'scale', 'weights'] as const) {
+        if (sampled[path].some((value, c) => value !== node[path][c])) {
+          for (let c = 0; c < sampled[path].length; c++) node[path][c] = sampled[path][c];
+          if (path === 'weights') {
+            node.weightsRevision++;
+            changed = true;
+          } else localChanged = true;
+        }
+      }
+      const parent = this.parents[index];
+      if (!localChanged && (parent < 0 || !this.worldChanged[parent])) continue;
       if (definition.matrix) mat4.copy(this.local, definition.matrix as mat4);
       else
         mat4.fromRotationTranslationScale(
@@ -209,9 +242,20 @@ export class Pose {
           node.translation as [number, number, number],
           node.scale as [number, number, number],
         );
-      if (this.parents[index] >= 0)
-        mat4.multiply(node.world, this.nodes[this.parents[index]].world, this.local);
-      else mat4.copy(node.world, this.local);
+      if (parent >= 0) mat4.multiply(this.world, this.nodes[parent].world, this.local);
+      else mat4.copy(this.world, this.local);
+      // Compare float32 matrices too: a local change can cancel out in world space,
+      // including under collapsed parents or equivalent quaternion signs.
+      let worldChanged = !this.initialized;
+      for (let c = 0; c < 16; c++) worldChanged ||= this.world[c] !== node.world[c];
+      if (worldChanged) {
+        mat4.copy(node.world, this.world);
+        node.worldRevision++;
+        this.worldChanged[index] = 1;
+        changed = true;
+      }
     }
+    this.initialized = true;
+    return changed;
   }
 }

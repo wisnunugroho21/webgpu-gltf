@@ -38,6 +38,7 @@ export interface RendererOptions {
 interface Scene {
   pose: Pose;
   updates: PoseDraw[];
+  pendingDeformations: GpuDeformation[];
   transformData: Float32Array;
   transformBuffer: GPUBuffer;
   resources: Resources;
@@ -56,6 +57,7 @@ interface PoseDraw {
   localCenter: vec3;
   front: GPURenderPipeline;
   mirrored: GPURenderPipeline;
+  worldRevision: number;
 }
 
 export class Renderer {
@@ -403,6 +405,7 @@ export class Renderer {
               localCenter: vec3.clone(localCenter),
               front: alternatives[0],
               mirrored: alternatives[1],
+              worldRevision: -1,
             });
           if (material.alphaMode === 'BLEND') transparent.push(draw);
           else
@@ -436,6 +439,7 @@ export class Renderer {
     return {
       pose,
       updates,
+      pendingDeformations: [],
       transformData,
       transformBuffer: buffer,
       resources,
@@ -481,52 +485,71 @@ export class Renderer {
 
   /** Playback already evaluated the pose; this phase only updates render-side resources. */
   private uploadPose(scene: Scene): void {
+    // Transform records follow draw order. Coalesce only adjacent dirty records, so
+    // unchanged nodes are neither rewritten nor included in a whole-scene upload.
+    let start = -1,
+      end = -1;
+    const flushTransforms = () => {
+      if (start >= 0)
+        this.device.queue.writeBuffer(
+          scene.transformBuffer,
+          start * 4,
+          scene.transformData.buffer as ArrayBuffer,
+          start * 4,
+          (end - start) * 4,
+        );
+    };
     for (const update of scene.updates) {
-      update.deformation?.update();
-      const world = scene.pose.nodes[update.node].world;
-      if (update.deformation?.data.skinned) mat4.identity(update.normal);
-      else {
+      const deformationChanged = update.deformation?.updateChanged() ?? false;
+      if (deformationChanged) scene.pendingDeformations.push(update.deformation!);
+      const node = scene.pose.nodes[update.node];
+      const worldChanged = node.worldRevision !== update.worldRevision;
+      update.worldRevision = node.worldRevision;
+      const skinned = update.deformation?.data.skinned;
+      // Skinned output is already world-space. Moving only the mesh node cannot
+      // require a transform upload or recomputation unless it also moves a joint.
+      if (!worldChanged && !deformationChanged) continue;
+      const world = node.world;
+      if (worldChanged && !skinned) {
         if (!mat4.invert(update.normal, world)) mat4.identity(update.normal);
         mat4.transpose(update.normal, update.normal);
+        const offset = update.draw.firstInstance * 32;
+        scene.transformData.set(world, offset);
+        scene.transformData.set(update.normal, offset + 16);
+        update.draw.pipeline = mat4.determinant(world) < 0 ? update.mirrored : update.front;
+        if (offset !== end) {
+          flushTransforms();
+          start = offset;
+        }
+        end = offset + 32;
       }
-      const offset = update.draw.firstInstance * 32;
-      scene.transformData.set(update.deformation?.data.skinned ? update.normal : world, offset);
-      scene.transformData.set(update.normal, offset + 16);
-      update.draw.pipeline =
-        !update.deformation?.data.skinned && mat4.determinant(world) < 0
-          ? update.mirrored
-          : update.front;
-      update.deformation?.data.center(update.localCenter);
-      if (update.deformation?.data.skinned) vec3.copy(update.draw.center, update.localCenter);
+      if (skinned && !deformationChanged) continue;
+      if (deformationChanged) update.deformation!.data.center(update.localCenter);
+      if (skinned) vec3.copy(update.draw.center, update.localCenter);
       else vec3.transformMat4(update.draw.center, update.localCenter, world);
     }
-    if (scene.updates.length)
-      this.device.queue.writeBuffer(
-        scene.transformBuffer,
-        0,
-        scene.transformData.buffer as ArrayBuffer,
-      );
+    flushTransforms();
   }
 
   /** Encode deformation only after pose inputs have been uploaded. End this pass before
    * rendering so compute storage writes are available as vertex reads in the next pass.
    * New deformation kernels belong here; queue uploads belong in uploadPose. */
-  private encodeDeformation(encoder: GPUCommandEncoder, scene: Scene, poseChanged: boolean): void {
-    if (!poseChanged || !scene.updates.some((update) => update.deformation)) return;
+  private encodeDeformation(encoder: GPUCommandEncoder, scene: Scene): void {
+    if (!scene.pendingDeformations.length) return;
     const pass = encoder.beginComputePass({ label: 'Scene deformation' });
-    for (const update of scene.updates) update.deformation?.dispatch(pass);
+    for (const deformation of scene.pendingDeformations) deformation.dispatch(pass);
     pass.end();
   }
 
   private render = (timestamp: number): void => {
     if (this.disposed) return;
     const scene = this.scene;
-    let poseChanged = false;
     // Phase 1: sample animation and upload its inputs before encoding any GPU work.
     if (scene) {
+      // This list belongs to this frame; paused/held poses must not replay old dispatches.
+      scene.pendingDeformations.length = 0;
       try {
-        poseChanged = this.animation.update(timestamp);
-        if (poseChanged) this.uploadPose(scene);
+        if (this.animation.update(timestamp)) this.uploadPose(scene);
       } catch (error) {
         this.stop();
         this.onError(error instanceof Error ? error.message : String(error));
@@ -539,7 +562,7 @@ export class Renderer {
     this.device.queue.writeBuffer(this.frameBuffer, 0, this.frameData);
     const encoder = this.device.createCommandEncoder();
     // Phase 2: compute consumes uploaded inputs. Paused/static poses reuse their output.
-    if (scene) this.encodeDeformation(encoder, scene, poseChanged);
+    if (scene) this.encodeDeformation(encoder, scene);
     // Phase 3: render consumes completed deformation output in the same submission.
     this.encodeRender(encoder, scene);
     // Presentation follows scene rendering: tone mapping happens once, after all blending.

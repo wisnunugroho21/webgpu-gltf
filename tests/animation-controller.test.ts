@@ -81,4 +81,27 @@ describe('animation playback controller', () => {
     expect(() => animation.seek(Infinity)).toThrow('finite');
     expect(animation.state).toEqual(before);
   });
+
+  it('advances and notifies through STEP holds without requesting pose uploads, including repeated seeks and looped values', () => {
+    const asset = animatedAsset();
+    asset.gltf.animations![0].samplers[0].interpolation = 'STEP';
+    const pose = new Pose(asset),
+      animation = new AnimationController();
+    animation.setPose(pose);
+    expect(animation.update(0)).toBe(true); // First GPU output is still required.
+    const times: number[] = [];
+    animation.onChange = () => times.push(animation.state.time);
+    expect(animation.update(500)).toBe(false);
+    expect(animation.update(1500)).toBe(false);
+    expect(animation.update(2500)).toBe(false); // Loops to the same STEP value.
+    expect(times).toEqual([0.5, 1.5, 0.5]);
+    animation.setPlaying(false);
+    animation.seek(2);
+    expect(animation.update(3000)).toBe(true);
+    animation.seek(2);
+    expect(animation.update(3500)).toBe(false);
+    animation.select(-1);
+    expect(animation.update(4000)).toBe(true);
+    expect(animation.update(4500)).toBe(false);
+  });
 });
