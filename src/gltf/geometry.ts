@@ -7,6 +7,7 @@ export const locations: Record<string, number> = {
   NORMAL: 1,
   TEXCOORD_0: 2,
   COLOR_0: 3,
+  TANGENT: 4,
 };
 export interface VertexBinding {
   source: number | Float32Array;
@@ -18,7 +19,7 @@ export interface Geometry {
   count: number;
   indices?: Uint16Array | Uint32Array;
   topology: GPUPrimitiveTopology;
-  features: { normal: boolean; uv: boolean; color: number };
+  features: { normal: boolean; uv: boolean; color: number; tangent: boolean };
   positions: number[];
 }
 
@@ -29,7 +30,7 @@ export function prepareGeometry(asset: Asset, primitive: Primitive): Geometry {
   if (!position || position.type !== 'VEC3' || position.componentType !== 5126)
     throw new Error('POSITION must be a float VEC3.');
   const groups: VertexBinding[] = [];
-  const features = { normal: false, uv: false, color: 0 };
+  const features = { normal: false, uv: false, color: 0, tangent: false };
   let positions: number[] = [];
   // Visit offsets in ascending order so a group's first attribute is its binding base.
   const semantics = Object.keys(locations).sort((a, b) => {
@@ -51,6 +52,7 @@ export function prepareGeometry(asset: Asset, primitive: Primitive): Geometry {
     if (
       ((semantic === 'POSITION' || semantic === 'NORMAL') && width !== 3) ||
       (semantic === 'TEXCOORD_0' && width !== 2) ||
+      (semantic === 'TANGENT' && width !== 4) ||
       (semantic === 'COLOR_0' && width !== 3 && width !== 4)
     )
       throw new Error(`Invalid ${semantic} shape.`);
@@ -59,6 +61,7 @@ export function prepareGeometry(asset: Asset, primitive: Primitive): Geometry {
     if (semantic === 'NORMAL') features.normal = true;
     if (semantic === 'TEXCOORD_0') features.uv = true;
     if (semantic === 'COLOR_0') features.color = width;
+    if (semantic === 'TANGENT') features.tangent = true;
     const view = asset.gltf.bufferViews?.[accessor.bufferView!];
     const stride = view?.byteStride ?? width * 4;
     const offset = accessor.byteOffset ?? 0;

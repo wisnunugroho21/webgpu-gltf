@@ -62,9 +62,27 @@ All GPU buffer allocations are rounded up to four bytes. Initial uploads use map
 
 `PipelineCache` keys contain canonical vertex layouts, topology, strip index format, available shader inputs, blending, culling, and winding. Uniform values, texture identities, absolute buffer offsets, and node IDs are excluded. Color target format, depth format, and bind group layouts are fixed for a renderer and do not need redundant key fields. Pipeline creation is asynchronous and finishes before the scene is swapped in.
 
-Shaders vary only when NORMAL, TEXCOORD_0, or COLOR_0 inputs differ. Alpha cutoff and unlit behavior are uniform-driven. Missing UVs use zero coordinates and missing colors use white. Missing normals use fragment derivatives for flat triangle lighting. Every material has the same bind group layout and always binds base-color and emissive textures; a shared white pixel supplies either default. Both color maps use sRGB decoding and independent samplers. A new scene receives a fresh cache so loading many unrelated assets cannot grow the pipeline cache indefinitely.
+Shaders vary only when NORMAL, TEXCOORD_0, COLOR_0, or TANGENT inputs differ. Alpha cutoff, normal-map presence, and unlit behavior are uniform-driven. Missing UVs use zero coordinates and missing colors use white. Missing normals use fragment derivatives for flat triangle lighting. Every material has the same bind group layout with all five core glTF texture slots. Neutral one-pixel textures supply defaults without extra pipeline variants. A new scene receives a fresh cache so loading many unrelated assets cannot grow the pipeline cache indefinitely.
 
 Emission is `emissiveFactor * sampledEmissiveColor` in linear space. Without an emissive texture, the white default preserves factor-only emission; the default factor is zero. A factor of `[1, 1, 1]` with a mostly black map must emit only where the map is bright. Ignoring that map and adding its factor alone turns models such as DamagedHelmet white and hides their base-color details.
+
+### Sample each texture according to its meaning
+
+The implementation follows the channel and transfer-function rules in the [glTF material specification](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#materials):
+
+| Texture slot       | Encoding and channels          | Application                                                      | Default                                 |
+| ------------------ | ------------------------------ | ---------------------------------------------------------------- | --------------------------------------- |
+| Base color         | sRGB RGB, linear alpha         | Multiply base-color factor and vertex color                      | White                                   |
+| Emissive           | sRGB RGB                       | Multiply emissive factor and add emitted light                   | White (factor defaults to zero)         |
+| Metallic/roughness | Linear B / G                   | Multiply metallic / roughness factors                            | White                                   |
+| Normal             | Linear RGB → tangent-space XYZ | Scale XY by `normalTexture.scale`, transform and normalize       | Flat normal; bypass mapping when absent |
+| Occlusion          | Linear R                       | `mix(1, R, occlusionTexture.strength)` scales ambient light only | White                                   |
+
+Each slot resolves its own sampler, even when image sources are shared. The image cache includes the GPU format: using the same image in a color slot and a data slot creates separate uploads so data channels never receive sRGB decoding. Metallic/roughness and occlusion can reuse the same linear image upload, including packed ORM maps.
+
+Authored VEC4 tangents use XYZ for the tangent and W for bitangent handedness. Tangents transform with the world matrix, while normals use the inverse transpose; the shader orthogonalizes the tangent against the interpolated normal. Negative-determinant node transforms also reverse tangent handedness. When tangents are absent, the shader reconstructs a triangle-local basis from position/UV derivatives. Degenerate UVs retain the surface normal. If normals are absent, authored tangents are ignored and the derivative basis uses flat normals. All samples and derivatives run before alpha-mask discard. Back faces reverse the complete mapped normal before lighting.
+
+The derivative fallback is useful for assets such as DamagedHelmet, but is not MikkTSpace tangent generation and may differ at seams from the basis used when baking the map. Export authored tangents for the closest match. No normal-map-specific pipeline variant is needed: a material uniform controls its use.
 
 ### Instance and order draws
 
@@ -81,13 +99,13 @@ Every scene owns its buffers and textures through `Resources`. A replacement is 
 - glTF JSON and GLB 2.0, relative/data URI buffers and images, and embedded GLB images.
 - Selected/default scene, hierarchy, matrix or TRS transforms, repeated mesh instancing, and inverse-transpose normals for nonuniform scales.
 - Indexed/non-indexed points, lines, line strips/loops, triangles, triangle strips/fans. Missing normals give useful flat shading for triangles; supply normals or an unlit material for points/lines.
-- Float POSITION/NORMAL/UV/COLOR plus decoded normalized integer UV/color attributes and sparse accessors. Only TEXCOORD_0 and COLOR_0 are consumed; tangents and additional attributes are ignored.
-- Base-color and emissive factors/textures, vertex colors, metallic/roughness factors, OPAQUE/MASK/BLEND, double-sided materials, and KHR_materials_unlit.
-- JPEG/PNG browser-decoded color images, wrap/filter sampler translation, and linear-light shading with sRGB texture decoding and output encoding.
+- Float POSITION/NORMAL/UV/COLOR/TANGENT plus decoded normalized integer UV/color attributes and sparse accessors. Only TEXCOORD_0 and COLOR_0 are consumed; additional sets are ignored.
+- All five core material textures: base color, emissive, metallic/roughness, normal (with scale), and occlusion (with strength). Material factors, vertex colors, OPAQUE/MASK/BLEND, double-sided materials, and KHR_materials_unlit are supported.
+- JPEG/PNG browser-decoded images, wrap/filter sampler translation, and linear-light shading with sRGB decoding for color maps and linear sampling for data maps.
 
 This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light plus a simple ambient term. It has no environment lighting, shadows, exposure/tone mapping, antialiasing, frustum culling, or mipmap generation. Samplers are clamped to level zero; distant textured surfaces can alias. Blending operates on encoded canvas colors rather than a separate linear offscreen target.
 
-Normal, occlusion, and metallic/roughness **textures** are ignored with a visible warning; their supported factors remain active. Base-color/emissive texture transforms and TEXCOORD sets other than zero are rejected. Skins and morph targets are rejected; animations are ignored with a warning and authored node transforms are displayed. Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator.
+Texture transforms and TEXCOORD sets other than zero are rejected for every supported texture slot. Skins and morph targets are rejected; animations are ignored with a warning and authored node transforms are displayed. Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
 
 ## Extending the renderer
 
@@ -99,7 +117,9 @@ Add material texture slots with neutral default textures and the same explicit b
 
 `browser-tests/viewer.spec.ts` runs the real viewer in installed Microsoft Edge with WebGPU enabled. It checks the offline instancing demo, resizing and camera controls, a generated textured scene with normalized integer UV/colors and missing normals, MASK/BLEND materials, mirrored transforms, local GLB loading, and recovery from an unsupported model. The emissive regression examines rendered pixels to catch color washout, rather than only asserting that the asset loaded. Screenshots are saved under `test-results/` for visual inspection. The browser must have a usable GPU adapter; this suite intentionally fails if WebGPU is unavailable. Change `channel` in `playwright.config.ts` to use another installed Chromium browser.
 
-The DamagedHelmet regression loads the public Khronos GLB and requires network access. It is skipped by default. To include it in PowerShell:
+`browser-tests/textures.spec.ts` compares presented pixels against equivalent factor-only materials to check metallic/roughness G/B channels and linear decoding, including an image reused for both color and data. It checks that occlusion strength changes only the expected ambient contribution and that normal scale zero preserves surface normals. It also compares authored and derivative tangent bases under nonuniform and mirrored transforms. These fixtures run offline.
+
+The DamagedHelmet regression loads the public Khronos GLB with all five material textures and requires network access. It is skipped by default. To include it in PowerShell:
 
 ```powershell
 $env:TEST_REMOTE_MODELS = '1'

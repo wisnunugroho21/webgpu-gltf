@@ -160,7 +160,10 @@ export class Renderer {
       const materialDefinition = asset.gltf.materials?.[primitive.material!];
       if (
         (materialDefinition?.pbrMetallicRoughness?.baseColorTexture ||
-          materialDefinition?.emissiveTexture) &&
+          materialDefinition?.emissiveTexture ||
+          materialDefinition?.pbrMetallicRoughness?.metallicRoughnessTexture ||
+          materialDefinition?.normalTexture ||
+          materialDefinition?.occlusionTexture) &&
         !geometry.features.uv
       )
         throw new Error('Textured primitive is missing TEXCOORD_0.');

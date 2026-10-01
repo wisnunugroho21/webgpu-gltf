@@ -95,6 +95,7 @@ test('Khronos DamagedHelmet GLB retains visible texture colors', async ({ page }
     );
   await page.locator('#url-form button').click();
   await expect(page.locator('#status')).toHaveText('DamagedHelmet.glb', { timeout: 60_000 });
+  await expect(page.locator('#warnings')).toBeEmpty();
   const screenshot = await page
     .locator('canvas')
     .screenshot({ path: 'test-results/damaged-helmet.png' });

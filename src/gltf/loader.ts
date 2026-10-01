@@ -83,16 +83,6 @@ async function load(data: ArrayBuffer, resolve: Resolve): Promise<Asset> {
   const warnings: string[] = [];
   if (gltf.animations?.length)
     warnings.push('Animations are ignored; the authored static pose is shown.');
-  if (
-    gltf.materials?.some(
-      (m) =>
-        m.normalTexture || m.occlusionTexture || m.pbrMetallicRoughness?.metallicRoughnessTexture,
-    )
-  ) {
-    warnings.push(
-      'Normal, occlusion, and metallic/roughness textures are ignored. Material factors still apply.',
-    );
-  }
   const buffers = await Promise.all(
     (gltf.buffers ?? []).map(async (buffer, index) => {
       const bytes = buffer.uri ? await resolve(buffer.uri) : index === 0 ? bin : undefined;

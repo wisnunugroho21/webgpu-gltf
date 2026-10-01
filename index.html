@@ -55,9 +55,9 @@
         <summary>Renderer notes</summary>
         <p>
           Geometry is prepared once, pipelines are cached, and repeated meshes share instanced
-          draws. Base-color textures and metallic/roughness factors use a directional light with a
-          small ambient term; emissive maps control self-illumination. This viewer does not
-          implement animation, skinning, normal maps, or environment lighting.
+          draws. All five core glTF material textures are supported: base color, metallic/roughness,
+          normal, occlusion, and emissive. Lighting uses a directional light with a small ambient
+          term. This viewer does not implement animation, skinning, or environment lighting.
         </p>
         <p id="warnings"></p>
       </details>

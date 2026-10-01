@@ -37,8 +37,8 @@ export interface Material {
   };
   emissiveFactor?: number[];
   emissiveTexture?: TextureInfo;
-  normalTexture?: TextureInfo;
-  occlusionTexture?: TextureInfo;
+  normalTexture?: TextureInfo & { scale?: number };
+  occlusionTexture?: TextureInfo & { strength?: number };
   alphaMode?: 'OPAQUE' | 'MASK' | 'BLEND';
   alphaCutoff?: number;
   doubleSided?: boolean;
