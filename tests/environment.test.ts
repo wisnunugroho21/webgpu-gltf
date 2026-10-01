@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { studioEnvironment, validateEnvironment } from '../src/renderer/environment-source';
+import { studioEnvironment, validateEnvironment } from '../src/renderer/lighting/source';
 
 test('offline studio is finite linear HDR and panorama dimensions match its pixels', () => {
   const image = studioEnvironment();

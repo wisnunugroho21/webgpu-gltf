@@ -1,4 +1,4 @@
-import type { Asset } from './gltf/types';
+import type { Asset } from '../gltf/types';
 
 /** A real glTF scene generated locally: no network dependency or third-party model license.
  * Four nodes reference two meshes, exercising interleaving, shared pipelines, and instancing. */

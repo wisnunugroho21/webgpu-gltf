@@ -5,7 +5,7 @@ test('MSAA resolves fractional geometry coverage and transparent HDR blending be
 }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {
-    const { OutputPass, hdrFormat } = await import('/src/renderer/output.ts');
+    const { OutputPass, hdrFormat } = await import('/src/renderer/presentation/output.ts');
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error('No GPU adapter');
     const device = await adapter.requestDevice();
@@ -143,7 +143,7 @@ test('renderer supports explicit single-sample mode and defaults to four samples
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
-    const { demoAsset } = await import('/src/demo.ts');
+    const { demoAsset } = await import('/src/app/demo.ts');
     const errors: string[] = [];
     const samples: number[] = [];
     for (const options of [{ sampleCount: 1 as const }, {}]) {

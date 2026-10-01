@@ -1,6 +1,6 @@
-import type { Geometry } from '../gltf/geometry';
-import { materialTextureDeclarations } from './material-slots';
-import { uvLocation } from '../gltf/texture-coordinates';
+import type { Geometry } from '../../gltf/geometry';
+import { materialTextureDeclarations } from '../materials/slots';
+import { uvLocation } from '../../gltf/texture-coordinates';
 
 /** Variants are limited to missing vertex inputs. Material values remain uniform data,
  * so changing a color or supplying a texture doesn't create another pipeline. */

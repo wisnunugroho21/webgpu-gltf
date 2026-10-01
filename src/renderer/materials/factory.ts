@@ -1,9 +1,9 @@
-import type { Asset, Material, TextureInfo } from '../gltf/types';
-import { Resources, uploadBuffer } from './resources';
-import { createMaterialLayoutEntries, materialTextureSlots } from './material-slots';
-import { textureCoordinates } from '../gltf/texture-coordinates';
-import { MipmapGenerator, mipLevelCount } from './mipmaps';
-import { samplerDescriptor } from './samplers';
+import type { Asset, Material, TextureInfo } from '../../gltf/types';
+import { Resources, uploadBuffer } from '../core/resources';
+import { createMaterialLayoutEntries, materialTextureSlots } from './slots';
+import { textureCoordinates } from '../../gltf/texture-coordinates';
+import { MipmapGenerator, mipLevelCount } from '../textures/mipmaps';
+import { samplerDescriptor } from '../textures/samplers';
 
 export interface GpuMaterial {
   bindGroup: GPUBindGroup;

@@ -1,4 +1,4 @@
-import type { Material, TextureInfo } from '../gltf/types';
+import type { Material, TextureInfo } from '../../gltf/types';
 
 interface MaterialTextureSlot {
   label: string;

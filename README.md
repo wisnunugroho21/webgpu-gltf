@@ -36,43 +36,43 @@ Environment lighting starts with an original, generated HDR **Studio** panorama.
 
 ## Code map
 
-| Module                               | Responsibility                                                                     |
-| ------------------------------------ | ---------------------------------------------------------------------------------- |
-| `src/main.ts`                        | UI events, serialized loading, status and errors                                   |
-| `src/gltf/types.ts`                  | Typed subset of the glTF JSON schema                                               |
-| `src/gltf/loader.ts`                 | JSON/GLB parsing, URI resolution, buffer and image loading                         |
-| `src/gltf/accessors.ts`              | Strided component decoding, normalization, sparse overlays, bounds checks          |
-| `src/gltf/geometry.ts`               | Canonical GPU layouts, exceptional repacking, index/topology conversion            |
-| `src/gltf/texture-coordinates.ts`    | UV-set selection, texture-transform validation and affine-row packing              |
-| `src/gltf/scene.ts`                  | Selected-scene traversal, world/normal matrices, instance collection               |
-| `src/gltf/animation.ts`              | Validated animation tracks, interpolation, clip metadata, reusable node poses      |
-| `src/animation/controller.ts`        | Playback state, clip selection, frame timing, looping, seeking, pose evaluation    |
-| `src/gltf/deformation-inputs.ts`     | Scene-scoped decoded primitive inputs, morph bounds and skin influence cache       |
-| `src/gltf/deformation.ts`            | Node-owned joint palettes, bounds evaluation and CPU deformation reference         |
-| `src/renderer/deformation-inputs.ts` | Shared immutable GPU vertex/morph/influence buffers and storage-limit checks       |
-| `src/renderer/deformation.ts`        | Compute pipeline, node-owned pose/output buffers, uploads and dispatch             |
-| `src/renderer/deformation-shader.ts` | WGSL morphing and linear blend skinning kernel                                     |
-| `src/renderer/resources.ts`          | Padded uploads and explicit GPU allocation ownership                               |
-| `src/renderer/materials.ts`          | Cached images/samplers/material bind groups and uniform packing                    |
-| `src/renderer/material-slots.ts`     | Shared texture slot bindings, color spaces, neutral defaults and WGSL declarations |
-| `src/renderer/mipmaps.ts`            | Cached GPU mipmap generation in linear light                                       |
-| `src/renderer/output.ts`             | HDR/MSAA viewport targets, linear resolve, exposure, tone mapping and presentation |
-| `src/renderer/environment-source.ts` | Procedural HDR panorama, linear pixel validation and PNG/JPEG decoding             |
-| `src/renderer/environment.ts`        | Environment convolution, shared lighting bindings and resource replacement         |
-| `src/renderer/environment-shader.ts` | Cosine/GGX environment filtering and split-sum BRDF integration                    |
-| `src/renderer/samplers.ts`           | glTF wrap/filter modes and mip-selection policy                                    |
-| `src/renderer/shader.ts`             | Commented WGSL generated for available vertex inputs                               |
-| `src/renderer/pipelines.ts`          | Immutable-state pipeline keys and cached async compilation                         |
-| `src/renderer/renderer.ts`           | Scene preparation, batching, transparent ordering, rendering and disposal          |
-| `src/renderer/camera.ts`             | Orbit controls, scene framing, WebGPU depth projection                             |
-| `src/renderer/frustum.ts`            | WebGPU clip planes, conservative world bounds, visible instance runs               |
-| `src/demo.ts`                        | Original procedural glTF demo                                                      |
+The project has four layers: asset decoding (`gltf`), CPU pose/animation (`scene` and `animation`), WebGPU rendering (`renderer`), and browser UI (`app`). See [Architecture and maintenance](docs/architecture.md) for dependency rules, resource ownership, frame phases, and extension points.
+
+| Module or directory                                                 | Responsibility                                                                  |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `src/index.ts`, `src/renderer/index.ts`                             | Public rendering, settings, statistics, animation and loading exports           |
+| `src/main.ts`                                                       | Viewer bootstrap                                                                |
+| `src/app/viewer.ts`, `src/app/dom.ts`                               | Application state, serialized loading, status and shared DOM helpers            |
+| `src/app/controls/`                                                 | Separate animation, environment and display widgets                             |
+| `src/app/demo.ts`, `src/app/style.css`                              | Offline demo and viewer presentation                                            |
+| `src/gltf/types.ts`, `src/gltf/loader.ts`                           | Typed glTF subset, JSON/GLB parsing, URI resolution and image loading           |
+| `src/gltf/accessors.ts`, `src/gltf/geometry.ts`                     | Accessor decoding, canonical layouts, repacking and topology conversion         |
+| `src/gltf/scene.ts`, `src/gltf/texture-coordinates.ts`              | Initial scene traversal and per-slot UV selection/transforms                    |
+| `src/animation/tracks.ts`, `src/animation/controller.ts`            | Track validation/interpolation and independent playback policy                  |
+| `src/scene/pose.ts`                                                 | Reusable node poses, hierarchy evaluation and revision tracking                 |
+| `src/scene/deformation-inputs.ts`, `src/scene/deformation.ts`       | Shared decoded inputs, joint palettes, bounds and CPU deformation oracle        |
+| `src/renderer/renderer.ts`                                          | Public facade, device lifecycle, scene replacement and frame coordination       |
+| `src/renderer/core/`                                                | Resource ownership, explicit binding layouts/record sizes and viewport resizing |
+| `src/renderer/scene/builder.ts`                                     | Load-time materials, geometry, pipelines and draw records                       |
+| `src/renderer/scene/geometry-uploader.ts`                           | Scene-scoped vertex-view and index upload caches                                |
+| `src/renderer/scene/pose-upload.ts`                                 | Selective pose uploads, winding, bounds and sorting centers                     |
+| `src/renderer/scene/types.ts`                                       | Prepared draw/scene records and statistics                                      |
+| `src/renderer/scene/frustum.ts`, `src/renderer/scene/visibility.ts` | Clip planes, affine bounds and visible instance runs                            |
+| `src/renderer/deformation/`                                         | Shared compute pipeline/inputs, node-owned outputs, kernel and compute pass     |
+| `src/renderer/materials/`                                           | Material factory, fixed texture slots, neutral defaults and color spaces        |
+| `src/renderer/textures/`                                            | GPU mipmaps and sampler/anisotropy policy                                       |
+| `src/renderer/render/`                                              | Pipeline cache, generated WGSL and draw submission                              |
+| `src/renderer/lighting/`                                            | HDR environment source, filtering, lighting bindings and shader                 |
+| `src/renderer/presentation/output.ts`                               | HDR/MSAA targets, linear resolve, exposure, tone mapping and presentation       |
+| `src/renderer/camera/orbit-camera.ts`                               | Orbit controls, framing and WebGPU depth projection                             |
+
+The original `Renderer` and `AnimationController` APIs are preserved. Internal feature modules now live in the directories above; imports of those implementation files should use their new paths.
 
 ## How the case study informs the implementation
 
 ### Do work when loading, not when drawing
 
-The loader resolves bytes and images first. `Renderer.prepare()` traverses the scene and prepares geometry, transforms, materials, bind groups, and pipelines before displaying it. Static frames update only the camera uniform, test instance visibility, sort visible transparent draws, and submit prepared draw records. Animated frames have a separate pose/deformation update before draw submission. Accessors and tracks are decoded at load time; playback does not create GPU allocations or pipelines (apart from recreating viewport attachments on resize).
+The loader resolves bytes and images first. `SceneBuilder.prepare()` traverses the scene and prepares geometry, transforms, materials, bind groups, and pipelines before displaying it. Static frames update only the camera uniform, test instance visibility, sort visible transparent draws, and submit prepared draw records. Animated frames have a separate pose/deformation update before draw submission. Accessors and tracks are decoded at load time; playback does not create GPU allocations or pipelines (apart from recreating viewport attachments on resize).
 
 ### Normalize vertex offsets and preserve interleaving
 
@@ -104,7 +104,7 @@ The implementation follows the channel and transfer-function rules in the [glTF 
 
 Each slot resolves its own sampler, even when image sources are shared. The image cache includes the GPU format: using the same image in a color slot and a data slot creates separate uploads so data channels never receive sRGB decoding. Metallic/roughness and occlusion can reuse the same linear image upload, including packed ORM maps.
 
-`material-slots.ts` is the single source of truth for the five texture slots. The explicit GPU layout, every material bind group, and all WGSL variants use its binding numbers. Texture presence never changes the interface or adds a pipeline variant. Neutral textures are cached by format and RGBA value, so color and data defaults share allocations only when their formats match. Base-color and emissive RGB decode through `rgba8unorm-srgb`; alpha remains linear. Metallic/roughness, normal, and occlusion use `rgba8unorm`. Missing emissive maps use white to preserve factor-only emission; the default emissive factor is zero. Missing normal maps also bypass perturbation, avoiding the small XY quantization offset in the neutral 8-bit normal texture.
+`renderer/materials/slots.ts` is the single source of truth for the five texture slots. The explicit GPU layout, every material bind group, and all WGSL variants use its binding numbers. Texture presence never changes the interface or adds a pipeline variant. Neutral textures are cached by format and RGBA value, so color and data defaults share allocations only when their formats match. Base-color and emissive RGB decode through `rgba8unorm-srgb`; alpha remains linear. Metallic/roughness, normal, and occlusion use `rgba8unorm`. Missing emissive maps use white to preserve factor-only emission; the default emissive factor is zero. Missing normal maps also bypass perturbation, avoiding the small XY quantization offset in the neutral 8-bit normal texture.
 
 Authored VEC4 tangents use XYZ for the tangent and W for bitangent handedness. Tangents transform with the world matrix, while normals use the inverse transpose; the shader orthogonalizes the tangent against the interpolated normal. Negative-determinant node transforms also reverse tangent handedness. When tangents are absent, the shader reconstructs a triangle-local basis from position/UV derivatives. Degenerate UVs retain the surface normal. If normals are absent, authored tangents are ignored and the derivative basis uses flat normals. All samples and derivatives run before alpha-mask discard. Back faces reverse the complete mapped normal before lighting.
 
@@ -208,13 +208,13 @@ The shared compute pipeline uses one explicit bind group layout for skin-only, m
 
 The renderer ends the compute pass before starting the render pass in the same command encoder. WebGPU orders these uses of the output buffer; no shader barrier or CPU wait is required between passes. Paused poses retain their GPU output until a seek or clip change. Static scenes retain the optimized instanced path and do not create a compute pipeline. Buffers and workgroup counts are checked against device limits; oversized deformation inputs are rejected rather than silently truncated. Outputs are owned by the scene and destroyed together on replacement or a failed load.
 
-The frame loop keeps three explicit boundaries: `uploadPose(scene)` updates only changed joint palettes, morph weights, instance transforms, winding, bounds, and sorting centers; `encodeDeformation(encoder, scene)` dispatches the frame's pending deformations and ends its pass; `encodeRender(encoder, scene)` tests visibility and draws from the prepared output into HDR storage. Presentation follows scene rendering, and submission happens once after all encoding phases. The pending list is cleared at the start of every frame, so paused or held poses cannot replay stale dispatches while camera and display changes continue rendering. When adding deformation features, place new pose inputs in the upload phase and kernels in the compute phase; keep uploads and deformation dispatches out of render-pass encoding.
+The frame loop keeps three explicit boundaries: `uploadPose(device, scene)` updates only changed joint palettes, morph weights, instance transforms, winding, bounds, and sorting centers; `encodeDeformation(encoder, scene)` dispatches the frame's pending deformations and ends its pass; `SceneVisibility.update()` tests visibility and `encodeScene(encoder, scene, context)` draws from the prepared output into HDR storage. Presentation follows scene rendering, and submission happens once after all encoding phases. The pending list is cleared at the start of every frame, so paused or held poses cannot replay stale dispatches while camera and display changes continue rendering. When adding deformation features, place new pose inputs in the upload phase and kernels in the compute phase; keep uploads and deformation dispatches out of render-pass encoding.
 
 The CPU deformation evaluator remains an oracle for tests and runs once per node on load for exact initial camera bounds. Playback uses shared precomputed base/delta bounds, expands them for each node's signed morph weights, and unions joint-transformed envelopes for visibility bounds and transparent draw centers. This takes work proportional to target/joint counts rather than vertex counts and avoids GPU readbacks. Those conservative centers can be less accurate than centers of the deformed vertices; intersecting transparent meshes still have the usual draw-sorting limitations. Large crowds would additionally benefit from batching dispatches.
 
 ### Share immutable deformation inputs between nodes
 
-`Renderer.prepare()` creates a `DeformationInputCache` for the candidate asset and a `GpuDeformationInputCache` using that scene's `Resources`. The CPU cache keys by primitive object identity and decodes POSITION/NORMAL/TANGENT bases, sparse morph deltas, and conservative bounds once. Each `Deformation` references those arrays but keeps its CPU reference output separate. Skin influences are decoded lazily when the primitive first has a skinned consumer, so morph-only nodes do not suddenly require valid skin attributes.
+`SceneBuilder.prepare()` creates a `DeformationInputCache` for the candidate asset and a `GpuDeformationInputCache` using that scene's `Resources`. The CPU cache keys by primitive object identity and decodes POSITION/NORMAL/TANGENT bases, sparse morph deltas, and conservative bounds once. Each `Deformation` references those arrays but keeps its CPU reference output separate. Skin influences are decoded lazily when the primitive first has a skinned consumer, so morph-only nodes do not suddenly require valid skin attributes.
 
 The GPU cache keys by decoded-input identity, packs the shared base and morph records once, and uploads each immutable buffer once. Skin influence buffers key by their shared decoded influence array; joint indices are relative to each node's palette, so different skins can use the same packed influences. Each skin's joint list, inverse binds, and joint-index range are still validated independently, including on cache hits. An incompatible second skin fails preparation rather than reusing the first skin's validation. Morph-only consumers use one cached neutral influence buffer and share the same base/morph buffers with skinned consumers.
 
@@ -259,6 +259,8 @@ Use `renderer.setFrustumCulling(false)` to disable culling for comparison, or pa
 Keep material texture slots on the same explicit bind group layout across variants, with neutral defaults. Decode color textures as sRGB and data textures as linear. Add shader flags only when they materially change the interface or algorithm. Preserve the separate pose-upload, compute, and render phases when adding deformation features. Larger scenes should split buffers at device limits. Keep new rendering features isolated from file parsing and test their layout or ordering edge cases.
 
 ## Verification
+
+`tests/architecture.test.ts` enforces CPU/render/UI dependency boundaries and detects circular static imports. The behavior tests below continue to exercise the reorganized modules.
 
 `tests/gltf.test.ts` checks interleaved grouping, large attribute offsets, deterministic pipeline keys, byte indices, fan conversion, bounds failures, sparse normalized data, scene selection, parent transforms, mirrored winding, singular/cyclic scenes, and GLB chunk validation. These are CPU tests; they do not prove shader compilation or visible rendering.
 

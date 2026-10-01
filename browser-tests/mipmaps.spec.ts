@@ -5,7 +5,7 @@ test('anisotropic sampler policy passes real WebGPU validation for all glTF filt
 }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {
-    const { samplerDescriptor } = await import('/src/renderer/samplers.ts');
+    const { samplerDescriptor } = await import('/src/renderer/textures/samplers.ts');
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error('No GPU adapter');
     const device = await adapter.requestDevice();
@@ -32,7 +32,7 @@ test('GPU mipmaps filter color in linear light, preserve data values and handle 
 }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {
-    const { MipmapGenerator, mipLevelCount } = await import('/src/renderer/mipmaps.ts');
+    const { MipmapGenerator, mipLevelCount } = await import('/src/renderer/textures/mipmaps.ts');
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error('No GPU adapter');
     const device = await adapter.requestDevice();

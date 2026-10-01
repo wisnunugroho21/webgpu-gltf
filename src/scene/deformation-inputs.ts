@@ -1,6 +1,6 @@
 import { vec3 } from 'gl-matrix';
-import { decodeAccessor } from './accessors';
-import type { Asset, Primitive } from './types';
+import { decodeAccessor } from '../gltf/accessors';
+import type { Asset, Primitive } from '../gltf/types';
 
 export interface DeformationStream {
   readonly semantic: 'POSITION' | 'NORMAL' | 'TANGENT';

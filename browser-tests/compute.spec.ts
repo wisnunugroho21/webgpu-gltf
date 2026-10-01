@@ -8,10 +8,11 @@ test('compute output matches CPU reference across morph, skin and combined cases
     // Vite serves the actual production modules and the shared original fixture. Numeric
     // readback is confined to this test; the viewer consumes output directly as vertices.
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
-    const { Pose } = await import('/src/gltf/animation.ts');
-    const { Deformation } = await import('/src/gltf/deformation.ts');
-    const { DeformationCompute, GpuDeformation } = await import('/src/renderer/deformation.ts');
-    const { Resources } = await import('/src/renderer/resources.ts');
+    const { Pose } = await import('/src/scene/pose.ts');
+    const { Deformation } = await import('/src/scene/deformation.ts');
+    const { DeformationCompute } = await import('/src/renderer/deformation/compute.ts');
+    const { GpuDeformation } = await import('/src/renderer/deformation/instance.ts');
+    const { Resources } = await import('/src/renderer/core/resources.ts');
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error('No WebGPU adapter');
     const device = await adapter.requestDevice();
@@ -160,12 +161,13 @@ test('shared deformation inputs feed independently weighted nodes with different
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
-    const { Pose } = await import('/src/gltf/animation.ts');
-    const { Deformation } = await import('/src/gltf/deformation.ts');
-    const { DeformationInputCache } = await import('/src/gltf/deformation-inputs.ts');
-    const { DeformationCompute, GpuDeformation } = await import('/src/renderer/deformation.ts');
-    const { GpuDeformationInputCache } = await import('/src/renderer/deformation-inputs.ts');
-    const { Resources } = await import('/src/renderer/resources.ts');
+    const { Pose } = await import('/src/scene/pose.ts');
+    const { Deformation } = await import('/src/scene/deformation.ts');
+    const { DeformationInputCache } = await import('/src/scene/deformation-inputs.ts');
+    const { DeformationCompute } = await import('/src/renderer/deformation/compute.ts');
+    const { GpuDeformation } = await import('/src/renderer/deformation/instance.ts');
+    const { GpuDeformationInputCache } = await import('/src/renderer/deformation/inputs.ts');
+    const { Resources } = await import('/src/renderer/core/resources.ts');
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error('No GPU adapter');
     const device = await adapter.requestDevice();

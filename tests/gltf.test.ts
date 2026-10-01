@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { demoAsset } from '../src/demo';
+import { demoAsset } from '../src/app/demo';
 import { decodeAccessor } from '../src/gltf/accessors';
 import { prepareGeometry } from '../src/gltf/geometry';
 import { parseGlb } from '../src/gltf/loader';
 import { collectInstances } from '../src/gltf/scene';
 import type { Asset } from '../src/gltf/types';
-import { pipelineArgs } from '../src/renderer/pipelines';
+import { pipelineArgs } from '../src/renderer/render/pipelines';
 
 function packedAsset(values: Float32Array, offsets: number[], stride = 12): Asset {
   return {

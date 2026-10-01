@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
-import { Pose } from '../src/gltf/animation';
-import { Deformation } from '../src/gltf/deformation';
-import { DeformationInputCache } from '../src/gltf/deformation-inputs';
+import { Pose } from '../src/scene/pose';
+import { Deformation } from '../src/scene/deformation';
+import { DeformationInputCache } from '../src/scene/deformation-inputs';
 import { animatedAsset } from './fixtures/animated';
 
 test('nodes share decoded bases, morph deltas and bounds while CPU outputs and weights remain independent', () => {

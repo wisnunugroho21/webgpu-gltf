@@ -5,7 +5,7 @@ test('HDR retains highlights and blends in linear space before exposure and pres
 }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {
-    const { OutputPass, hdrFormat } = await import('/src/renderer/output.ts');
+    const { OutputPass, hdrFormat } = await import('/src/renderer/presentation/output.ts');
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error('No GPU adapter');
     const device = await adapter.requestDevice();

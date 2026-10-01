@@ -1,7 +1,7 @@
-import type { Geometry } from '../gltf/geometry';
-import type { GpuMaterial } from './materials';
+import type { Geometry } from '../../gltf/geometry';
+import type { GpuMaterial } from '../materials/factory';
 import { shaderSource } from './shader';
-import type { SceneSampleCount } from './output';
+import type { SceneSampleCount } from '../presentation/output';
 
 export interface PipelineArgs {
   buffers: GPUVertexBufferLayout[];

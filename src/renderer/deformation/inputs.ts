@@ -1,6 +1,6 @@
-import type { Deformation } from '../gltf/deformation';
-import type { DeformationInputs, SkinInfluences } from '../gltf/deformation-inputs';
-import { Resources, uploadBuffer } from './resources';
+import type { Deformation } from '../../scene/deformation';
+import type { DeformationInputs, SkinInfluences } from '../../scene/deformation-inputs';
+import { Resources, uploadBuffer } from '../core/resources';
 
 interface VertexInputs {
   readonly source: Float32Array;

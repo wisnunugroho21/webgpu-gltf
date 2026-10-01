@@ -5,9 +5,9 @@ import {
   createBounds,
   transformBounds,
   visibleInstanceRuns,
-} from '../src/renderer/frustum';
-import { Deformation } from '../src/gltf/deformation';
-import { Pose } from '../src/gltf/animation';
+} from '../src/renderer/scene/frustum';
+import { Deformation } from '../src/scene/deformation';
+import { Pose } from '../src/scene/pose';
 import { animatedAsset } from './fixtures/animated';
 
 const box = (x: number, y: number, z: number, extent = 0.1) => ({

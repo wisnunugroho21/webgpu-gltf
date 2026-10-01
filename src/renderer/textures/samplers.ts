@@ -1,4 +1,4 @@
-import type { Gltf } from '../gltf/types';
+import type { Gltf } from '../../gltf/types';
 
 /** glTF's six minification modes specify both in-level filtering and mip selection.
  * NEAREST/LINEAR without mip filtering must still sample level zero after mip generation. */

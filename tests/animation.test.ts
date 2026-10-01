@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { Pose, sampleTrack, type Track } from '../src/gltf/animation';
-import { Deformation } from '../src/gltf/deformation';
+import { Pose } from '../src/scene/pose';
+import { sampleTrack, type Track } from '../src/animation/tracks';
+import { Deformation } from '../src/scene/deformation';
 import { animatedAsset } from './fixtures/animated';
 
 function track(overrides: Partial<Track>): Track {

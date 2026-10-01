@@ -1,0 +1,16 @@
+import type { Renderer } from '../../renderer/renderer';
+import type { ToneMapping } from '../../renderer/presentation/output';
+import { element } from '../dom';
+
+export function bindDisplayControls(renderer: Renderer): void {
+  const update = () => {
+    const exposureEV = Number(element<HTMLInputElement>('exposure').value);
+    renderer.setOutput({
+      exposureEV,
+      toneMapping: element<HTMLSelectElement>('tone-mapping').value as ToneMapping,
+    });
+    element('exposure-value').textContent = `${exposureEV.toFixed(1)} EV`;
+  };
+  element('tone-mapping').addEventListener('change', update);
+  element('exposure').addEventListener('input', update);
+}

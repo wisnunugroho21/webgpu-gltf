@@ -5,7 +5,7 @@ test('GPU environment filtering preserves constant HDR radiance across faces and
 }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {
-    const { EnvironmentLighting } = await import('/src/renderer/environment.ts');
+    const { EnvironmentLighting } = await import('/src/renderer/lighting/environment.ts');
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error('No GPU adapter');
     const device = await adapter.requestDevice();
@@ -208,7 +208,7 @@ test('viewer environment intensity, rotation, replacement and studio reset chang
 test('PNG environment decoding converts sRGB into linear radiance', async ({ page }) => {
   await page.goto('/');
   const values = await page.evaluate(async () => {
-    const { loadEnvironmentImage } = await import('/src/renderer/environment-source.ts');
+    const { loadEnvironmentImage } = await import('/src/renderer/lighting/source.ts');
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 1;
     canvas
@@ -229,7 +229,7 @@ test('environment reflects on metals while unlit materials retain their colors',
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   for (const kind of ['metal', 'unlit']) {
     const json = await page.evaluate(async (kind) => {
-      const { demoAsset } = await import('/src/demo.ts');
+      const { demoAsset } = await import('/src/app/demo.ts');
       const asset = demoAsset();
       asset.gltf.buffers![0].uri =
         'data:application/octet-stream;base64,' +

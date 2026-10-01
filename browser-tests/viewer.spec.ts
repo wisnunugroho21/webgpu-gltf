@@ -29,7 +29,7 @@ test('a black emissive map masks a white emissive factor without washing out bas
   await page.goto('/');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   const json = await page.evaluate(async () => {
-    const { demoAsset } = await import('/src/demo.ts');
+    const { demoAsset } = await import('/src/app/demo.ts');
     const asset = demoAsset();
     const gltf = asset.gltf;
     const dataUri = (bytes: Uint8Array) =>
@@ -139,7 +139,7 @@ test('textured glTF exercises missing attributes, mask/blend, colors, mirroring 
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   const json = await page.evaluate(async () => {
     // Vite serves the real preparation input; no renderer internals are mocked.
-    const { demoAsset } = await import('/src/demo.ts');
+    const { demoAsset } = await import('/src/app/demo.ts');
     const asset = demoAsset();
     const gltf = asset.gltf;
     const dataUri = (bytes: Uint8Array) =>
@@ -213,7 +213,7 @@ test('local GLB loads and a rejected replacement keeps the current scene', async
   await page.goto('/');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   const bytes = await page.evaluate(async () => {
-    const { demoAsset } = await import('/src/demo.ts');
+    const { demoAsset } = await import('/src/app/demo.ts');
     const asset = demoAsset();
     const encoded = new TextEncoder().encode(JSON.stringify(asset.gltf));
     const length = Math.ceil(encoded.length / 4) * 4;

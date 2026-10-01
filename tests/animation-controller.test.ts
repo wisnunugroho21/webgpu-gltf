@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AnimationController } from '../src/animation/controller';
-import { Pose } from '../src/gltf/animation';
+import { Pose } from '../src/scene/pose';
 import { animatedAsset } from './fixtures/animated';
 
 function player() {

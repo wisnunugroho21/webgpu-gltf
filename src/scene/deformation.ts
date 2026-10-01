@@ -1,8 +1,8 @@
 import { mat4, vec3 } from 'gl-matrix';
-import { decodeAccessor } from './accessors';
-import type { Asset, Primitive } from './types';
-import type { Geometry, VertexBinding } from './geometry';
-import type { Pose } from './animation';
+import { decodeAccessor } from '../gltf/accessors';
+import type { Asset, Primitive } from '../gltf/types';
+import type { Geometry, VertexBinding } from '../gltf/geometry';
+import type { Pose } from './pose';
 import {
   DeformationInputCache,
   type DeformationInputs,

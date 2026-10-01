@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { textureCoordinates, uvLocation } from '../src/gltf/texture-coordinates';
-import { samplerDescriptor } from '../src/renderer/samplers';
-import { mipLevelCount } from '../src/renderer/mipmaps';
+import { samplerDescriptor } from '../src/renderer/textures/samplers';
+import { mipLevelCount } from '../src/renderer/textures/mipmaps';
 import { prepareGeometry } from '../src/gltf/geometry';
 import { animatedAsset } from './fixtures/animated';
 

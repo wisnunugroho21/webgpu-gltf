@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createMaterialLayoutEntries, materialTextureSlots } from '../src/renderer/material-slots';
-import { shaderSource } from '../src/renderer/shader';
+import { createMaterialLayoutEntries, materialTextureSlots } from '../src/renderer/materials/slots';
+import { shaderSource } from '../src/renderer/render/shader';
 
 describe('material texture interface', () => {
   it('keeps the explicit material bindings identical across all vertex-input variants', () => {

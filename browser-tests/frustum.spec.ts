@@ -6,7 +6,7 @@ test('culls individual instances without changing pixels, and follows camera and
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
-    const { demoAsset } = await import('/src/demo.ts');
+    const { demoAsset } = await import('/src/app/demo.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:320px;height:200px';
     document.body.append(canvas);

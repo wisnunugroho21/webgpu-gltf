@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { Pose } from '../src/gltf/animation';
+import { Pose } from '../src/scene/pose';
 import { animatedAsset } from './fixtures/animated';
 
 const revisions = (pose: Pose) =>

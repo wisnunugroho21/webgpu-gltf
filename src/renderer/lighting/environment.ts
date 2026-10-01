@@ -1,10 +1,6 @@
-import { Resources, uploadBuffer } from './resources';
-import { environmentFilterShader } from './environment-shader';
-import {
-  studioEnvironment,
-  validateEnvironment,
-  type EnvironmentImage,
-} from './environment-source';
+import { Resources, uploadBuffer } from '../core/resources';
+import { environmentFilterShader } from './shader';
+import { studioEnvironment, validateEnvironment, type EnvironmentImage } from './source';
 
 export interface EnvironmentSettings {
   intensity: number;

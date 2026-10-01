@@ -1,4 +1,4 @@
-import type { Pose } from '../gltf/animation';
+import type { Pose } from '../scene/pose';
 
 export interface AnimationState {
   readonly clips: readonly string[];
