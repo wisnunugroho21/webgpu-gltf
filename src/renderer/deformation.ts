@@ -2,6 +2,11 @@ import type { Deformation } from '../gltf/deformation';
 import type { Geometry } from '../gltf/geometry';
 import { Resources, uploadBuffer } from './resources';
 import { deformationShader } from './deformation-shader';
+import {
+  GpuDeformationInputCache,
+  uploadDeformationStorage,
+  type GpuDeformationInputs,
+} from './deformation-inputs';
 
 /** One explicit layout and one pipeline cover skin-only, morph-only, and combined meshes.
  * Empty slots still receive neutral buffers, keeping shader and binding interfaces stable. */
@@ -41,11 +46,12 @@ export class DeformationCompute {
   }
 }
 
-/** Node-owned GPU output, immutable inputs, and small reusable pose uploads. The output is
+/** Node-owned GPU output and pose uploads consuming scene-shared immutable inputs. The output is
  * bound as STORAGE in compute and VERTEX in the subsequent render pass, without a CPU copy. */
 export class GpuDeformation {
   readonly output: GPUBuffer;
   readonly source: Float32Array;
+  readonly inputs: GpuDeformationInputs;
   readonly group: GPUBindGroup;
   readonly count: number;
   private paletteData: Float32Array;
@@ -58,59 +64,15 @@ export class GpuDeformation {
     resources: Resources,
     readonly data: Deformation,
     private compute: DeformationCompute,
+    cache = new GpuDeformationInputCache(device, resources),
   ) {
-    this.count = data.streams[0].base.length / 3;
-    this.source = new Float32Array(this.count * 12);
-    const targets = new Float32Array(Math.max(12, this.count * data.weights.length * 12));
-    // Three vec4s (48 bytes) per vertex avoid WGSL vec3 alignment surprises. Tangent W
-    // carries handedness; normal W and every morph delta W stay zero.
-    for (const stream of data.streams) {
-      const offset = { POSITION: 0, NORMAL: 4, TANGENT: 8 }[
-        stream.semantic as 'POSITION' | 'NORMAL' | 'TANGENT'
-      ];
-      for (let v = 0; v < this.count; v++) {
-        for (let c = 0; c < stream.width; c++)
-          this.source[v * 12 + offset + c] = stream.base[v * stream.width + c];
-        stream.targets.forEach((target, t) => {
-          if (target)
-            for (let c = 0; c < 3; c++)
-              targets[(t * this.count + v) * 12 + offset + c] = target[v * 3 + c];
-        });
-      }
-    }
-    for (let v = 0; v < this.count; v++) this.source[v * 12 + 3] = 1;
-    const influenceBytes = new ArrayBuffer(Math.max(32, this.count * data.influences.length * 32));
-    const joints = new Uint32Array(influenceBytes),
-      weights = new Float32Array(influenceBytes);
-    for (let v = 0; v < this.count; v++)
-      data.influences.forEach((set, s) => {
-        const offset = (v * data.influences.length + s) * 8;
-        for (let c = 0; c < 4; c++) {
-          joints[offset + c] = set.joints[v * 4 + c];
-          weights[offset + 4 + c] = set.weights[v * 4 + c];
-        }
-      });
+    this.inputs = cache.get(data);
+    this.count = this.inputs.count;
+    this.source = this.inputs.source;
     this.paletteData = new Float32Array(Math.max(16, data.palette.length * 16));
     this.weightsData = new Float32Array(Math.max(1, data.weights.length));
-    const storage = (array: ArrayBufferView, label: string, dynamic = false) => {
-      if (
-        array.byteLength > device.limits.maxStorageBufferBindingSize ||
-        array.byteLength > device.limits.maxBufferSize
-      )
-        throw new Error(`${label} exceeds this device's storage-buffer limit.`);
-      return uploadBuffer(
-        device,
-        resources,
-        array,
-        GPUBufferUsage.STORAGE | (dynamic ? GPUBufferUsage.COPY_DST : 0),
-        label,
-      );
-    };
-    if (Math.ceil(this.count / 64) > device.limits.maxComputeWorkgroupsPerDimension)
-      throw new Error('Deformation exceeds this device’s compute dispatch limit.');
-    const baseBuffer = storage(this.source, 'Immutable deformation vertices');
-    const targetBuffer = storage(targets, 'Morph deltas');
-    const influenceBuffer = storage(new Uint8Array(influenceBytes), 'Skin influences');
+    const storage = (array: ArrayBufferView, label: string, dynamic = false) =>
+      uploadDeformationStorage(device, resources, array, label, dynamic);
     this.paletteBuffer = storage(this.paletteData, 'Joint palette', true);
     this.weightsBuffer = storage(this.weightsData, 'Morph weights', true);
     const parameters = uploadBuffer(
@@ -137,9 +99,9 @@ export class GpuDeformation {
       layout: compute.layout,
       entries: [
         parameters,
-        baseBuffer,
-        targetBuffer,
-        influenceBuffer,
+        this.inputs.base,
+        this.inputs.targets,
+        this.inputs.influences,
         this.paletteBuffer,
         this.weightsBuffer,
         this.output,

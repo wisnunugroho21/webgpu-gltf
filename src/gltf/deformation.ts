@@ -3,27 +3,30 @@ import { decodeAccessor } from './accessors';
 import type { Asset, Primitive } from './types';
 import type { Geometry, VertexBinding } from './geometry';
 import type { Pose } from './animation';
+import {
+  DeformationInputCache,
+  type DeformationInputs,
+  type DeformationStream,
+  type SkinInfluences,
+} from './deformation-inputs';
 
-interface Stream {
-  semantic: string;
-  width: number;
-  base: Float32Array;
+interface Stream extends DeformationStream {
   values: Float32Array;
-  targets: (number[] | undefined)[];
 }
 
 /** Decode and validate immutable deformation inputs once. The CPU evaluator is a reference
  * for tests and exact initial framing only; playback uses the compute shader. */
 export class Deformation {
-  readonly streams: Stream[] = [];
+  readonly inputs: DeformationInputs;
+  readonly streams: Stream[];
   private joints: number[] = [];
   private inverseBind: mat4[] = [];
   readonly palette: mat4[] = [];
-  readonly influences: { joints: number[]; weights: number[] }[] = [];
+  readonly influences: readonly SkinInfluences[];
   private blend = mat4.create();
   private normal = mat4.create();
   readonly skinned: boolean;
-  private ranges: { min: vec3; max: vec3 }[] = [];
+  private ranges: DeformationInputs['ranges'];
   private boundMin = vec3.create();
   private boundMax = vec3.create();
   private corner = vec3.create();
@@ -37,39 +40,18 @@ export class Deformation {
     readonly primitive: Primitive,
     readonly node: number,
     private pose: Pose,
+    cache = new DeformationInputCache(asset),
   ) {
     const definition = asset.gltf.nodes![node];
     this.skinned = definition.skin !== undefined;
-    const count = asset.gltf.accessors![primitive.attributes.POSITION].count;
-    for (const [semantic, width] of [
-      ['POSITION', 3],
-      ['NORMAL', 3],
-      ['TANGENT', 4],
-    ] as const) {
-      const index = primitive.attributes[semantic];
-      if (index === undefined) {
-        if (primitive.targets?.some((target) => target[semantic] !== undefined))
-          throw new Error(`Morph ${semantic} has no base attribute.`);
-        continue;
-      }
-      const accessor = asset.gltf.accessors![index];
-      const base = new Float32Array(decodeAccessor(asset, accessor));
-      const targets = (primitive.targets ?? []).map((target) => {
-        if (Object.keys(target).some((name) => !['POSITION', 'NORMAL', 'TANGENT'].includes(name)))
-          throw new Error('Unsupported morph target attribute.');
-        if (target[semantic] === undefined) return undefined;
-        const accessor = asset.gltf.accessors?.[target[semantic]];
-        if (
-          !accessor ||
-          accessor.type !== 'VEC3' ||
-          accessor.componentType !== 5126 ||
-          accessor.count !== count
-        )
-          throw new Error('Morph target must be a float VEC3 matching the base vertex count.');
-        return decodeAccessor(asset, accessor);
-      });
-      this.streams.push({ semantic, width, base, values: new Float32Array(base.length), targets });
-    }
+    this.inputs = cache.get(primitive);
+    // Only CPU reference output is node-owned; decoded bases/deltas and bounds are shared.
+    this.streams = this.inputs.streams.map((stream) => ({
+      ...stream,
+      values: new Float32Array(stream.base.length),
+    }));
+    this.ranges = this.inputs.ranges;
+    this.influences = cache.noInfluences;
     if (this.skinned) {
       const skin = asset.gltf.skins?.[definition.skin!];
       if (
@@ -93,67 +75,11 @@ export class Deformation {
         matrices ? mat4.clone(matrices.slice(i * 16, i * 16 + 16) as mat4) : mat4.create(),
       );
       this.palette = skin.joints.map(() => mat4.create());
-      const sets = Object.keys(primitive.attributes)
-        .filter((name) => /^JOINTS_\d+$/.test(name))
-        .sort();
-      if (!sets.includes('JOINTS_0'))
-        throw new Error('Skinned primitive requires JOINTS_0 and WEIGHTS_0.');
-      if (
-        Object.keys(primitive.attributes).some(
-          (name) => /^WEIGHTS_\d+$/.test(name) && !sets.includes(name.replace('WEIGHTS', 'JOINTS')),
-        )
-      )
-        throw new Error('Weights have no matching joints.');
-      for (const name of sets) {
-        const joint = asset.gltf.accessors?.[primitive.attributes[name]],
-          weight = asset.gltf.accessors?.[primitive.attributes[name.replace('JOINTS', 'WEIGHTS')]];
-        if (
-          !joint ||
-          !weight ||
-          joint.type !== 'VEC4' ||
-          weight.type !== 'VEC4' ||
-          joint.count !== count ||
-          weight.count !== count ||
-          joint.normalized ||
-          ![5121, 5123].includes(joint.componentType) ||
-          !(
-            weight.componentType === 5126 ||
-            ([5121, 5123].includes(weight.componentType) && weight.normalized)
-          )
-        )
-          throw new Error('Invalid skin joint/weight attributes.');
-        const joints = decodeAccessor(asset, joint),
-          weights = decodeAccessor(asset, weight);
-        if (joints.some((j) => j >= skin.joints.length) || weights.some((w) => w < 0))
-          throw new Error('Skin influences are out of range.');
-        this.influences.push({ joints, weights });
-      }
-      for (let v = 0; v < count; v++)
-        if (
-          this.influences.reduce(
-            (sum, set) => sum + set.weights.slice(v * 4, v * 4 + 4).reduce((a, b) => a + b, 0),
-            0,
-          ) <= 0
-        )
-          throw new Error('Skin vertex has no positive joint weights.');
-    }
-    const position = this.streams[0];
-    // Separate delta intervals let positive and negative morph weights expand a conservative
-    // envelope without walking vertices or reading GPU results during playback.
-    for (const values of [position.base, ...position.targets]) {
-      const min = vec3.fromValues(Infinity, Infinity, Infinity);
-      const max = vec3.fromValues(-Infinity, -Infinity, -Infinity);
-      if (values) {
-        for (let i = 0; i < values.length; i++) {
-          const c = i % 3;
-          min[c] = Math.min(min[c], values[i]);
-          max[c] = Math.max(max[c], values[i]);
-        }
-      } else {
-        vec3.zero(min);
-        vec3.zero(max);
-      }
-      this.ranges.push({ min, max });
+      this.influences = cache.getInfluences(primitive);
+      // The same primitive may use different skins. Validate every palette, including
+      // cache hits, rather than accepting the first node's joint range for all nodes.
+      if (this.influences.some((set) => set.joints.some((j) => j >= skin.joints.length)))
+        throw new Error('Skin influences are out of range.');
     }
     this.update();
   }

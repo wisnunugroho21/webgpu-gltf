@@ -74,6 +74,110 @@ test('clip controls render node motion, skinning and morphing, and restore the a
   expect(errors).toEqual([]);
 });
 
+test('scene preparation shares immutable deformation buffers and releases them once on failure, replacement and disposal', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { Renderer } = await import('/src/renderer/renderer.ts');
+    const { animatedAsset } = await import('/tests/fixtures/animated.ts');
+    const canvas = document.createElement('canvas');
+    canvas.style.width = '200px';
+    canvas.style.height = '150px';
+    document.body.append(canvas);
+    const errors: string[] = [];
+    const renderer = await Renderer.create(canvas, (message) => errors.push(message));
+    type Scene = {
+      updates: {
+        deformation: { inputs: { base: GPUBuffer; targets: GPUBuffer }; output: GPUBuffer };
+      }[];
+      resources: { owned: (GPUBuffer | GPUTexture)[] };
+    };
+    const internal = renderer as unknown as { scene: Scene; device: GPUDevice };
+    const destructions = new Map<GPUBuffer, number>();
+    const track = (buffer: GPUBuffer) => {
+      destructions.set(buffer, 0);
+      const destroy = buffer.destroy.bind(buffer);
+      buffer.destroy = () => {
+        destructions.set(buffer, destructions.get(buffer)! + 1);
+        destroy();
+      };
+    };
+    let shared = false,
+      independent = false,
+      preserved = false,
+      fresh = false;
+    let originalBuffers: GPUBuffer[] = [],
+      failedBuffers: GPUBuffer[] = [],
+      replacementBuffers: GPUBuffer[] = [];
+    try {
+      await renderer.setAsset(animatedAsset());
+      renderer.animation.setPlaying(false);
+      const original = internal.scene;
+      const [a, b] = original.updates.map((update) => update.deformation);
+      shared = a.inputs.base === b.inputs.base && a.inputs.targets === b.inputs.targets;
+      independent = a.output !== b.output;
+      originalBuffers = original.resources.owned.filter(
+        (r): r is GPUBuffer => r instanceof GPUBuffer,
+      );
+      originalBuffers.forEach(track);
+      // Fail at the second node's incompatible skin, after the first node uploaded
+      // shared data. Every candidate allocation must be released, preserving the scene.
+      const createBuffer = internal.device.createBuffer.bind(internal.device);
+      internal.device.createBuffer = (descriptor) => {
+        const buffer = createBuffer(descriptor);
+        failedBuffers.push(buffer);
+        track(buffer);
+        return buffer;
+      };
+      const invalid = animatedAsset();
+      invalid.gltf.skins.push({ joints: [1] });
+      invalid.gltf.nodes[3].skin = 1;
+      let rejected = false;
+      try {
+        await renderer.setAsset(invalid);
+      } catch {
+        rejected = true;
+      } finally {
+        internal.device.createBuffer = createBuffer;
+      }
+      preserved =
+        rejected &&
+        internal.scene === original &&
+        originalBuffers.every((buffer) => destructions.get(buffer) === 0);
+      await renderer.setAsset(animatedAsset());
+      renderer.animation.setPlaying(false);
+      fresh = internal.scene.updates[0].deformation.inputs.base !== a.inputs.base;
+      replacementBuffers = internal.scene.resources.owned.filter(
+        (r): r is GPUBuffer => r instanceof GPUBuffer,
+      );
+      replacementBuffers.forEach(track);
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    } finally {
+      renderer.destroy();
+      canvas.remove();
+    }
+    return {
+      shared,
+      independent,
+      preserved,
+      fresh,
+      errors,
+      originalDestroyedOnce: originalBuffers.every((b) => destructions.get(b) === 1),
+      failedDestroyedOnce:
+        failedBuffers.length > 0 && failedBuffers.every((b) => destructions.get(b) === 1),
+      replacementDestroyedOnce: replacementBuffers.every((b) => destructions.get(b) === 1),
+    };
+  });
+  expect(result.errors).toEqual([]);
+  expect(result.shared && result.independent && result.preserved && result.fresh).toBe(true);
+  expect(
+    result.originalDestroyedOnce && result.failedDestroyedOnce && result.replacementDestroyedOnce,
+  ).toBe(true);
+});
+
 for (const model of ['SimpleSkin', 'AnimatedMorphCube']) {
   test(`Khronos ${model} animates in the viewer`, async ({ page }) => {
     test.skip(!process.env.TEST_REMOTE_MODELS, 'Optional live Khronos model regression.');

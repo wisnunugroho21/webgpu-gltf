@@ -4,11 +4,13 @@ import { prepareGeometry } from '../gltf/geometry';
 import { collectInstances } from '../gltf/scene';
 import { Pose } from '../gltf/animation';
 import { Deformation } from '../gltf/deformation';
+import { DeformationInputCache } from '../gltf/deformation-inputs';
 import { OrbitCamera } from './camera';
 import { MaterialFactory, materialLayoutEntries, type GpuMaterial } from './materials';
 import { PipelineCache, pipelineArgs } from './pipelines';
 import { Resources, uploadBuffer } from './resources';
 import { DeformationCompute, GpuDeformation } from './deformation';
+import { GpuDeformationInputCache } from './deformation-inputs';
 import { AnimationController } from '../animation/controller';
 import { materialTextureSlots } from './material-slots';
 import { textureCoordinates } from '../gltf/texture-coordinates';
@@ -225,6 +227,10 @@ export class Renderer {
 
   private async prepare(asset: Asset, resources: Resources): Promise<Scene> {
     const pose = new Pose(asset);
+    // Scene-scoped immutable inputs are decoded/packed/uploaded once per primitive.
+    // Per-node pose data and output remain independent, including different skins.
+    const deformationInputs = new DeformationInputCache(asset);
+    const gpuDeformationInputs = new GpuDeformationInputCache(this.device, resources);
     const updates: PoseDraw[] = [];
     const primitiveInstances = collectInstances(asset.gltf);
     if (
@@ -272,8 +278,9 @@ export class Renderer {
             ? new GpuDeformation(
                 this.device,
                 resources,
-                new Deformation(asset, primitive, run[0].node, pose),
+                new Deformation(asset, primitive, run[0].node, pose, deformationInputs),
                 this.compute!,
+                gpuDeformationInputs,
               )
             : undefined;
         const geometry = deformation ? deformation.geometry(baseGeometry) : baseGeometry;
