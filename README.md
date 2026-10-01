@@ -30,6 +30,8 @@ Models with animation clips show a clip selector, Play/Pause, Restart, and a tim
 
 Display controls select **Reinhard** tone mapping (default) or **None**, and adjust exposure from −6 to +6 EV. One extra EV doubles linear brightness; negative exposure reveals highlight detail. None retains the HDR rendering path but clips display values above one after exposure. Display settings persist across model replacements and do not rebuild scene pipelines.
 
+The viewer enables **4× MSAA** by default to smooth geometry silhouettes and intersections. Color and depth use four samples per pixel; the scene resolves into linear HDR before exposure and tone mapping. Antialiasing persists across model and environment replacements.
+
 Environment lighting starts with an original, generated HDR **Studio** panorama. **Open environment** accepts an equirectangular PNG/JPEG panorama (typically 2:1, longitude across X and north pole at the top). Adjust **Intensity** or rotate it around the vertical axis with **Rotation**. Studio restores the default map. Map and lighting settings persist across model loads; failed environment loads retain the current lighting. Environment intensity zero disables its contribution while retaining the existing directional light and small ambient term.
 
 ## Code map
@@ -52,7 +54,7 @@ Environment lighting starts with an original, generated HDR **Studio** panorama.
 | `src/renderer/materials.ts`          | Cached images/samplers/material bind groups and uniform packing                    |
 | `src/renderer/material-slots.ts`     | Shared texture slot bindings, color spaces, neutral defaults and WGSL declarations |
 | `src/renderer/mipmaps.ts`            | Cached GPU mipmap generation in linear light                                       |
-| `src/renderer/output.ts`             | Linear HDR viewport target, exposure, tone mapping and sRGB presentation           |
+| `src/renderer/output.ts`             | HDR/MSAA viewport targets, linear resolve, exposure, tone mapping and presentation |
 | `src/renderer/environment-source.ts` | Procedural HDR panorama, linear pixel validation and PNG/JPEG decoding             |
 | `src/renderer/environment.ts`        | Environment convolution, shared lighting bindings and resource replacement         |
 | `src/renderer/environment-shader.ts` | Cosine/GGX environment filtering and split-sum BRDF integration                    |
@@ -67,7 +69,7 @@ Environment lighting starts with an original, generated HDR **Studio** panorama.
 
 ### Do work when loading, not when drawing
 
-The loader resolves bytes and images first. `Renderer.prepare()` traverses the scene and prepares geometry, transforms, materials, bind groups, and pipelines before displaying it. Static frames update only the camera uniform, sort transparent draws, and submit prepared draw records. Animated frames have a separate pose/deformation update before draw submission. Accessors and tracks are decoded at load time; playback does not create GPU allocations or pipelines (apart from recreating the depth attachment on resize).
+The loader resolves bytes and images first. `Renderer.prepare()` traverses the scene and prepares geometry, transforms, materials, bind groups, and pipelines before displaying it. Static frames update only the camera uniform, sort transparent draws, and submit prepared draw records. Animated frames have a separate pose/deformation update before draw submission. Accessors and tracks are decoded at load time; playback does not create GPU allocations or pipelines (apart from recreating viewport attachments on resize).
 
 ### Normalize vertex offsets and preserve interleaving
 
@@ -79,7 +81,7 @@ All GPU buffer allocations are rounded up to four bytes. Initial uploads use map
 
 ### Cache immutable state
 
-`PipelineCache` keys contain canonical vertex layouts, topology, strip index format, available shader inputs, blending, culling, and winding. Uniform values, texture identities, absolute buffer offsets, and node IDs are excluded. Color target format, depth format, and bind group layouts are fixed for a renderer and do not need redundant key fields. Pipeline creation is asynchronous and finishes before the scene is swapped in.
+`PipelineCache` keys contain canonical vertex layouts, topology, strip index format, available shader inputs, blending, culling, and winding. Uniform values, texture identities, absolute buffer offsets, and node IDs are excluded. Color target format, depth format, sample count, and bind group layouts are fixed for a renderer and do not need redundant key fields. Pipeline creation is asynchronous and finishes before the scene is swapped in.
 
 Shaders vary only when NORMAL, available TEXCOORD sets, COLOR_0, or TANGENT inputs differ. Alpha cutoff, normal-map presence, UV-set selection, texture transforms, and unlit behavior are uniform-driven. Untextured primitives may omit UVs; every actual texture must reference an available coordinate set. Missing colors use white. Missing normals use fragment derivatives for flat triangle lighting. Every material has the same bind group layout with all five core glTF texture slots. Neutral one-pixel textures supply defaults without extra pipeline variants. A new scene receives a fresh cache so loading many unrelated assets cannot grow the pipeline cache indefinitely.
 
@@ -142,9 +144,27 @@ Await environment and scene replacements sequentially. Dimensions must fit the d
 
 Scene shaders write linear radiance to a viewport-sized `rgba16float` attachment. Opaque, masked, and blended geometry all use this target; transparent RGB blends in linear space while alpha remains linear. Values above one survive until presentation. After the scene pass ends, `OutputPass.encode()` draws one fullscreen triangle into the canvas. It applies exposure as `2^EV`, then the selected tone curve, then sRGB display encoding. Reinhard uses `color / (1 + color)` per channel, compressing highlights smoothly. None skips the curve for debugging. The preferred unorm canvas receives explicit sRGB encoding; an sRGB attachment instead uses hardware encoding to avoid a double transfer function.
 
-`OutputPass` owns its HDR texture, sampled view, bind group, and 16-byte settings uniform. Resize recreates the viewport texture and bind group together; renderer disposal releases the HDR target and uniform. The presentation pipeline is compiled once, and exposure/curve changes update only uniform data. The extra target uses eight bytes per pixel plus the existing depth storage, and presentation adds a fullscreen pass. This is an HDR intermediate with SDR presentation, not HDR display output. Reinhard is a simple per-channel curve, not an ACES color-management pipeline; no bloom, automatic exposure, or gamut mapping is included.
+`OutputPass` owns its resolved HDR texture, optional multisampled HDR attachment, views, bind group, and 16-byte settings uniform. Resize recreates the viewport attachments and bind group together; renderer disposal releases the targets and uniform. The presentation pipeline is compiled once, and exposure/curve changes update only uniform data. The resolved target uses eight bytes per pixel; MSAA adds four HDR samples and matching multisampled depth storage, and presentation adds a fullscreen pass. This is an HDR intermediate with SDR presentation, not HDR display output. Reinhard is a simple per-channel curve, not an ACES color-management pipeline; no bloom, automatic exposure, or gamut mapping is included.
 
 Programmatic callers can use `renderer.setOutput({ exposureEV: 1, toneMapping: 'reinhard' })` and read `renderer.outputSettings`. Exposure accepts finite values from −16 to +16 EV; the UI offers a smaller practical range. Settings are validated before state changes. Tone mapping is applied consistently to lit materials, unlit materials, and the background after scene compositing.
+
+### Resolve antialiasing in linear HDR
+
+The renderer defaults to four-sample multisample antialiasing (MSAA). In accordance with [WebGPU's multisample state and attachment rules](https://gpuweb.github.io/gpuweb/#dictdef-gpumultisamplestate), scene pipelines, the `rgba16float` color attachment, and `depth24plus` depth attachment all use the same sample count. The color attachment's `resolveTarget` is the existing single-sampled HDR texture. At scene-pass end, WebGPU averages the samples into that target. Tone mapping and sRGB encoding then run once per resolved pixel through the existing single-sampled fullscreen pass. Averaging after a nonlinear curve would produce a different edge color, so resolve must precede presentation.
+
+`OutputPass.sceneAttachment(clearValue)` supplies a consistent render-pass descriptor for either mode. In four-sample mode it clears the multisampled attachment, resolves into HDR, and discards temporary color samples at pass end; in single-sample mode it renders directly into HDR and stores it. Opaque, masked, and transparent draws share the attachment. Transparency blends per covered sample in linear space before resolve. Alpha-to-coverage remains disabled: glTF MASK still uses its cutoff/discard and BLEND retains authored alpha blending. Material layouts, neutral defaults, color-space decoding, and shader variants are unchanged. Pose upload and deformation compute finish before the scene pass as before; resolving adds no CPU wait, separate compute dispatch, or presentation draw.
+
+Sample count is fixed at renderer creation, so changing models or resizing never creates sample-count mismatches. To disable MSAA for reduced memory cost or comparisons:
+
+```ts
+const renderer = await Renderer.create(canvas, onError, { sampleCount: 1 });
+// Omit options (or pass sampleCount: 4) to enable 4× MSAA.
+console.log(renderer.sampleCount);
+```
+
+Only 1 and 4 are accepted, including validation for JavaScript callers. `OutputPass.create(device, format, sampleCount)` also accepts either count; its standalone default remains one for existing consumers. The renderer passes its selected count explicitly into both output storage and `PipelineCache`.
+
+MSAA improves geometric coverage, including silhouettes and depth intersections, but does not solve shader/specular aliasing or texture alpha-cutout aliasing. Mipmaps and anisotropic filtering continue to handle texture minification. No temporal history, TAA, or FXAA is introduced. The nominal color storage becomes 40 bytes per viewport pixel (32 for multisampled HDR plus 8 for resolved HDR), versus 8 without MSAA, and depth also stores four samples; actual allocation and render costs depend on the GPU. Resolution/device-pixel-ratio limits still apply. Both HDR attachments and depth are recreated on resize and released on disposal.
 
 The selected scene's initial parent transforms are accumulated once. Each instance stores a world matrix and its inverse transpose as two mat4 values (128 bytes, matching WGSL storage alignment). Primitive instance ranges are packed into one scene storage buffer, bound once, and addressed with `instance_index` and `firstInstance`. Static nodes referencing the same opaque primitive are drawn together. Transform records are duplicated for each primitive of a multi-primitive mesh; this keeps ranges contiguous and avoids another indirection in this teaching renderer. Static data is never uploaded again each frame.
 
@@ -165,7 +185,7 @@ Every scene owns its buffers and textures through `Resources`. A replacement is 
 - All five core material textures: base color, emissive, metallic/roughness, normal (with scale), and occlusion (with strength). Material factors, vertex colors, OPAQUE/MASK/BLEND, double-sided materials, and KHR_materials_unlit are supported.
 - JPEG/PNG browser-decoded images, KHR_texture_transform, wrap/filter sampler translation, GPU mipmap generation, and linear-light shading with sRGB decoding for color maps and linear sampling for data maps.
 
-This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light, a small ambient term, and diffuse/specular environment lighting. It has no shadows, antialiasing, or frustum culling. Center-based transparency sorting remains approximate even with correct linear blending.
+This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light, a small ambient term, and diffuse/specular environment lighting. Four-sample MSAA smooths geometric edges. It has no shadows or frustum culling. Center-based transparency sorting remains approximate even with correct linear blending.
 
 Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit and KHR_texture_transform. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
 
@@ -214,6 +234,8 @@ Color-space regressions compare base-color and emissive maps against equivalent 
 Sampler tests also check anisotropy eligibility, explicit quality requests, and preservation of nearest/non-mip modes. A browser regression creates every glTF minification/magnification combination on the real GPU to verify the anisotropic descriptors satisfy WebGPU validation.
 
 `browser-tests/output.spec.ts` blends an HDR foreground over a known background on the GPU, then compares readback pixels against linear blending, exposure, Reinhard, and sRGB equations. Both unorm and sRGB presentation formats are tested, including highlight recovery with reduced exposure, invalid exposure requests, and resizing. Viewer tests check display controls without scene pipeline changes. Texture channel regressions explicitly select None at zero exposure to isolate material math from the nonlinear tone curve.
+
+`browser-tests/antialiasing.spec.ts` renders a slanted translucent HDR triangle in one- and four-sample modes, then checks every presented pixel against the expected coverage → linear blend → resolve → Reinhard → sRGB equations. Only MSAA may produce fractional edge coverage; averaging tone-mapped samples would fail the color checks. It also validates resize, invalid sample counts, explicit single-sample renderer operation, default four-sample operation, and model replacement without GPU errors. Existing animation, material, environment, and public-model tests now run with the viewer's default MSAA.
 
 `tests/environment.test.ts` validates the procedural HDR source and malformed radiance inputs. `browser-tests/environment.spec.ts` reads GPU-filtered maps to check constant HDR radiance across every face/mip, cube orientation, roughness broadening, finite BRDF coefficients, sRGB panorama decoding, and preservation after invalid replacement. Viewer checks cover intensity, yaw, metallic reflections, unlit stability, local panorama loading, failed-image recovery, and Studio reset without changing scene pipeline counts. Existing channel-math regressions disable environment intensity to isolate their original direct/ambient equations.
 

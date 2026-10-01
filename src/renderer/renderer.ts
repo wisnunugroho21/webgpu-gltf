@@ -13,7 +13,7 @@ import { AnimationController } from '../animation/controller';
 import { materialTextureSlots } from './material-slots';
 import { textureCoordinates } from '../gltf/texture-coordinates';
 import { MipmapGenerator } from './mipmaps';
-import { OutputPass, hdrFormat, type OutputSettings } from './output';
+import { OutputPass, hdrFormat, type OutputSettings, type SceneSampleCount } from './output';
 import { EnvironmentLighting, type EnvironmentSettings } from './environment';
 import type { EnvironmentImage } from './environment-source';
 
@@ -28,6 +28,10 @@ interface Draw {
   instanceCount: number;
   center: vec3;
   depth: number;
+}
+export interface RendererOptions {
+  /** Fixed at creation because attachments and all scene pipelines must agree. */
+  sampleCount?: SceneSampleCount;
 }
 interface Scene {
   pose: Pose;
@@ -69,6 +73,9 @@ export class Renderer {
   private frameData = new Float32Array(20);
   private compute?: DeformationCompute;
   private mipmaps: MipmapGenerator;
+  get sampleCount(): SceneSampleCount {
+    return this.output.sampleCount;
+  }
   get environmentSettings(): Readonly<EnvironmentSettings> {
     return this.environment.settings;
   }
@@ -107,7 +114,11 @@ export class Renderer {
   static async create(
     canvas: HTMLCanvasElement,
     onError: (message: string) => void,
+    options: RendererOptions = {},
   ): Promise<Renderer> {
+    const sampleCount = options.sampleCount ?? 4;
+    if (sampleCount !== 1 && sampleCount !== 4)
+      throw new Error('Scene sample count must be 1 (off) or 4 (MSAA).');
     if (!navigator.gpu)
       throw new Error('WebGPU is unavailable. Use a WebGPU-capable browser on localhost or HTTPS.');
     const adapter = await navigator.gpu.requestAdapter();
@@ -122,7 +133,7 @@ export class Renderer {
     let output: OutputPass | undefined;
     let environment: EnvironmentLighting;
     try {
-      output = await OutputPass.create(device, format);
+      output = await OutputPass.create(device, format, sampleCount);
       environment = await EnvironmentLighting.create(device);
     } catch (error) {
       output?.destroy();
@@ -232,7 +243,12 @@ export class Renderer {
       this.materialLayout,
       this.mipmaps,
     );
-    const pipelines = new PipelineCache(this.device, this.pipelineLayout, hdrFormat);
+    const pipelines = new PipelineCache(
+      this.device,
+      this.pipelineLayout,
+      hdrFormat,
+      this.sampleCount,
+    );
     const views = new Map<number, GPUBuffer>();
     const indexBuffers = new Map<object, GPUBuffer>();
     const opaque: Scene['opaque'] = new Map();
@@ -450,6 +466,8 @@ export class Renderer {
       label: 'Viewport depth',
       size: [width, height],
       format: 'depth24plus',
+      // Depth coverage must match the HDR color attachment and scene pipelines.
+      sampleCount: this.sampleCount,
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
   }
@@ -529,13 +547,8 @@ export class Renderer {
     const pass = encoder.beginRenderPass({
       label: 'Scene rendering',
       colorAttachments: [
-        {
-          view: this.output.view,
-          // The previous display background decoded to linear, keeping the neutral view dark.
-          clearValue: { r: 0.001935, g: 0.002786, b: 0.004123, a: 1 },
-          loadOp: 'clear',
-          storeOp: 'store',
-        },
+        // Resolve coverage in linear radiance, before the presentation pass tone maps it.
+        this.output.sceneAttachment({ r: 0.001935, g: 0.002786, b: 0.004123, a: 1 }),
       ],
       depthStencilAttachment: {
         view: this.depth!.createView(),

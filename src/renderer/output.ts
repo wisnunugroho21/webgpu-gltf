@@ -1,4 +1,5 @@
 export const hdrFormat: GPUTextureFormat = 'rgba16float';
+export type SceneSampleCount = 1 | 4;
 export type ToneMapping = 'reinhard' | 'none';
 export interface OutputSettings {
   exposureEV: number;
@@ -9,6 +10,8 @@ export interface OutputSettings {
  * transparency blends there before this pass applies exposure, a curve, and display encoding. */
 export class OutputPass {
   private texture?: GPUTexture;
+  private multisampledTexture?: GPUTexture;
+  private multisampledView?: GPUTextureView;
   private hdrView?: GPUTextureView;
   private group?: GPUBindGroup;
   private uniform: GPUBuffer;
@@ -20,6 +23,7 @@ export class OutputPass {
     private device: GPUDevice,
     private layout: GPUBindGroupLayout,
     private pipeline: GPURenderPipeline,
+    readonly sampleCount: SceneSampleCount,
   ) {
     this.uniform = device.createBuffer({
       label: 'Exposure and tone curve',
@@ -28,7 +32,13 @@ export class OutputPass {
     });
     this.setSettings(this.current);
   }
-  static async create(device: GPUDevice, format: GPUTextureFormat): Promise<OutputPass> {
+  static async create(
+    device: GPUDevice,
+    format: GPUTextureFormat,
+    sampleCount: SceneSampleCount = 1,
+  ): Promise<OutputPass> {
+    if (sampleCount !== 1 && sampleCount !== 4)
+      throw new Error('Scene sample count must be 1 (off) or 4 (MSAA).');
     const layout = device.createBindGroupLayout({
       entries: [
         {
@@ -72,7 +82,8 @@ fn linearToSrgb(v: vec3f) -> vec3f {
       vertex: { module, entryPoint: 'vertex' },
       fragment: { module, entryPoint: 'fragment', targets: [{ format }] },
     });
-    return new OutputPass(device, layout, pipeline);
+    // Presentation is single-sampled even when scene rendering uses MSAA.
+    return new OutputPass(device, layout, pipeline, sampleCount);
   }
   get settings(): Readonly<OutputSettings> {
     return { ...this.current };
@@ -91,6 +102,7 @@ fn linearToSrgb(v: vec3f) -> vec3f {
   resize(width: number, height: number): void {
     if (width === this.width && height === this.height) return;
     this.texture?.destroy();
+    this.multisampledTexture?.destroy();
     this.width = width;
     this.height = height;
     this.texture = this.device.createTexture({
@@ -100,6 +112,16 @@ fn linearToSrgb(v: vec3f) -> vec3f {
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
     this.hdrView = this.texture.createView();
+    if (this.sampleCount > 1) {
+      this.multisampledTexture = this.device.createTexture({
+        label: 'Multisampled linear HDR scene',
+        size: [width, height],
+        format: hdrFormat,
+        sampleCount: this.sampleCount,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      this.multisampledView = this.multisampledTexture.createView();
+    }
     this.group = this.device.createBindGroup({
       layout: this.layout,
       entries: [
@@ -111,6 +133,18 @@ fn linearToSrgb(v: vec3f) -> vec3f {
   get view(): GPUTextureView {
     if (!this.hdrView) throw new Error('HDR output must be resized before rendering.');
     return this.hdrView;
+  }
+  /** Geometry and transparency blend per sample in linear HDR. Resolve once at pass
+   * end, before the nonlinear presentation curve. Discard the temporary samples after
+   * resolving; only the single-sampled texture is read by tone mapping. */
+  sceneAttachment(clearValue: GPUColor): GPURenderPassColorAttachment {
+    return {
+      view: this.multisampledView ?? this.view,
+      resolveTarget: this.sampleCount > 1 ? this.view : undefined,
+      clearValue,
+      loadOp: 'clear',
+      storeOp: this.sampleCount > 1 ? 'discard' : 'store',
+    };
   }
   encode(encoder: GPUCommandEncoder, target: GPUTextureView): void {
     if (!this.group) throw new Error('HDR output must be resized before presentation.');
@@ -127,6 +161,7 @@ fn linearToSrgb(v: vec3f) -> vec3f {
   }
   destroy(): void {
     this.texture?.destroy();
+    this.multisampledTexture?.destroy();
     this.uniform.destroy();
   }
 }

@@ -1,6 +1,7 @@
 import type { Geometry } from '../gltf/geometry';
 import type { GpuMaterial } from './materials';
 import { shaderSource } from './shader';
+import type { SceneSampleCount } from './output';
 
 export interface PipelineArgs {
   buffers: GPUVertexBufferLayout[];
@@ -42,6 +43,7 @@ export class PipelineCache {
     private device: GPUDevice,
     private layout: GPUPipelineLayout,
     private format: GPUTextureFormat,
+    private sampleCount: SceneSampleCount = 1,
   ) {}
   get size(): number {
     return this.pipelines.size;
@@ -89,6 +91,9 @@ export class PipelineCache {
           depthWriteEnabled: !args.blend,
           depthCompare: 'less',
         },
+        // Count is fixed for this cache, like attachment format and bind group layouts.
+        // Keep alpha-to-coverage off: MASK uses discard and BLEND uses glTF alpha blending.
+        multisample: { count: this.sampleCount },
       });
       this.pipelines.set(key, result);
     }
