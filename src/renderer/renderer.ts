@@ -10,6 +10,7 @@ import { PipelineCache, pipelineArgs } from './pipelines';
 import { Resources, uploadBuffer } from './resources';
 import { DeformationCompute, GpuDeformation } from './deformation';
 import { AnimationController } from '../animation/controller';
+import { materialTextureSlots } from './material-slots';
 
 interface Draw {
   pipeline: GPURenderPipeline;
@@ -229,11 +230,7 @@ export class Renderer {
         const material = await materials.get(primitive.material);
         const materialDefinition = asset.gltf.materials?.[primitive.material!];
         if (
-          (materialDefinition?.pbrMetallicRoughness?.baseColorTexture ||
-            materialDefinition?.emissiveTexture ||
-            materialDefinition?.pbrMetallicRoughness?.metallicRoughnessTexture ||
-            materialDefinition?.normalTexture ||
-            materialDefinition?.occlusionTexture) &&
+          materialTextureSlots.some((slot) => slot.read(materialDefinition ?? {})) &&
           !geometry.features.uv
         )
           throw new Error('Textured primitive is missing TEXCOORD_0.');

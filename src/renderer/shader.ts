@@ -1,4 +1,5 @@
 import type { Geometry } from '../gltf/geometry';
+import { materialTextureDeclarations } from './material-slots';
 
 /** Variants are limited to missing vertex inputs. Material values remain uniform data,
  * so changing a color or supplying a texture doesn't create another pipeline. */
@@ -12,16 +13,7 @@ struct Material { baseColor: vec4f, emissive: vec4f, parameters: vec4f, textureP
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(1) @binding(0) var<storage, read> instances: array<Instance>;
 @group(2) @binding(0) var<uniform> material: Material;
-@group(2) @binding(1) var colorSampler: sampler;
-@group(2) @binding(2) var colorTexture: texture_2d<f32>;
-@group(2) @binding(3) var emissiveSampler: sampler;
-@group(2) @binding(4) var emissiveTexture: texture_2d<f32>;
-@group(2) @binding(5) var metallicRoughnessSampler: sampler;
-@group(2) @binding(6) var metallicRoughnessTexture: texture_2d<f32>;
-@group(2) @binding(7) var normalSampler: sampler;
-@group(2) @binding(8) var normalTexture: texture_2d<f32>;
-@group(2) @binding(9) var occlusionSampler: sampler;
-@group(2) @binding(10) var occlusionTexture: texture_2d<f32>;
+${materialTextureDeclarations}
 
 struct VertexInput {
   @location(0) position: vec3f,

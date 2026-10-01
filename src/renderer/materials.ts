@@ -1,5 +1,6 @@
 import type { Asset, Material, TextureInfo } from '../gltf/types';
 import { Resources, uploadBuffer } from './resources';
+import { createMaterialLayoutEntries, materialTextureSlots } from './material-slots';
 
 export interface GpuMaterial {
   bindGroup: GPUBindGroup;
@@ -7,45 +8,30 @@ export interface GpuMaterial {
   doubleSided: boolean;
 }
 
-export const materialLayoutEntries: GPUBindGroupLayoutEntry[] = [
-  {
-    binding: 0,
-    visibility: GPUShaderStage.FRAGMENT,
-    buffer: { type: 'uniform', minBindingSize: 64 },
-  },
-  { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-  { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-  { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-  { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-  { binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-  { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-  { binding: 7, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-  { binding: 8, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-  { binding: 9, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-  { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-];
+export const materialLayoutEntries = createMaterialLayoutEntries(GPUShaderStage.FRAGMENT);
 
 /** Separate image/sampler caches mirror glTF's image + sampler = texture model. */
 export class MaterialFactory {
   private images = new Map<string, Promise<GPUTexture>>();
   private samplers = new Map<number, GPUSampler>();
   private materials = new Map<number, Promise<GpuMaterial>>();
-  private whiteColor: GPUTexture;
-  private whiteData: GPUTexture;
-  private flatNormal: GPUTexture;
+  private defaults = new Map<string, GPUTexture>();
 
   constructor(
     private device: GPUDevice,
     private asset: Asset,
     private resources: Resources,
     private layout: GPUBindGroupLayout,
-  ) {
-    this.whiteColor = this.defaultTexture('rgba8unorm-srgb', [255, 255, 255, 255], 'White color');
-    this.whiteData = this.defaultTexture('rgba8unorm', [255, 255, 255, 255], 'White data');
-    this.flatNormal = this.defaultTexture('rgba8unorm', [128, 128, 255, 255], 'Flat normal');
-  }
+  ) {}
 
-  private defaultTexture(format: GPUTextureFormat, rgba: number[], label: string): GPUTexture {
+  private defaultTexture(
+    format: GPUTextureFormat,
+    rgba: readonly number[],
+    label: string,
+  ): GPUTexture {
+    const key = `${format}/${rgba.join(',')}`;
+    const cached = this.defaults.get(key);
+    if (cached) return cached;
     const texture = this.resources.own(
       this.device.createTexture({
         label,
@@ -55,6 +41,7 @@ export class MaterialFactory {
       }),
     );
     this.device.queue.writeTexture({ texture }, new Uint8Array(rgba), {}, [1, 1]);
+    this.defaults.set(key, texture);
     return texture;
   }
 
@@ -134,7 +121,7 @@ export class MaterialFactory {
     info: TextureInfo | undefined,
     label: string,
     format: GPUTextureFormat,
-    fallback: GPUTexture,
+    neutral: readonly number[],
   ) {
     if (info && ((info.texCoord ?? 0) !== 0 || info.extensions?.KHR_texture_transform))
       throw new Error(`${label} supports TEXCOORD_0 without KHR_texture_transform only.`);
@@ -142,7 +129,9 @@ export class MaterialFactory {
     if (info && reference?.source === undefined)
       throw new Error(`${label} texture has no image source.`);
     return {
-      texture: reference ? await this.image(reference.source!, format) : fallback,
+      texture: reference
+        ? await this.image(reference.source!, format)
+        : this.defaultTexture(format, neutral, `${label} neutral default`),
       sampler: this.sampler(reference?.sampler),
     };
   }
@@ -156,38 +145,19 @@ export class MaterialFactory {
             throw new Error(`Missing material ${index}.`);
           })());
     const pbr = definition.pbrMetallicRoughness ?? {};
-    const baseColor = await this.textureBinding(
-      pbr.baseColorTexture,
-      'Base color',
-      'rgba8unorm-srgb',
-      this.whiteColor,
-    );
-    // A white fallback preserves factor-only emission. With a map, the sampled color
-    // must multiply the factor; adding the factor alone washes out assets like DamagedHelmet.
-    const emissive = await this.textureBinding(
-      definition.emissiveTexture,
-      'Emissive',
-      'rgba8unorm-srgb',
-      this.whiteColor,
-    );
-    const metallicRoughness = await this.textureBinding(
-      pbr.metallicRoughnessTexture,
-      'Metallic/roughness',
-      'rgba8unorm',
-      this.whiteData,
-    );
-    const normal = await this.textureBinding(
-      definition.normalTexture,
-      'Normal',
-      'rgba8unorm',
-      this.flatNormal,
-    );
-    const occlusion = await this.textureBinding(
-      definition.occlusionTexture,
-      'Occlusion',
-      'rgba8unorm',
-      this.whiteData,
-    );
+    const textureEntries: GPUBindGroupEntry[] = [];
+    for (const slot of materialTextureSlots) {
+      const { texture, sampler } = await this.textureBinding(
+        slot.read(definition),
+        slot.label,
+        slot.format,
+        slot.neutral,
+      );
+      textureEntries.push(
+        { binding: slot.samplerBinding, resource: sampler },
+        { binding: slot.textureBinding, resource: texture.createView() },
+      );
+    }
     const alphaMode = definition.alphaMode ?? 'OPAQUE';
     if (!['OPAQUE', 'MASK', 'BLEND'].includes(alphaMode))
       throw new Error('Invalid material alpha mode.');
@@ -222,19 +192,7 @@ export class MaterialFactory {
     );
     const bindGroup = this.device.createBindGroup({
       layout: this.layout,
-      entries: [
-        { binding: 0, resource: { buffer: uniform } },
-        { binding: 1, resource: baseColor.sampler },
-        { binding: 2, resource: baseColor.texture.createView() },
-        { binding: 3, resource: emissive.sampler },
-        { binding: 4, resource: emissive.texture.createView() },
-        { binding: 5, resource: metallicRoughness.sampler },
-        { binding: 6, resource: metallicRoughness.texture.createView() },
-        { binding: 7, resource: normal.sampler },
-        { binding: 8, resource: normal.texture.createView() },
-        { binding: 9, resource: occlusion.sampler },
-        { binding: 10, resource: occlusion.texture.createView() },
-      ],
+      entries: [{ binding: 0, resource: { buffer: uniform } }, ...textureEntries],
     });
     return { bindGroup, alphaMode, doubleSided: definition.doubleSided ?? false };
   }

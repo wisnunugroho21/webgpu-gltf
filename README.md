@@ -30,26 +30,27 @@ Models with animation clips show a clip selector, Play/Pause, Restart, and a tim
 
 ## Code map
 
-| Module                               | Responsibility                                                                  |
-| ------------------------------------ | ------------------------------------------------------------------------------- |
-| `src/main.ts`                        | UI events, serialized loading, status and errors                                |
-| `src/gltf/types.ts`                  | Typed subset of the glTF JSON schema                                            |
-| `src/gltf/loader.ts`                 | JSON/GLB parsing, URI resolution, buffer and image loading                      |
-| `src/gltf/accessors.ts`              | Strided component decoding, normalization, sparse overlays, bounds checks       |
-| `src/gltf/geometry.ts`               | Canonical GPU layouts, exceptional repacking, index/topology conversion         |
-| `src/gltf/scene.ts`                  | Selected-scene traversal, world/normal matrices, instance collection            |
-| `src/gltf/animation.ts`              | Validated animation tracks, interpolation, clip metadata, reusable node poses   |
-| `src/animation/controller.ts`        | Playback state, clip selection, frame timing, looping, seeking, pose evaluation |
-| `src/gltf/deformation.ts`            | Validated deformation inputs, joint palettes, bounds, CPU reference evaluator   |
-| `src/renderer/deformation.ts`        | Compute pipeline, node-owned GPU buffers, pose uploads and dispatch             |
-| `src/renderer/deformation-shader.ts` | WGSL morphing and linear blend skinning kernel                                  |
-| `src/renderer/resources.ts`          | Padded uploads and explicit GPU allocation ownership                            |
-| `src/renderer/materials.ts`          | Cached images/samplers/material bind groups and uniform packing                 |
-| `src/renderer/shader.ts`             | Commented WGSL generated for available vertex inputs                            |
-| `src/renderer/pipelines.ts`          | Immutable-state pipeline keys and cached async compilation                      |
-| `src/renderer/renderer.ts`           | Scene preparation, batching, transparent ordering, rendering and disposal       |
-| `src/renderer/camera.ts`             | Orbit controls, scene framing, WebGPU depth projection                          |
-| `src/demo.ts`                        | Original procedural glTF demo                                                   |
+| Module                               | Responsibility                                                                     |
+| ------------------------------------ | ---------------------------------------------------------------------------------- |
+| `src/main.ts`                        | UI events, serialized loading, status and errors                                   |
+| `src/gltf/types.ts`                  | Typed subset of the glTF JSON schema                                               |
+| `src/gltf/loader.ts`                 | JSON/GLB parsing, URI resolution, buffer and image loading                         |
+| `src/gltf/accessors.ts`              | Strided component decoding, normalization, sparse overlays, bounds checks          |
+| `src/gltf/geometry.ts`               | Canonical GPU layouts, exceptional repacking, index/topology conversion            |
+| `src/gltf/scene.ts`                  | Selected-scene traversal, world/normal matrices, instance collection               |
+| `src/gltf/animation.ts`              | Validated animation tracks, interpolation, clip metadata, reusable node poses      |
+| `src/animation/controller.ts`        | Playback state, clip selection, frame timing, looping, seeking, pose evaluation    |
+| `src/gltf/deformation.ts`            | Validated deformation inputs, joint palettes, bounds, CPU reference evaluator      |
+| `src/renderer/deformation.ts`        | Compute pipeline, node-owned GPU buffers, pose uploads and dispatch                |
+| `src/renderer/deformation-shader.ts` | WGSL morphing and linear blend skinning kernel                                     |
+| `src/renderer/resources.ts`          | Padded uploads and explicit GPU allocation ownership                               |
+| `src/renderer/materials.ts`          | Cached images/samplers/material bind groups and uniform packing                    |
+| `src/renderer/material-slots.ts`     | Shared texture slot bindings, color spaces, neutral defaults and WGSL declarations |
+| `src/renderer/shader.ts`             | Commented WGSL generated for available vertex inputs                               |
+| `src/renderer/pipelines.ts`          | Immutable-state pipeline keys and cached async compilation                         |
+| `src/renderer/renderer.ts`           | Scene preparation, batching, transparent ordering, rendering and disposal          |
+| `src/renderer/camera.ts`             | Orbit controls, scene framing, WebGPU depth projection                             |
+| `src/demo.ts`                        | Original procedural glTF demo                                                      |
 
 ## How the case study informs the implementation
 
@@ -86,6 +87,8 @@ The implementation follows the channel and transfer-function rules in the [glTF 
 | Occlusion          | Linear R                       | `mix(1, R, occlusionTexture.strength)` scales ambient light only | White                                   |
 
 Each slot resolves its own sampler, even when image sources are shared. The image cache includes the GPU format: using the same image in a color slot and a data slot creates separate uploads so data channels never receive sRGB decoding. Metallic/roughness and occlusion can reuse the same linear image upload, including packed ORM maps.
+
+`material-slots.ts` is the single source of truth for the five texture slots. The explicit GPU layout, every material bind group, and all WGSL variants use its binding numbers. Texture presence never changes the interface or adds a pipeline variant. Neutral textures are cached by format and RGBA value, so color and data defaults share allocations only when their formats match. Base-color and emissive RGB decode through `rgba8unorm-srgb`; alpha remains linear. Metallic/roughness, normal, and occlusion use `rgba8unorm`. Missing emissive maps use white to preserve factor-only emission; the default emissive factor is zero. Missing normal maps also bypass perturbation, avoiding the small XY quantization offset in the neutral 8-bit normal texture.
 
 Authored VEC4 tangents use XYZ for the tangent and W for bitangent handedness. Tangents transform with the world matrix, while normals use the inverse transpose; the shader orthogonalizes the tangent against the interpolated normal. Negative-determinant node transforms also reverse tangent handedness. When tangents are absent, the shader reconstructs a triangle-local basis from position/UV derivatives. Degenerate UVs retain the surface normal. If normals are absent, authored tangents are ignored and the derivative basis uses flat normals. All samples and derivatives run before alpha-mask discard. Back faces reverse the complete mapped normal before lighting.
 
@@ -151,6 +154,8 @@ Keep material texture slots on the same explicit bind group layout across varian
 `browser-tests/viewer.spec.ts` runs the real viewer in installed Microsoft Edge with WebGPU enabled. It checks the offline instancing demo, resizing and camera controls, a generated textured scene with normalized integer UV/colors and missing normals, MASK/BLEND materials, mirrored transforms, local GLB loading, and recovery from an unsupported model. The emissive regression examines rendered pixels to catch color washout, rather than only asserting that the asset loaded. Screenshots are saved under `test-results/` for visual inspection. The browser must have a usable GPU adapter; this suite intentionally fails if WebGPU is unavailable. Change `channel` in `playwright.config.ts` to use another installed Chromium browser.
 
 `browser-tests/textures.spec.ts` compares presented pixels against equivalent factor-only materials to check metallic/roughness G/B channels and linear decoding, including an image reused for both color and data. It checks that occlusion strength changes only the expected ambient contribution and that normal scale zero preserves surface normals. It also compares authored and derivative tangent bases under nonuniform and mirrored transforms. These fixtures run offline.
+
+Color-space regressions compare base-color and emissive maps against equivalent linear factors. `tests/material-slots.test.ts` verifies the neutral defaults and color-space contract, plus identical material declarations across all 24 vertex-input shader variants.
 
 The DamagedHelmet regression loads the public Khronos GLB with all five material textures and requires network access. It is skipped by default. To include it in PowerShell:
 

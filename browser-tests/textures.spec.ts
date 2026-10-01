@@ -109,6 +109,63 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
 });
 
+test('base color and emissive maps decode sRGB before multiplying linear factors', async ({
+  page,
+}) => {
+  const rgba = [64, 128, 192, 255];
+  const factor = [0.8, 0.6, 0.4];
+  const base = await renderPixel(
+    page,
+    {
+      rgba,
+      material: {
+        extensions: { KHR_materials_unlit: {} },
+        pbrMetallicRoughness: { baseColorTexture: { index: 0 }, baseColorFactor: [...factor, 1] },
+      },
+    },
+    'base-srgb',
+  );
+  const baseFactors = await renderPixel(
+    page,
+    {
+      rgba,
+      material: {
+        extensions: { KHR_materials_unlit: {} },
+        pbrMetallicRoughness: {
+          baseColorFactor: [...factor.map((value, i) => value * linear(rgba[i])), 1],
+        },
+      },
+    },
+    'base-linear-factors',
+  );
+  closePixels(base, baseFactors);
+  const pbr = { baseColorFactor: [0, 0, 0, 1], metallicFactor: 0, roughnessFactor: 1 };
+  const emission = await renderPixel(
+    page,
+    {
+      rgba,
+      material: {
+        pbrMetallicRoughness: pbr,
+        emissiveFactor: factor,
+        emissiveTexture: { index: 0 },
+      },
+    },
+    'emissive-srgb',
+  );
+  const emissionFactors = await renderPixel(
+    page,
+    {
+      rgba,
+      material: {
+        pbrMetallicRoughness: pbr,
+        emissiveFactor: factor.map((value, i) => value * linear(rgba[i])),
+      },
+    },
+    'emissive-linear-factors',
+  );
+  closePixels(emission, emissionFactors);
+});
+
 test('metallic/roughness uses linear G/B channels even when the image also serves base color', async ({
   page,
 }) => {
