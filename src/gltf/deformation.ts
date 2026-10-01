@@ -99,8 +99,9 @@ export class Deformation {
   }
 
   /** A union of joint-transformed envelopes contains every normalized, nonnegative blend.
-   * This trades exact transparent centers for no per-frame vertex work or GPU readback. */
-  center(out: vec3): void {
+   * Signed morph intervals and active-joint envelopes give conservative visibility
+   * bounds and sorting centers without per-frame vertex work or GPU readback. */
+  bounds(outMin: vec3, outMax: vec3): void {
     vec3.copy(this.boundMin, this.ranges[0].min);
     vec3.copy(this.boundMax, this.ranges[0].max);
     this.weights.forEach((weight, i) => {
@@ -111,11 +112,12 @@ export class Deformation {
       }
     });
     if (!this.skinned) {
-      vec3.scale(out, vec3.add(out, this.boundMin, this.boundMax), 0.5);
+      vec3.copy(outMin, this.boundMin);
+      vec3.copy(outMax, this.boundMax);
       return;
     }
-    const min = this.unionMin,
-      max = this.unionMax;
+    const min = outMin,
+      max = outMax;
     vec3.set(min, Infinity, Infinity, Infinity);
     vec3.set(max, -Infinity, -Infinity, -Infinity);
     // Unused skin joints cannot move this primitive; exclude them from both update
@@ -130,7 +132,11 @@ export class Deformation {
           max[c] = Math.max(max[c], this.corner[c]);
         }
       }
-    for (let c = 0; c < 3; c++) out[c] = (min[c] + max[c]) * 0.5;
+  }
+
+  center(out: vec3): void {
+    this.bounds(this.unionMin, this.unionMax);
+    vec3.scale(out, vec3.add(out, this.unionMin, this.unionMax), 0.5);
   }
 
   /** Replace only deformable attributes. UV/color streams retain their original layout. */

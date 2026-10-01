@@ -65,13 +65,14 @@ Environment lighting starts with an original, generated HDR **Studio** panorama.
 | `src/renderer/pipelines.ts`          | Immutable-state pipeline keys and cached async compilation                         |
 | `src/renderer/renderer.ts`           | Scene preparation, batching, transparent ordering, rendering and disposal          |
 | `src/renderer/camera.ts`             | Orbit controls, scene framing, WebGPU depth projection                             |
+| `src/renderer/frustum.ts`            | WebGPU clip planes, conservative world bounds, visible instance runs               |
 | `src/demo.ts`                        | Original procedural glTF demo                                                      |
 
 ## How the case study informs the implementation
 
 ### Do work when loading, not when drawing
 
-The loader resolves bytes and images first. `Renderer.prepare()` traverses the scene and prepares geometry, transforms, materials, bind groups, and pipelines before displaying it. Static frames update only the camera uniform, sort transparent draws, and submit prepared draw records. Animated frames have a separate pose/deformation update before draw submission. Accessors and tracks are decoded at load time; playback does not create GPU allocations or pipelines (apart from recreating viewport attachments on resize).
+The loader resolves bytes and images first. `Renderer.prepare()` traverses the scene and prepares geometry, transforms, materials, bind groups, and pipelines before displaying it. Static frames update only the camera uniform, test instance visibility, sort visible transparent draws, and submit prepared draw records. Animated frames have a separate pose/deformation update before draw submission. Accessors and tracks are decoded at load time; playback does not create GPU allocations or pipelines (apart from recreating viewport attachments on resize).
 
 ### Normalize vertex offsets and preserve interleaving
 
@@ -187,7 +188,7 @@ Every scene owns its buffers and textures through `Resources`. A replacement is 
 - All five core material textures: base color, emissive, metallic/roughness, normal (with scale), and occlusion (with strength). Material factors, vertex colors, OPAQUE/MASK/BLEND, double-sided materials, and KHR_materials_unlit are supported.
 - JPEG/PNG browser-decoded images, KHR_texture_transform, wrap/filter sampler translation, GPU mipmap generation, and linear-light shading with sRGB decoding for color maps and linear sampling for data maps.
 
-This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light, a small ambient term, and diffuse/specular environment lighting. Four-sample MSAA smooths geometric edges. It has no shadows or frustum culling. Center-based transparency sorting remains approximate even with correct linear blending.
+This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light, a small ambient term, and diffuse/specular environment lighting. Four-sample MSAA smooths geometric edges. It has no shadows. Center-based transparency sorting remains approximate even with correct linear blending.
 
 Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit and KHR_texture_transform. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
 
@@ -207,9 +208,9 @@ The shared compute pipeline uses one explicit bind group layout for skin-only, m
 
 The renderer ends the compute pass before starting the render pass in the same command encoder. WebGPU orders these uses of the output buffer; no shader barrier or CPU wait is required between passes. Paused poses retain their GPU output until a seek or clip change. Static scenes retain the optimized instanced path and do not create a compute pipeline. Buffers and workgroup counts are checked against device limits; oversized deformation inputs are rejected rather than silently truncated. Outputs are owned by the scene and destroyed together on replacement or a failed load.
 
-The frame loop keeps three explicit boundaries: `uploadPose(scene)` updates only changed joint palettes, morph weights, instance transforms, winding, and sorting centers; `encodeDeformation(encoder, scene)` dispatches the frame's pending deformations and ends its pass; `encodeRender(encoder, scene)` draws from the prepared output into HDR storage. Presentation follows scene rendering, and submission happens once after all encoding phases. The pending list is cleared at the start of every frame, so paused or held poses cannot replay stale dispatches while camera and display changes continue rendering. When adding deformation features, place new pose inputs in the upload phase and kernels in the compute phase; keep uploads and deformation dispatches out of render-pass encoding.
+The frame loop keeps three explicit boundaries: `uploadPose(scene)` updates only changed joint palettes, morph weights, instance transforms, winding, bounds, and sorting centers; `encodeDeformation(encoder, scene)` dispatches the frame's pending deformations and ends its pass; `encodeRender(encoder, scene)` tests visibility and draws from the prepared output into HDR storage. Presentation follows scene rendering, and submission happens once after all encoding phases. The pending list is cleared at the start of every frame, so paused or held poses cannot replay stale dispatches while camera and display changes continue rendering. When adding deformation features, place new pose inputs in the upload phase and kernels in the compute phase; keep uploads and deformation dispatches out of render-pass encoding.
 
-The CPU deformation evaluator remains an oracle for tests and runs once per node on load for exact initial camera bounds. Playback uses shared precomputed base/delta bounds, expands them for each node's signed morph weights, and unions joint-transformed envelopes to estimate transparent draw centers. This takes work proportional to target/joint counts rather than vertex counts and avoids GPU readbacks. Those conservative centers can be less accurate than centers of the deformed vertices; intersecting transparent meshes still have the usual draw-sorting limitations. Large crowds would additionally benefit from batching dispatches.
+The CPU deformation evaluator remains an oracle for tests and runs once per node on load for exact initial camera bounds. Playback uses shared precomputed base/delta bounds, expands them for each node's signed morph weights, and unions joint-transformed envelopes for visibility bounds and transparent draw centers. This takes work proportional to target/joint counts rather than vertex counts and avoids GPU readbacks. Those conservative centers can be less accurate than centers of the deformed vertices; intersecting transparent meshes still have the usual draw-sorting limitations. Large crowds would additionally benefit from batching dispatches.
 
 ### Share immutable deformation inputs between nodes
 
@@ -242,6 +243,16 @@ Revision tracking belongs to `Pose.evaluate()` and the animation API. Lower-leve
 `AnimationController` owns playback state and timing independently of WebGPU and the DOM. It selects clips, clamps seeks, loops time, handles pause/resume, and evaluates the attached `Pose`. A new pose is attached only after scene preparation succeeds, so failed replacements preserve playback. The controller does not schedule frames or allocate GPU resources.
 
 For programmatic playback, await `renderer.setAsset(asset)`, then use `renderer.animation.select(index)` (`-1` for authored pose), `renderer.animation.setPlaying(boolean)`, and `renderer.animation.seek(seconds)`. `renderer.animation.state` exposes clip names, selected index, time, duration, and playback state. Set `renderer.animation.onChange` to update UI after state changes and evaluated frames. The original renderer methods (`selectAnimation`, `setPlaying`, `seek`), `animationState`, and `onAnimationChange` remain forwarding aliases for existing callers.
+
+## Frustum culling
+
+Culling is enabled by default. Each frame extracts six inward-facing planes from the current view-projection matrix, including the resized viewport aspect. WebGPU uses `0 <= z <= w`, so the near plane comes from matrix row 2, while the far plane comes from row 3 minus row 2. An instance is omitted only when its entire world-space axis-aligned bounding box lies outside a plane. Boundary tolerance and invalid-bound/degenerate-plane fallbacks favor keeping geometry visible.
+
+Static bounds are prepared once. Animated bounds follow the existing per-node pose revisions: affine transforms account for rotation, reflections, nonuniform scale, and shear; morph intervals support negative weights; skin bounds union the active joints' transformed envelopes. Normalized nonnegative skin influences keep every blended position inside that union. Bounds update in the pose phase, and visibility is evaluated in the render phase. Offscreen meshes still upload changed pose inputs and compute deformation, so returning meshes have current output.
+
+Opaque instanced batches retain their original transform indices. Adjacent visible instances form one draw; hidden gaps split the batch into contiguous runs without repacking GPU buffers. A fully visible batch remains one draw. Transparent instances are culled before depth sorting. Conservative boxes can retain some invisible geometry; the CPU check is linear in primitive-instance count, with no spatial hierarchy or occlusion test.
+
+Use `renderer.setFrustumCulling(false)` to disable culling for comparison, or pass `{ frustumCulling: false }` as the third argument to `Renderer.create()`. `renderer.frustumCulling` exposes the current setting. `renderer.frameStats` returns the last frame's `{ draws, instances, culledInstances }`, counting actual scene draw calls and primitive instances, excluding compute and presentation. A culled batch can generate more draws when visible runs are separated. The statistics returned by `setAsset()` remain the prepared scene totals used by the viewer.
 
 ## Extending the renderer
 
@@ -284,5 +295,7 @@ $env:TEST_REMOTE_MODELS = '1'
 npm run test:browser
 Remove-Item Env:TEST_REMOTE_MODELS
 ```
+
+`tests/frustum.test.ts` covers all six WebGPU planes, perspective camera orientation, intersecting boxes, affine bounds, invalid/degenerate inputs, visible instance runs, and conservative signed-morph/skin bounds against the CPU oracle. `browser-tests/frustum.spec.ts` compares rendered pixels with culling enabled and disabled, checks actual visible run counts, camera movement, resizing, partial visibility, and offscreen skinned/morphed animation returning to view. The latter also exercises blended nonindexed draw submission.
 
 Test your own textured and transparent assets before depending on broader feature coverage.

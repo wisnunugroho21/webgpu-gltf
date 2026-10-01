@@ -18,6 +18,13 @@ import { MipmapGenerator } from './mipmaps';
 import { OutputPass, hdrFormat, type OutputSettings, type SceneSampleCount } from './output';
 import { EnvironmentLighting, type EnvironmentSettings } from './environment';
 import type { EnvironmentImage } from './environment-source';
+import {
+  Frustum,
+  createBounds,
+  transformBounds,
+  visibleInstanceRuns,
+  type Bounds,
+} from './frustum';
 
 interface Draw {
   pipeline: GPURenderPipeline;
@@ -30,10 +37,20 @@ interface Draw {
   instanceCount: number;
   center: vec3;
   depth: number;
+  bounds: Bounds[];
+  visibleRuns: number[];
 }
 export interface RendererOptions {
   /** Fixed at creation because attachments and all scene pipelines must agree. */
   sampleCount?: SceneSampleCount;
+  /** Conservative per-instance bounds testing; enabled by default. */
+  frustumCulling?: boolean;
+}
+/** Last frame's scene submissions, excluding compute and fullscreen presentation. */
+export interface FrameStats {
+  draws: number;
+  instances: number;
+  culledInstances: number;
 }
 interface Scene {
   pose: Pose;
@@ -45,6 +62,8 @@ interface Scene {
   instances: GPUBindGroup;
   opaque: Map<GPURenderPipeline, Map<GpuMaterial, Draw[]>>;
   transparent: Draw[];
+  visibleTransparent: Draw[];
+  draws: Draw[];
   stats: { pipelines: number; draws: number; instances: number };
   min: vec3;
   max: vec3;
@@ -54,7 +73,7 @@ interface PoseDraw {
   node: number;
   deformation?: GpuDeformation;
   normal: mat4;
-  localCenter: vec3;
+  localBounds: Bounds;
   front: GPURenderPipeline;
   mirrored: GPURenderPipeline;
   worldRevision: number;
@@ -77,6 +96,19 @@ export class Renderer {
   private frameData = new Float32Array(20);
   private compute?: DeformationCompute;
   private mipmaps: MipmapGenerator;
+  private frustum = new Frustum();
+  private cullingEnabled = true;
+  private lastFrame: FrameStats = { draws: 0, instances: 0, culledInstances: 0 };
+  get frameStats(): Readonly<FrameStats> {
+    return { ...this.lastFrame };
+  }
+  get frustumCulling(): boolean {
+    return this.cullingEnabled;
+  }
+  setFrustumCulling(enabled: boolean): void {
+    if (typeof enabled !== 'boolean') throw new Error('Frustum culling must be a boolean.');
+    this.cullingEnabled = enabled;
+  }
   get sampleCount(): SceneSampleCount {
     return this.output.sampleCount;
   }
@@ -121,6 +153,8 @@ export class Renderer {
     options: RendererOptions = {},
   ): Promise<Renderer> {
     const sampleCount = options.sampleCount ?? 4;
+    const frustumCulling = options.frustumCulling ?? true;
+    if (typeof frustumCulling !== 'boolean') throw new Error('Frustum culling must be a boolean.');
     if (sampleCount !== 1 && sampleCount !== 4)
       throw new Error('Scene sample count must be 1 (off) or 4 (MSAA).');
     if (!navigator.gpu)
@@ -145,6 +179,7 @@ export class Renderer {
       throw error;
     }
     const renderer = new Renderer(canvas, device, context, format, onError, output, environment);
+    renderer.setFrustumCulling(frustumCulling);
     device.addEventListener('uncapturederror', (event) => {
       renderer.stop();
       onError(`GPU error: ${event.error.message}`);
@@ -261,6 +296,7 @@ export class Renderer {
     const indexBuffers = new Map<object, GPUBuffer>();
     const opaque: Scene['opaque'] = new Map();
     const transparent: Draw[] = [];
+    const allDraws: Draw[] = [];
     const transforms: number[] = [];
     const min = vec3.fromValues(Infinity, Infinity, Infinity);
     const max = vec3.fromValues(-Infinity, -Infinity, -Infinity);
@@ -340,11 +376,7 @@ export class Renderer {
             localMin[c] = Math.min(localMin[c], geometry.positions[i + c]);
             localMax[c] = Math.max(localMax[c], geometry.positions[i + c]);
           }
-        const localCenter = vec3.scale(
-          vec3.create(),
-          vec3.add(vec3.create(), localMin, localMax),
-          0.5,
-        );
+        const localBounds = { min: localMin, max: localMax };
         // Mirrored transforms reverse winding, so they require a separate frontFace pipeline.
         // Blended instances are individual draws because their camera order can change each frame.
         const batches =
@@ -355,23 +387,15 @@ export class Renderer {
               );
         for (const batch of batches) {
           const firstInstance = transforms.length / 32;
+          const bounds: Bounds[] = [];
           for (const instance of batch) {
             const world = deformation?.data.skinned ? mat4.create() : instance.world;
             transforms.push(...world, ...(deformation?.data.skinned ? world : instance.normal));
-            // Eight transformed AABB corners give conservative world-space framing bounds.
-            for (let corner = 0; corner < 8; corner++) {
-              const point = vec3.transformMat4(
-                vec3.create(),
-                [
-                  corner & 1 ? localMax[0] : localMin[0],
-                  corner & 2 ? localMax[1] : localMin[1],
-                  corner & 4 ? localMax[2] : localMin[2],
-                ],
-                world,
-              );
-              vec3.min(min, min, point);
-              vec3.max(max, max, point);
-            }
+            const instanceBounds = createBounds();
+            transformBounds(instanceBounds, localBounds, world);
+            bounds.push(instanceBounds);
+            vec3.min(min, min, instanceBounds.min);
+            vec3.max(max, max, instanceBounds.max);
           }
           const pipeline = await pipelines.get(
             pipelineArgs(geometry, material, deformation?.data.skinned ? false : batch[0].mirrored),
@@ -385,10 +409,14 @@ export class Renderer {
             count: geometry.count,
             firstInstance,
             instanceCount: batch.length,
-            center: deformation?.data.skinned
-              ? vec3.clone(localCenter)
-              : vec3.transformMat4(vec3.create(), localCenter, batch[0].world),
+            center: vec3.scale(
+              vec3.create(),
+              vec3.add(vec3.create(), bounds[0].min, bounds[0].max),
+              0.5,
+            ),
             depth: 0,
+            bounds,
+            visibleRuns: [],
           };
           const alternatives = independent
             ? [
@@ -402,7 +430,7 @@ export class Renderer {
               node: batch[0].node,
               deformation,
               normal: mat4.create(),
-              localCenter: vec3.clone(localCenter),
+              localBounds: { min: vec3.clone(localMin), max: vec3.clone(localMax) },
               front: alternatives[0],
               mirrored: alternatives[1],
               worldRevision: -1,
@@ -417,6 +445,7 @@ export class Renderer {
               opaque.set(option, group);
             }
           draws++;
+          allDraws.push(draw);
           instanceCount += batch.length;
         }
       }
@@ -446,6 +475,8 @@ export class Renderer {
       instances: bindGroup,
       opaque,
       transparent,
+      visibleTransparent: [],
+      draws: allDraws,
       min,
       max,
       stats: { pipelines: pipelines.size, draws, instances: instanceCount },
@@ -524,9 +555,16 @@ export class Renderer {
         end = offset + 32;
       }
       if (skinned && !deformationChanged) continue;
-      if (deformationChanged) update.deformation!.data.center(update.localCenter);
-      if (skinned) vec3.copy(update.draw.center, update.localCenter);
-      else vec3.transformMat4(update.draw.center, update.localCenter, world);
+      // Bounds depend on the same pose revisions as the output, so cached visibility
+      // bounds cannot become stale when animated geometry crosses the frustum.
+      if (deformationChanged)
+        update.deformation!.data.bounds(update.localBounds.min, update.localBounds.max);
+      const bounds = update.draw.bounds[0];
+      if (skinned) {
+        vec3.copy(bounds.min, update.localBounds.min);
+        vec3.copy(bounds.max, update.localBounds.max);
+      } else transformBounds(bounds, update.localBounds, world);
+      vec3.scale(update.draw.center, vec3.add(update.draw.center, bounds.min, bounds.max), 0.5);
     }
     flushTransforms();
   }
@@ -574,6 +612,10 @@ export class Renderer {
   /** Draw submission consumes prepared buffers; it neither uploads poses nor dispatches
    * deformation. Keep additional render passes after encodeDeformation in the frame loop. */
   private encodeRender(encoder: GPUCommandEncoder, scene: Scene | undefined): void {
+    this.lastFrame.draws = 0;
+    this.lastFrame.instances = 0;
+    this.lastFrame.culledInstances = 0;
+    if (scene) this.updateVisibility(scene);
     const pass = encoder.beginRenderPass({
       label: 'Scene rendering',
       colorAttachments: [
@@ -596,17 +638,18 @@ export class Renderer {
         pass.setPipeline(pipeline);
         for (const [material, draws] of materials) {
           pass.setBindGroup(2, material.bindGroup);
-          for (const draw of draws) if (draw.pipeline === pipeline) this.draw(pass, draw);
+          for (const draw of draws)
+            if (draw.pipeline === pipeline && draw.visibleRuns.length) this.draw(pass, draw);
         }
       }
       const forward = vec3.normalize(
         vec3.create(),
         vec3.subtract(vec3.create(), this.camera.target, this.camera.eye),
       );
-      for (const draw of scene.transparent)
+      for (const draw of scene.visibleTransparent)
         draw.depth = vec3.dot(vec3.subtract(vec3.create(), draw.center, this.camera.eye), forward);
-      scene.transparent.sort((a, b) => b.depth - a.depth);
-      for (const draw of scene.transparent) {
+      scene.visibleTransparent.sort((a, b) => b.depth - a.depth);
+      for (const draw of scene.visibleTransparent) {
         pass.setPipeline(draw.pipeline);
         pass.setBindGroup(2, draw.material.bindGroup);
         this.draw(pass, draw);
@@ -615,14 +658,41 @@ export class Renderer {
     pass.end();
   }
 
+  /** Visibility consumes already updated pose bounds and the current camera matrix.
+   * It never suppresses pose uploads/compute, so offscreen animation stays current. */
+  private updateVisibility(scene: Scene): void {
+    this.frustum.update(this.frameData);
+    for (const draw of scene.draws) {
+      visibleInstanceRuns(
+        this.frustum,
+        draw.bounds,
+        draw.firstInstance,
+        draw.visibleRuns,
+        this.cullingEnabled,
+      );
+      this.lastFrame.draws += draw.visibleRuns.length / 2;
+      for (let i = 1; i < draw.visibleRuns.length; i += 2)
+        this.lastFrame.instances += draw.visibleRuns[i];
+    }
+    this.lastFrame.culledInstances = scene.stats.instances - this.lastFrame.instances;
+    scene.visibleTransparent.length = 0;
+    for (const draw of scene.transparent)
+      if (draw.visibleRuns.length) scene.visibleTransparent.push(draw);
+  }
+
   private draw(pass: GPURenderPassEncoder, draw: Draw): void {
     draw.vertices.forEach((binding, slot) =>
       pass.setVertexBuffer(slot, binding.buffer, binding.offset),
     );
-    if (draw.index) {
-      pass.setIndexBuffer(draw.index, draw.indexFormat);
-      pass.drawIndexed(draw.count, draw.instanceCount, 0, 0, draw.firstInstance);
-    } else pass.draw(draw.count, draw.instanceCount, 0, draw.firstInstance);
+    if (draw.index) pass.setIndexBuffer(draw.index, draw.indexFormat);
+    // firstInstance still addresses the original transform storage buffer. Gaps
+    // only change submission ranges; no transform upload or shader variant is needed.
+    for (let i = 0; i < draw.visibleRuns.length; i += 2) {
+      const first = draw.visibleRuns[i],
+        count = draw.visibleRuns[i + 1];
+      if (draw.index) pass.drawIndexed(draw.count, count, 0, 0, first);
+      else pass.draw(draw.count, count, 0, first);
+    }
   }
   private stop(): void {
     cancelAnimationFrame(this.frameRequest);
