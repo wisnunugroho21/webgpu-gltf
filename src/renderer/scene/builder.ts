@@ -95,12 +95,19 @@ export class SceneBuilder {
             ...definitions.values(),
           ])
         : undefined;
-      const independent =
-        pose.clips.length > 0 ||
+      const needsUpdate = (node: number) =>
+        !!pose.animatedWorld[node] ||
         !!primitive.targets?.length ||
-        instances.some((instance) => asset.gltf.nodes![instance.node].skin !== undefined);
-      // Pose-dependent geometry needs node-owned output; static scenes retain instancing.
-      for (const run of independent ? instances.map((instance) => [instance]) : [instances]) {
+        asset.gltf.nodes![node].skin !== undefined;
+      // Keep static instances together even in animated scenes. TRS descendants,
+      // skins and morph outputs retain independent transforms and mutable output.
+      const fixed = instances.filter((instance) => !needsUpdate(instance.node));
+      const runs = instances
+        .filter((instance) => needsUpdate(instance.node))
+        .map((instance) => [instance]);
+      if (fixed.length) runs.push(fixed);
+      for (const run of runs) {
+        const independent = needsUpdate(run[0].node);
         const deformation =
           primitive.targets?.length || asset.gltf.nodes![run[0].node].skin !== undefined
             ? new GpuDeformation(

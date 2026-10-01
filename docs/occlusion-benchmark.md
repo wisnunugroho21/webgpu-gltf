@@ -8,6 +8,8 @@ Run `npm run bench:occlusion`. The harness writes `test-results/occlusion-benchm
 
 The test uses headless Microsoft Edge on the local Intel Gen-12LP adapter, 320×240 physical render pixels, single-sample rendering, and disabled shadows. It measures 128, 2,048 and 8,192 cubes behind an opaque wall, with static, unrelated animation, moving transparent receiver, moving occluder and moving camera variants. Every variant compares culling off/on, warms up eight frames, then records 16 samples. Animated fixtures create independent draws using the existing scene builder, so their CPU costs also include pose traversal and draw preparation.
 
+Those captures precede sparse pose evaluation and retained static instancing. The current harness also enables CPU phase timings and records prepared draw/update counts. Its newer animation comparisons are documented in [animation performance](animation-performance.md); rerunning it now uses those optimized paths.
+
 GPU query-pass time uses optional timestamp writes at pass boundaries, excluding resolve/copy/readback. CPU time measures the synchronous renderer frame call, including uploads, visibility, encoding and submission. Completion time additionally waits for GPU work and query delivery **in the harness only**. It is a synchronization/latency comparison, not an FPS or production throughput estimate. Browser CPU timer granularity is roughly 0.1 ms; device load, driver scheduling and background viewer work can affect results. The baseline capture did not serialize adapter-info fields; the later capture explicitly records vendor/architecture. Both ran on the same local setup.
 
 ## Measured 8,192-object results

@@ -12,3 +12,4 @@ export type {
 } from './lighting/punctual';
 export type { TransparencyMode } from './render/transparency';
 export type { OcclusionStats } from './scene/occlusion';
+export type { CpuTimings } from './core/cpu-timings';

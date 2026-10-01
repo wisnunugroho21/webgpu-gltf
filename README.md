@@ -377,7 +377,19 @@ The batched layout has seven storage buffers plus a counts uniform, within WebGP
 
 ### Update only poses that actually change
 
-`Pose.evaluate()` samples into reusable scratch arrays, then compares the final values with the previous pose. Comparing after sampling avoids marking a property dirty merely because it was temporarily reset to its authored default. Every node has independent `worldRevision` and `weightsRevision` counters. Morph changes do not dirty world matrices. A changed parent propagates world recomputation to descendants; revisions advance only if the resulting float32 world matrix changes. Equivalent quaternion signs, cancelled transforms, held STEP values, constant tracks, and repeated samples can therefore stay idle. Sampling/comparison still visits the pose arrays, but unchanged nodes avoid matrix multiplication and all downstream GPU updates. Exact comparisons avoid discarding small legitimate animation movements.
+`Pose.evaluate()` samples into reusable scratch arrays, then compares the final values with the previous pose. Comparing after sampling avoids marking a property dirty merely because it was temporarily reset to its authored default. Every node has independent `worldRevision` and `weightsRevision` counters. Morph changes do not dirty world matrices. A changed parent propagates world recomputation to descendants; revisions advance only if the resulting float32 world matrix changes. Equivalent quaternion signs, cancelled transforms, held STEP values, constant tracks, and repeated samples can therefore stay idle. Mixing visits active clip targets and outgoing targets needed to restore defaults. World evaluation visits those nodes and affected TRS descendants in parent order. Work lists are cached while layer membership stays constant; arbitrary interrupted-fade snapshots conservatively visit every node. Exact comparisons avoid discarding small legitimate animation movements.
+
+Scene preparation classifies the union of authored TRS targets and descendants across all clips. Unaffected rigid instances stay grouped even when an animation exists. Animated rigid instances and all skinned/morphed outputs keep independent draw records. Static mirrored instances retain their own winding group, and BLEND/transmission instances retain separate draws for ordering. The original transform indices remain valid for culling, shadows and uploads. Treat prepared clips and hierarchy membership as immutable; load a replacement asset when editing their targets.
+
+CPU phase profiling is optional and disabled by default:
+
+```ts
+const renderer = await Renderer.create(canvas, showError, { cpuProfiling: true });
+// Copied measurements from the last completed synchronous frame, in milliseconds.
+console.log(renderer.cpuTimings);
+```
+
+`cpuTimings` exposes animation, mixing, world evaluation, uploads, visibility, command encoding, submission and total frame times, plus sampled/visited node counts. Mixing and world times are nested inside animation time; do not add them again to the total. Upload timing includes camera/light/shadow preparation; visibility timing includes occlusion dependency checks and query-input uploads. These are CPU wall times, with browser timer granularity, rather than GPU execution or presentation times. When profiling is disabled the getter returns `undefined`. See [animation CPU measurements](docs/animation-performance.md) for before/after results and limitations.
 
 Each render draw remembers its last world revision. Only affected unskinned draws rewrite their 128-byte instance record, normal matrix, winding, and world-space sorting center. Adjacent changed records are coalesced into uploads; gaps containing unchanged draws are excluded. A morph-only node moving in world space updates its instance transform without rerunning local-space deformation. A changed morph weight updates only that node's weights and deformation output, without uploading an unchanged instance matrix.
 

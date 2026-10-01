@@ -45,7 +45,9 @@ export class PoseMixer {
     this.scratch = clonePose(defaults);
   }
 
-  evaluate(samples: readonly BlendSample[], output: LocalPose[]): void {
+  /** Validate before Pose changes its sparse target history. Failed requests must
+   * leave previously animated properties available for default restoration. */
+  validate(samples: readonly BlendSample[]): number {
     let total = 0;
     for (const sample of samples) {
       if (!Number.isFinite(sample.weight) || sample.weight < 0)
@@ -59,20 +61,38 @@ export class PoseMixer {
       total += sample.weight;
     }
     if (!Number.isFinite(total)) throw new Error('Animation weight total must be finite.');
-    copyPose(this.defaults, output);
+    return total;
+  }
+
+  evaluate(
+    samples: readonly BlendSample[],
+    output: LocalPose[],
+    indices?: readonly number[],
+  ): void {
+    const total = this.validate(samples);
+    // Pose supplies active and formerly active targets. Other local values already
+    // equal defaults, so neither reset nor blending needs to scan the entire scene.
+    const selected = indices ?? output.map((_, i) => i);
+    const copy = (source: readonly LocalPose[], target: LocalPose[]) => {
+      for (const i of selected)
+        for (const path of paths)
+          for (let c = 0; c < source[i][path].length; c++) target[i][path][c] = source[i][path][c];
+    };
+    copy(this.defaults, output);
     let accumulated = Math.max(0, 1 - total);
     for (const sample of samples) {
       if (!sample.weight) continue;
-      if ('pose' in sample) copyPose(sample.pose, this.scratch);
+      if ('pose' in sample) copy(sample.pose, this.scratch);
       else {
-        copyPose(this.defaults, this.scratch);
+        copy(this.defaults, this.scratch);
         for (const track of this.clips[sample.clip]?.tracks ?? [])
           sampleTrack(track, sample.time, this.scratch[track.node][track.path]);
       }
-      if (!accumulated) copyPose(this.scratch, output);
+      if (!accumulated) copy(this.scratch, output);
       else {
         const fraction = sample.weight / (accumulated + sample.weight);
-        output.forEach((node, i) => {
+        for (const i of selected) {
+          const node = output[i];
           const incoming = this.scratch[i];
           for (const path of ['translation', 'scale', 'weights'] as const)
             for (let c = 0; c < node[path].length; c++)
@@ -91,7 +111,7 @@ export class PoseMixer {
             );
             quat.normalize(node.rotation as quat, node.rotation as quat);
           }
-        });
+        }
       }
       accumulated += sample.weight;
     }

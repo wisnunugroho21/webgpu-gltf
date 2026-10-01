@@ -31,6 +31,17 @@ export class Pose {
   private initialized = false;
   private mixer: PoseMixer;
   private single = [{ clip: -1, time: 0, weight: 1 }];
+  /** Load-time union of TRS targets and descendants; weights do not move instances. */
+  readonly animatedWorld: Uint8Array;
+  private rank: number[];
+  private previousTargets = new Set<number>();
+  private previousWorldTargets = new Set<number>();
+  private changedWorlds: number[] = [];
+  private selectionKey = '';
+  private selected: number[] = [];
+  private candidates: number[] = [];
+  profiling = false;
+  readonly timings = { mixingMs: 0, worldMs: 0, sampledNodes: 0, visitedNodes: 0 };
   constructor(readonly asset: Asset) {
     this.clips = prepareClips(asset);
     const nodes = asset.gltf.nodes ?? [];
@@ -84,6 +95,20 @@ export class Pose {
       if (this.parents[i] === -1) visit(i);
     });
     if (visited.size !== nodes.length) throw new Error('Cycle in node hierarchy.');
+    this.rank = nodes.map(() => 0);
+    this.order.forEach((node, rank) => (this.rank[node] = rank));
+    this.animatedWorld = new Uint8Array(nodes.length);
+    const transformTargets = new Set(
+      this.clips.flatMap((clip) =>
+        clip.tracks.filter((t) => t.path !== 'weights').map((t) => t.node),
+      ),
+    );
+    for (const index of this.order) {
+      const parent = this.parents[index];
+      this.animatedWorld[index] = Number(
+        (parent >= 0 && !!this.animatedWorld[parent]) || transformTargets.has(index),
+      );
+    }
     this.evaluate(-1, 0);
   }
   /** Compare the final sampled pose, not the temporary reset to authored defaults.
@@ -101,10 +126,53 @@ export class Pose {
   }
 
   evaluateBlend(samples: readonly BlendSample[]): boolean {
-    this.mixer.evaluate(samples, this.sampled);
-    this.worldChanged.fill(0);
+    const start = this.profiling ? performance.now() : 0;
+    this.mixer.validate(samples);
+    // Cache the sparse work list while layer membership stays constant. Include
+    // outgoing targets once more to restore defaults on switches/zero-weight layers.
+    // Interrupted fades contain arbitrary snapshots and conservatively visit all nodes.
+    const key = samples
+      .filter((s) => s.weight > 0)
+      .map((s) => ('pose' in s ? 'snapshot' : s.clip))
+      .join(',');
+    if (!this.initialized || key !== this.selectionKey) {
+      const active = new Set<number>();
+      const worldTargets = new Set<number>();
+      for (const sample of samples) {
+        if (!(sample.weight > 0)) continue;
+        if ('pose' in sample) for (const index of this.order) active.add(index);
+        else
+          for (const track of this.clips[sample.clip]?.tracks ?? []) {
+            active.add(track.node);
+            if (track.path !== 'weights') worldTargets.add(track.node);
+          }
+      }
+      this.selected = [...new Set([...active, ...this.previousTargets])];
+      const affected = new Set(this.selected);
+      const expanded = new Set<number>();
+      const visit = (index: number) => {
+        if (expanded.has(index)) return;
+        expanded.add(index);
+        affected.add(index);
+        for (const child of this.asset.gltf.nodes![index].children ?? []) visit(child);
+      };
+      for (const index of new Set([...worldTargets, ...this.previousWorldTargets])) visit(index);
+      this.candidates = this.initialized
+        ? [...affected].sort((a, b) => this.rank[a] - this.rank[b])
+        : this.order;
+      const retiring = [...this.previousTargets].some((index) => !active.has(index));
+      this.previousTargets = active;
+      this.previousWorldTargets = worldTargets;
+      this.selectionKey = key;
+      // On the next evaluation, discard outgoing targets after their defaults restore.
+      if (retiring) this.selectionKey = '\u0000';
+    }
+    this.mixer.evaluate(samples, this.sampled, this.selected);
+    const mixed = this.profiling ? performance.now() : 0;
+    for (const index of this.changedWorlds) this.worldChanged[index] = 0;
+    this.changedWorlds.length = 0;
     let changed = false;
-    for (const index of this.order) {
+    for (const index of this.candidates) {
       const node = this.nodes[index],
         definition = this.asset.gltf.nodes![index],
         sampled = this.sampled[index];
@@ -138,10 +206,19 @@ export class Pose {
         mat4.copy(node.world, this.world);
         node.worldRevision++;
         this.worldChanged[index] = 1;
+        this.changedWorlds.push(index);
         changed = true;
       }
     }
     this.initialized = true;
+    // Initialization must not leave a full-scene work list cached for authored mode.
+    if (this.candidates === this.order) this.selectionKey = '\u0000';
+    if (this.profiling) {
+      this.timings.mixingMs = mixed - start;
+      this.timings.worldMs = performance.now() - mixed;
+      this.timings.sampledNodes = this.selected.length;
+      this.timings.visitedNodes = this.candidates.length;
+    }
     return changed;
   }
 }

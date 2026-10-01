@@ -17,6 +17,8 @@ import { uploadPose } from './scene/pose-upload';
 import { SceneVisibility } from './scene/visibility';
 import { OcclusionCulling } from './scene/occlusion';
 import type { OcclusionStats } from './scene/occlusion';
+import { emptyCpuTimings, type CpuTimings } from './core/cpu-timings';
+export type { CpuTimings } from './core/cpu-timings';
 import { encodeDeformation } from './deformation/pass';
 import { encodeScene } from './render/pass';
 import { TransmissionBuffer } from './render/transmission';
@@ -31,6 +33,8 @@ import {
 export type { FrameStats, SceneStats } from './scene/types';
 
 export interface RendererOptions {
+  /** Opt-in CPU phase wall times; disabled by default to avoid timer overhead. */
+  cpuProfiling?: boolean;
   /** Fixed at creation. Weighted OIT avoids primitive sorting; sorted keeps classic OVER. */
   transparency?: TransparencyMode;
   /** Fixed at creation because attachments and all scene pipelines must agree. */
@@ -46,6 +50,11 @@ export interface RendererOptions {
   shadowResolution?: ShadowResolution;
 }
 export class Renderer {
+  private cpuProfiling = false;
+  private timings = emptyCpuTimings();
+  get cpuTimings(): Readonly<CpuTimings> | undefined {
+    return this.cpuProfiling ? { ...this.timings } : undefined;
+  }
   get occlusionStats(): Readonly<OcclusionStats> {
     const stats = this.occlusion.stats;
     return this.occlusionEnabled ? stats : { ...stats, queries: 0 };
@@ -149,6 +158,8 @@ export class Renderer {
     options: RendererOptions = {},
   ): Promise<Renderer> {
     const sampleCount = options.sampleCount ?? 4;
+    if (options.cpuProfiling !== undefined && typeof options.cpuProfiling !== 'boolean')
+      throw new Error('CPU profiling must be a boolean.');
     const transparencyMode = options.transparency ?? 'weighted';
     if (transparencyMode !== 'weighted' && transparencyMode !== 'sorted')
       throw new Error('Transparency must be weighted or sorted.');
@@ -203,6 +214,7 @@ export class Renderer {
         transparency,
       );
       renderer.setFrustumCulling(frustumCulling);
+      renderer.cpuProfiling = options.cpuProfiling ?? false;
       renderer.setOcclusionCulling(occlusionCulling);
       renderer.setScaleCulling(scaleCulling);
     } catch (error) {
@@ -274,6 +286,7 @@ export class Renderer {
         (candidate) => {
           if (this.disposed) throw new Error('Renderer was disposed.');
           const previous = this.scene;
+          candidate.pose.profiling = this.cpuProfiling;
           this.scene = candidate;
           committed = true;
           this.camera.frame(candidate.min, candidate.max);
@@ -293,12 +306,20 @@ export class Renderer {
 
   /** Phase 1 owns CPU state and queue uploads; no command encoder is created here. */
   private uploadFrame(scene: Scene | undefined, timestamp: number): void {
+    const start = this.cpuProfiling ? performance.now() : 0;
     let poseChanged = false;
     // Phase 1: sample animation and upload its inputs before encoding any GPU work.
     if (scene) {
       // This list belongs to this frame; paused/held poses must not replay old dispatches.
       scene.pendingDeformations.length = 0;
       poseChanged = this.animation.update(timestamp);
+      if (this.cpuProfiling) {
+        this.timings.animationMs = performance.now() - start;
+        Object.assign(this.timings, scene.pose.timings);
+      }
+    }
+    const animated = this.cpuProfiling ? performance.now() : 0;
+    if (scene) {
       if (poseChanged) uploadPose(this.device, scene);
     }
     this.viewport.resize();
@@ -314,6 +335,7 @@ export class Renderer {
     this.lastFrame.draws = 0;
     this.lastFrame.instances = 0;
     this.lastFrame.culledInstances = 0;
+    const uploaded = this.cpuProfiling ? performance.now() : 0;
     if (scene) {
       if (this.occlusionEnabled)
         this.occlusion.beginFrame(
@@ -330,6 +352,10 @@ export class Renderer {
         occlusion: this.occlusionEnabled ? this.occlusion : undefined,
       });
       if (this.occlusionEnabled) this.occlusion.upload();
+    }
+    if (this.cpuProfiling) {
+      this.timings.uploadsMs = uploaded - animated;
+      this.timings.visibilityMs = performance.now() - uploaded;
     }
   }
 
@@ -360,9 +386,29 @@ export class Renderer {
     if (this.disposed) return;
     try {
       const scene = this.scene;
+      const start = this.cpuProfiling ? performance.now() : 0;
+      if (this.cpuProfiling) {
+        Object.assign(this.timings, emptyCpuTimings());
+        if (scene)
+          Object.assign(scene.pose.timings, {
+            mixingMs: 0,
+            worldMs: 0,
+            sampledNodes: 0,
+            visitedNodes: 0,
+          });
+      }
       this.uploadFrame(scene, timestamp);
-      this.device.queue.submit([this.encodeFrame(scene)]);
+      const uploaded = this.cpuProfiling ? performance.now() : 0;
+      const commands = this.encodeFrame(scene);
+      const encoded = this.cpuProfiling ? performance.now() : 0;
+      this.device.queue.submit([commands]);
       if (this.occlusionEnabled) this.occlusion.afterSubmit();
+      if (this.cpuProfiling) {
+        const submitted = performance.now();
+        this.timings.encodingMs = encoded - uploaded;
+        this.timings.submissionMs = submitted - encoded;
+        this.timings.totalMs = submitted - start;
+      }
       this.frameRequest = requestAnimationFrame(this.render);
     } catch (error) {
       // Resize, visibility preparation and command encoding can fail too. Stop the

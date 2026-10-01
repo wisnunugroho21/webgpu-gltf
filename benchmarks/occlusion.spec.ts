@@ -24,6 +24,7 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
         const renderer = await Renderer.create(canvas, (message) => errors.push(message), {
           sampleCount: 1,
           shadows: false,
+          cpuProfiling: true,
         });
         const internal = renderer as any;
         internal.stop();
@@ -160,6 +161,7 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
                 gpu = [],
                 instances = [],
                 queryCounts = [];
+              const phases: Record<string, number[]> = {};
               for (let frame = 0; frame < 24; frame++) {
                 if (mode === 'camera') renderer.camera.yaw = 0.01 * frame;
                 else if (mode !== 'static') renderer.seek(frame * 0.025);
@@ -184,6 +186,9 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
                   gpu.push(queryMs);
                   instances.push(renderer.frameStats.instances);
                   queryCounts.push(queries);
+                  for (const [name, value] of Object.entries(renderer.cpuTimings!)) {
+                    (phases[name] ??= []).push(value);
+                  }
                 }
               }
               const percentile = (values: number[], p: number) =>
@@ -198,6 +203,11 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
                 queryGpuMedianMs: timestamp ? percentile(gpu as number[], 0.5) : null,
                 instances: percentile(instances, 0.5),
                 queries: percentile(queryCounts, 0.5),
+                sceneDraws: internal.scene.stats.draws,
+                poseDraws: internal.scene.updates.length,
+                cpuPhases: Object.fromEntries(
+                  Object.entries(phases).map(([name, values]) => [name, percentile(values, 0.5)]),
+                ),
               });
             }
           }
