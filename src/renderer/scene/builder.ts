@@ -23,6 +23,7 @@ import { hdrFormat, type SceneSampleCount } from '../presentation/output';
 import { createBounds, transformBounds, type Bounds } from './frustum';
 import type { Draw, PoseDraw, Scene } from './types';
 import type { TransparencyMode } from '../render/transparency';
+import { prepareTextureCompression } from '../textures/compression';
 
 /** Load-time work only: every candidate owns its allocations before scene replacement. */
 export class SceneBuilder {
@@ -36,6 +37,7 @@ export class SceneBuilder {
   ) {}
 
   async prepare(asset: Asset, resources: Resources): Promise<Scene> {
+    asset = await prepareTextureCompression(asset, this.device.features);
     const pose = new Pose(asset);
     const lights = new PunctualLights(pose);
     const shadowPipelines = new ShadowPipelineCache(this.device, this.bindings.shadowPipeline);

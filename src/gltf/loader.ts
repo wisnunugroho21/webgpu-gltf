@@ -2,6 +2,12 @@ import type { Asset, DecodedImage, Gltf } from './types';
 import { supportedExtensions } from './extensions';
 import { decodeDraco, decodeMeshopt } from './compression/geometry';
 import { CompressionRuntime } from './compression/runtime';
+import type { TextureCompression } from './compression/textures';
+
+export interface LoadOptions {
+  /** Defaults to portable RGBA8; pass renderer.textureCompression to avoid a second transcode. */
+  textureCompression?: readonly TextureCompression[];
+}
 
 type Resolve = (uri: string) => Promise<ArrayBuffer>;
 const decoder = new TextDecoder();
@@ -46,26 +52,34 @@ async function fetchBytes(url: string): Promise<ArrayBuffer> {
   return response.arrayBuffer();
 }
 
-export async function loadUrl(url: string): Promise<Asset> {
+export async function loadUrl(url: string, options: LoadOptions = {}): Promise<Asset> {
   const absolute = new URL(url, location.href);
-  return load(await fetchBytes(absolute.href), (uri) => fetchBytes(new URL(uri, absolute).href));
+  return load(
+    await fetchBytes(absolute.href),
+    (uri) => fetchBytes(new URL(uri, absolute).href),
+    options,
+  );
 }
 
-export async function loadFiles(files: File[]): Promise<Asset> {
+export async function loadFiles(files: File[], options: LoadOptions = {}): Promise<Asset> {
   const models = files.filter((file) => /\.(gltf|glb)$/i.test(file.name));
   if (models.length !== 1)
     throw new Error('Select exactly one .gltf or .glb model plus its dependencies.');
   const byName = new Map(files.map((file) => [file.name, file]));
-  return load(await models[0].arrayBuffer(), async (uri) => {
-    if (uri.startsWith('data:')) return fetchBytes(uri);
-    const name = decodeURIComponent(uri).replace(/\\/g, '/');
-    const file = byName.get(name) ?? byName.get(name.split('/').pop()!);
-    if (!file) throw new Error(`Missing ${uri}. Select this dependency alongside the model.`);
-    return file.arrayBuffer();
-  });
+  return load(
+    await models[0].arrayBuffer(),
+    async (uri) => {
+      if (uri.startsWith('data:')) return fetchBytes(uri);
+      const name = decodeURIComponent(uri).replace(/\\/g, '/');
+      const file = byName.get(name) ?? byName.get(name.split('/').pop()!);
+      if (!file) throw new Error(`Missing ${uri}. Select this dependency alongside the model.`);
+      return file.arrayBuffer();
+    },
+    options,
+  );
 }
 
-async function load(data: ArrayBuffer, resolve: Resolve): Promise<Asset> {
+async function load(data: ArrayBuffer, resolve: Resolve, options: LoadOptions): Promise<Asset> {
   const { gltf, bin } =
     data.byteLength >= 4 && new DataView(data).getUint32(0, true) === 0x46546c67
       ? parseGlb(data)
@@ -136,7 +150,10 @@ async function load(data: ArrayBuffer, resolve: Resolve): Promise<Asset> {
       if (source === undefined) continue;
       if (!images[source]) throw new Error('Basis texture references a missing image.');
       if (!decodedImages.has(source))
-        decodedImages.set(source, await runtime.basis(await images[source].arrayBuffer()));
+        decodedImages.set(
+          source,
+          await runtime.basis(await images[source].arrayBuffer(), options.textureCompression),
+        );
       texture.source = source;
     }
     return { gltf, buffers, images, decodedImages, warnings };

@@ -4,6 +4,8 @@ import { createMaterialLayoutEntries, materialTextureSlots } from './slots';
 import { materialUniform } from './uniform';
 import { MipmapGenerator, mipLevelCount, type MipmapFilter } from '../textures/mipmaps';
 import { samplerDescriptor } from '../textures/samplers';
+import { compressedFormat } from '../textures/compression';
+import { imageLevelBytes } from '../../gltf/compression/textures';
 
 export interface GpuMaterial {
   bindGroup: GPUBindGroup;
@@ -69,20 +71,27 @@ export class MaterialFactory {
     // Generated chains depend on filtering semantics. Authored chains are unchanged,
     // so they can still share one allocation across translucent and opaque slots.
     const decoded = this.asset.decodedImages?.get(index);
+    const encoding = decoded?.format ?? 'rgba8';
+    const compressed = encoding !== 'rgba8';
+    const gpuFormat = decoded ? compressedFormat(encoding, format.endsWith('-srgb')) : format;
     const effectiveFilter = decoded && decoded.levels.length > 1 ? 'area' : filter;
-    const key = `${index}/${format}/${effectiveFilter}`;
+    const key = `${index}/${gpuFormat}/${effectiveFilter}`;
     let result = this.images.get(key);
     if (!result) {
       result = (async () => {
         if (decoded) {
           const base = decoded.levels[0];
           if (!base) throw new Error('Decoded texture has no mip levels.');
-          const generate = decoded.levels.length === 1;
+          if (compressed && (base.width % 4 || base.height % 4))
+            throw new Error('Compressed texture base dimensions must be multiples of four.');
+          if (decoded.levels.length > mipLevelCount(base.width, base.height))
+            throw new Error('Decoded texture has too many mip levels.');
+          const generate = !compressed && decoded.levels.length === 1;
           const texture = this.resources.own(
             this.device.createTexture({
-              label: `glTF KTX2 image ${index} (${format})`,
+              label: `glTF KTX2 image ${index} (${gpuFormat})`,
               size: [base.width, base.height],
-              format,
+              format: gpuFormat,
               mipLevelCount: generate
                 ? mipLevelCount(base.width, base.height)
                 : decoded.levels.length,
@@ -92,20 +101,26 @@ export class MaterialFactory {
                 (generate ? GPUTextureUsage.RENDER_ATTACHMENT : 0),
             }),
           );
-          // Preserve authored mipmaps. RGBA bytes are uploaded unchanged and interpreted
-          // by this slot's sRGB/linear texture format, just like PNG/JPEG image uploads.
+          // Preserve authored blocks and mipmaps. Compressed copies cover physical
+          // block extents even for 2x2/1x1 tails; shader sampling sees logical extents.
           for (const [mipLevel, level] of decoded.levels.entries()) {
             if (
               level.width !== Math.max(1, base.width >> mipLevel) ||
               level.height !== Math.max(1, base.height >> mipLevel) ||
-              level.data.byteLength !== level.width * level.height * 4
+              level.data.byteLength !== imageLevelBytes(encoding, level.width, level.height)
             )
               throw new Error('Invalid decoded texture mip dimensions.');
             this.device.queue.writeTexture(
               { texture, mipLevel },
               level.data,
-              { bytesPerRow: level.width * 4, rowsPerImage: level.height },
-              [level.width, level.height],
+              {
+                bytesPerRow: compressed ? Math.ceil(level.width / 4) * 16 : level.width * 4,
+                rowsPerImage: compressed ? Math.ceil(level.height / 4) : level.height,
+              },
+              [
+                compressed ? Math.ceil(level.width / 4) * 4 : level.width,
+                compressed ? Math.ceil(level.height / 4) * 4 : level.height,
+              ],
             );
           }
           if (generate) await this.mipmaps.generate(texture, filter);

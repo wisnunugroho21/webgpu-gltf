@@ -154,10 +154,14 @@ export interface Asset {
   gltf: Gltf;
   buffers: ArrayBuffer[];
   images: Blob[];
-  /** KTX2 images are decoded once on the CPU; authored mip levels remain intact. */
+  /** KTX2 pixel/block payloads; authored mip levels remain intact. */
   decodedImages?: Map<number, DecodedImage>;
   warnings: string[];
 }
 export interface DecodedImage {
+  /** Missing format denotes legacy RGBA8. Transfer function comes from the material slot. */
+  format?: import('./compression/textures').ImageFormat;
+  /** Capabilities used for target selection, including deliberate RGBA fallbacks. */
+  transcodedFor?: readonly import('./compression/textures').TextureCompression[];
   levels: { width: number; height: number; data: Uint8Array<ArrayBuffer> }[];
 }

@@ -6,6 +6,8 @@ import { prepareGpu } from './core/preparation';
 import { Viewport } from './core/viewport';
 import { AnimationController } from '../animation/controller';
 import { MipmapGenerator } from './textures/mipmaps';
+import { compressionRequirements, compressionSupport } from './textures/compression';
+import type { TextureCompression } from '../gltf/compression/textures';
 import { OutputPass, type OutputSettings, type SceneSampleCount } from './presentation/output';
 import { EnvironmentLighting, type EnvironmentSettings } from './lighting/environment';
 import type { EnvironmentImage } from './lighting/source';
@@ -43,6 +45,9 @@ export interface RendererOptions {
   shadowResolution?: ShadowResolution;
 }
 export class Renderer {
+  get textureCompression(): readonly TextureCompression[] {
+    return compressionSupport(this.device.features);
+  }
   readonly camera: OrbitCamera;
   readonly animation = new AnimationController();
   private scene?: Scene;
@@ -158,7 +163,9 @@ export class Renderer {
       throw new Error('WebGPU is unavailable. Use a WebGPU-capable browser on localhost or HTTPS.');
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error('No WebGPU adapter is available on this device.');
-    const device = await adapter.requestDevice();
+    const device = await adapter.requestDevice({
+      requiredFeatures: compressionRequirements(adapter.features),
+    });
     const context = canvas.getContext('webgpu');
     if (!context) {
       device.destroy();

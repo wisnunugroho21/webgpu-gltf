@@ -3,6 +3,7 @@ import dracoWasm from '../../../node_modules/three/examples/jsm/libs/draco/gltf/
 import basisScript from '../../../node_modules/three/examples/jsm/libs/basis/basis_transcoder.js?url';
 import basisWasm from '../../../node_modules/three/examples/jsm/libs/basis/basis_transcoder.wasm?url';
 import type { DecodedImage } from '../types';
+import { basisTargets, type TextureCompression } from './textures';
 
 export interface DracoAttribute {
   id: number;
@@ -38,7 +39,7 @@ function decoderWorker() {
     return result;
   }
   scope.onmessage = async (event: MessageEvent) => {
-    const { id, kind, script, wasm, bytes, attributes } = event.data;
+    const { id, kind, script, wasm, bytes, attributes, targets, support } = event.data;
     try {
       const lib = await module(kind, script, wasm);
       if (kind === 'basis') {
@@ -53,24 +54,39 @@ function decoderWorker() {
           )
             throw new Error('Only 2D ETC1S/UASTC Basis KTX2 textures are supported.');
           const levels = [];
+          // WebGPU compressed base sizes must be block-aligned. A single-level
+          // image uses RGBA so the existing render-based mip generator still works.
+          const compressed =
+            file.getWidth() % 4 === 0 && file.getHeight() % 4 === 0 && file.getLevels() > 1;
+          const target = targets.find(
+            (target: { format: string; uastcOnly?: boolean }) =>
+              (target.format === 'rgba8' || compressed) && (!target.uastcOnly || file.isUASTC()),
+          );
+          if (!target) throw new Error('No supported Basis transcode target.');
           for (let mip = 0; mip < file.getLevels(); mip++) {
             const info = file.getImageLevelInfo(mip, 0, 0);
             const width = info.origWidth,
               height = info.origHeight;
             if (width < 1 || height < 1) throw new Error('Invalid KTX2 image dimensions.');
-            // Basis format 13 is RGBA32. This works on baseline WebGPU adapters and
-            // leaves sRGB interpretation to the material slot, never the container.
-            const data = new Uint8Array(file.getImageTranscodedSizeInBytes(mip, 0, 0, 13));
+            // Transcode directly into retained GPU blocks. Slot formats decide sRGB
+            // versus linear interpretation; container transfer metadata never does.
+            const data = new Uint8Array(
+              file.getImageTranscodedSizeInBytes(mip, 0, 0, target.transcoder),
+            );
+            const expected =
+              target.format === 'rgba8'
+                ? width * height * 4
+                : Math.ceil(width / 4) * Math.ceil(height / 4) * 16;
             if (
-              !file.transcodeImage(data, mip, 0, 0, 13, 0, -1, -1) ||
-              data.byteLength !== width * height * 4
+              !file.transcodeImage(data, mip, 0, 0, target.transcoder, 0, -1, -1) ||
+              data.byteLength !== expected
             )
               throw new Error(`Could not transcode KTX2 mip ${mip}.`);
             levels.push({ width, height, data });
           }
           if (!levels.length) throw new Error('KTX2 has no mip levels.');
           scope.postMessage(
-            { id, result: { levels } },
+            { id, result: { format: target.format, transcodedFor: support, levels } },
             levels.map((level) => level.data.buffer),
           );
         } finally {
@@ -165,6 +181,7 @@ export class CompressionRuntime {
     kind: 'draco' | 'basis',
     bytes: ArrayBuffer,
     attributes?: Record<string, DracoAttribute>,
+    support: readonly TextureCompression[] = [],
   ): Promise<T> {
     if (!this.worker) {
       const url = URL.createObjectURL(
@@ -195,6 +212,8 @@ export class CompressionRuntime {
         kind,
         bytes,
         attributes,
+        targets: basisTargets(support),
+        support,
         script: new URL(kind === 'draco' ? dracoScript : basisScript, location.href).href,
         wasm: new URL(kind === 'draco' ? dracoWasm : basisWasm, location.href).href,
       },
@@ -205,8 +224,8 @@ export class CompressionRuntime {
   draco(bytes: ArrayBuffer, attributes: Record<string, DracoAttribute>) {
     return this.request<DracoResult>('draco', bytes, attributes);
   }
-  basis(bytes: ArrayBuffer) {
-    return this.request<DecodedImage>('basis', bytes);
+  basis(bytes: ArrayBuffer, support: readonly TextureCompression[] = []) {
+    return this.request<DecodedImage>('basis', bytes, undefined, support);
   }
   dispose(error = new Error('Compression load ended.')) {
     this.worker?.terminate();

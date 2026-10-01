@@ -81,7 +81,7 @@ export class Viewer {
       const files = [...(input.files ?? [])];
       if (files.length)
         void this.show(
-          () => loadFiles(files),
+          () => loadFiles(files, { textureCompression: this.renderer!.textureCompression }),
           files.find((file) => /\.(gltf|glb)$/i.test(file.name))?.name ?? 'Local model',
         );
       input.value = '';
@@ -89,7 +89,10 @@ export class Viewer {
     element('url-form').addEventListener('submit', (event) => {
       event.preventDefault();
       const url = element<HTMLInputElement>('url').value;
-      void this.show(() => loadUrl(url), new URL(url).pathname.split('/').pop() || 'Remote model');
+      void this.show(
+        () => loadUrl(url, { textureCompression: this.renderer!.textureCompression }),
+        new URL(url).pathname.split('/').pop() || 'Remote model',
+      );
     });
   }
 }
