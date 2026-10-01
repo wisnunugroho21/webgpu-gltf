@@ -1,5 +1,32 @@
 import { expect, test } from '@playwright/test';
 
+test('anisotropic sampler policy passes real WebGPU validation for all glTF filter modes', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { samplerDescriptor } = await import('/src/renderer/samplers.ts');
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error('No GPU adapter');
+    const device = await adapter.requestDevice();
+    device.pushErrorScope('validation');
+    let enabled = 0;
+    for (const minFilter of [9728, 9729, 9984, 9985, 9986, 9987])
+      for (const magFilter of [9728, 9729]) {
+        const descriptor = samplerDescriptor({ minFilter, magFilter });
+        device.createSampler(descriptor);
+        if (descriptor.maxAnisotropy! > 1) enabled++;
+      }
+    device.createSampler(samplerDescriptor());
+    device.createSampler(samplerDescriptor({}, 1));
+    const error = await device.popErrorScope();
+    device.destroy();
+    return { enabled, error: error?.message };
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.enabled).toBe(1); // only LINEAR_MIPMAP_LINEAR + LINEAR magnification
+});
+
 test('GPU mipmaps filter color in linear light, preserve data values and handle NPOT/thin images', async ({
   page,
 }) => {

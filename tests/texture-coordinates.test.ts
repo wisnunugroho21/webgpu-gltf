@@ -64,6 +64,17 @@ describe('texture coordinates', () => {
 });
 
 describe('mip filtering', () => {
+  it('enables anisotropy only for compatible trilinear samplers and preserves explicit filters', () => {
+    expect(samplerDescriptor().maxAnisotropy).toBe(16);
+    expect(samplerDescriptor({ minFilter: 9987, magFilter: 9729 }).maxAnisotropy).toBe(16);
+    expect(samplerDescriptor({}, 4).maxAnisotropy).toBe(4);
+    expect(samplerDescriptor({}, 1).maxAnisotropy).toBe(1);
+    for (const minFilter of [9728, 9729, 9984, 9985, 9986])
+      expect(samplerDescriptor({ minFilter }).maxAnisotropy).toBe(1);
+    expect(samplerDescriptor({ minFilter: 9987, magFilter: 9728 }).maxAnisotropy).toBe(1);
+    for (const value of [0, 17, 1.5, NaN])
+      expect(() => samplerDescriptor({}, value)).toThrow('Anisotropy');
+  });
   it('maps all six glTF minification modes and reserves level zero for non-mip modes', () => {
     for (const [mode, min, mip, clamp] of [
       [9728, 'nearest', 'linear', 0],
