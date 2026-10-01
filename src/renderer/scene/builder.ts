@@ -1,33 +1,30 @@
 import { mat4, vec3 } from 'gl-matrix';
 import type { Asset } from '../../gltf/types';
-import { prepareGeometry } from '../../gltf/geometry';
 import { collectInstances } from '../../gltf/scene';
 import { Pose } from '../../scene/pose';
 import { PunctualLights } from '../../scene/lights';
-import { ShadowPipelineCache } from '../lighting/shadows/pipelines';
 import { Deformation } from '../../scene/deformation';
-import { DeformationInputCache } from '../../scene/deformation-inputs';
-import { MaterialFactory, type GpuMaterial } from '../materials/factory';
-import { PipelineCache, pipelineArgs } from '../render/pipelines';
-import { Resources, uploadBuffer } from '../core/resources';
+import { type GpuMaterial } from '../materials/factory';
+import { pipelineArgs } from '../render/pipelines';
+import { Resources, ResourceCache, uploadBuffer } from '../core/resources';
 import { SceneBindings, instanceFloatCount } from '../core/bindings';
-import { GeometryUploader } from './geometry-uploader';
 import { DeformationCompute } from '../deformation/compute';
 import { GpuDeformation } from '../deformation/instance';
-import { GpuDeformationInputCache } from '../deformation/inputs';
 import { planDeformationBatches } from '../deformation/batch';
 import { materialTextureSlots } from '../materials/slots';
 import { textureCoordinates } from '../../gltf/texture-coordinates';
 import { MipmapGenerator } from '../textures/mipmaps';
-import { hdrFormat, type SceneSampleCount } from '../presentation/output';
+import { type SceneSampleCount } from '../presentation/output';
 import { createBounds, transformBounds, type Bounds } from './frustum';
 import type { Draw, PoseDraw, Scene } from './types';
 import type { TransparencyMode } from '../render/transparency';
-import { prepareTextureCompression } from '../textures/compression';
 
-/** Load-time work only: every candidate owns its allocations before scene replacement. */
+import { ModelResources } from './model-resources';
+
+/** Load-time bridge: acquire shared model resources, then prepare independent pose/output state. */
 export class SceneBuilder {
   private compute?: DeformationCompute;
+  private models = new ResourceCache<Asset, ModelResources>();
   constructor(
     private device: GPUDevice,
     private bindings: SceneBindings,
@@ -41,14 +38,28 @@ export class SceneBuilder {
     resources: Resources,
     options: { pose?: Pose; mutableRoot?: boolean } = {},
   ): Promise<Scene> {
-    asset = await prepareTextureCompression(asset, this.device.features);
+    const model = await this.models.acquire(asset, resources, (shared) =>
+      ModelResources.load(
+        asset,
+        this.device,
+        this.bindings,
+        shared,
+        this.mipmaps,
+        this.sampleCount,
+        this.transparency,
+      ),
+    );
+    asset = model.asset;
     const pose = options.pose ?? new Pose(asset);
     const lights = new PunctualLights(pose);
-    const shadowPipelines = new ShadowPipelineCache(this.device, this.bindings.shadowPipeline);
-    // Scene-scoped immutable inputs are decoded/packed/uploaded once per primitive.
-    // Per-node pose data and output remain independent, including different skins.
-    const deformationInputs = new DeformationInputCache(asset);
-    const gpuDeformationInputs = new GpuDeformationInputCache(this.device, resources);
+    const {
+      shadowPipelines,
+      deformationInputs,
+      gpuDeformationInputs,
+      materials,
+      pipelines,
+      uploader,
+    } = model;
     const updates: PoseDraw[] = [];
     const primitiveInstances = collectInstances(asset.gltf);
     if (options.pose)
@@ -68,21 +79,6 @@ export class SceneBuilder {
       )
     )
       this.compute = await DeformationCompute.create(this.device);
-    const materials = new MaterialFactory(
-      this.device,
-      asset,
-      resources,
-      this.bindings.materials,
-      this.mipmaps,
-    );
-    const pipelines = new PipelineCache(
-      this.device,
-      this.bindings.pipeline,
-      hdrFormat,
-      this.sampleCount,
-      this.transparency,
-    );
-    const uploader = new GeometryUploader(this.device, asset, resources);
     const opaque: Scene['opaque'] = new Map();
     const transparent: Draw[] = [];
     const transmission: Draw[] = [];
@@ -94,7 +90,7 @@ export class SceneBuilder {
     let instanceCount = 0;
 
     for (const [primitive, instances] of primitiveInstances) {
-      const baseGeometry = prepareGeometry(asset, primitive);
+      const baseGeometry = model.geometry(primitive);
       const definitions = new Map<number, Deformation>();
       for (const instance of instances)
         if (primitive.targets?.length || asset.gltf.nodes![instance.node].skin !== undefined)

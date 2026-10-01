@@ -2,7 +2,7 @@
 
 An entity is a string-identified gameplay object with a transform, optional parent, component data and optional model reference. A model instance contains the glTF asset's own nodes, joints, materials, morphs and lights. There is no entity for every glTF node. Entity IDs never depend on model node ordering or the number of meshes in a model.
 
-`ModelLibrary` resolves stable asset IDs to loaded assets and source URIs. Register an asset once, then instantiate it on any number of entities. Loaded CPU asset bytes/definitions are reused; each `ModelInstance` has independent mutable pose arrays and an animation controller. Treat loaded asset definitions as immutable. This implementation still prepares GPU geometry/material resources per model instance; a shared GPU asset cache can be added behind this boundary later.
+`ModelLibrary` resolves stable asset IDs to loaded assets and source URIs. Register an asset once, then instantiate it on any number of entities. Loaded CPU asset bytes/definitions are reused; each `ModelInstance` has independent mutable pose arrays and an animation controller. Treat loaded asset definitions as immutable. The renderer separately loads device-specific `ModelResources`, keyed by the original `Asset` object. Instances share immutable geometry, textures, material bindings, pipelines and deformation inputs while keeping their mutable state independent. See [shared model resources](model-resources.md) for ownership and release rules.
 
 ## Scene document
 

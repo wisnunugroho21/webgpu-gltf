@@ -12,9 +12,9 @@ export interface GpuDeformationInputs extends VertexInputs {
   readonly influences: GPUBuffer;
 }
 
-/** GPU allocations are registered exactly once with scene Resources, not with each
- * consuming node. Cache lifetime is one scene load; failed/replaced scenes release all
- * shared buffers along with standalone outputs and batch arenas, with no reference counting. */
+/** Immutable buffers belong to the supplied resource owner, never to consuming
+ * nodes. The renderer supplies its shared model owner; low-level callers may supply
+ * a scene owner. Palettes, weights and output arenas are owned separately. */
 export class GpuDeformationInputCache {
   private vertices = new Map<DeformationInputs, VertexInputs>();
   private influences = new Map<readonly SkinInfluences[], GPUBuffer>();

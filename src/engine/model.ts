@@ -4,7 +4,7 @@ import { AnimationController } from '../animation/controller';
 import { identifier } from './scene-document';
 
 /** Loaded bytes/definitions are shared, but mutable model poses and playback are
- * instance-owned. Renderer resource sharing can evolve without changing entity IDs. */
+ * instance-owned. Device-specific GPU resources are acquired separately by the renderer. */
 export class ModelLibrary {
   private records = new Map<string, { asset: Asset; uri: string }>();
   register(id: string, asset: Asset, uri: string): void {

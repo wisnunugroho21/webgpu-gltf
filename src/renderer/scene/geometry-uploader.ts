@@ -3,11 +3,12 @@ import type { Geometry } from '../../gltf/geometry';
 import type { GpuDeformation } from '../deformation/instance';
 import { Resources, uploadBuffer } from '../core/resources';
 
-/** Scene-scoped upload caches preserve interleaved views and shared index buffers.
+/** Model-scoped upload caches preserve interleaved views and shared index buffers.
  * Independent deformation output ranges replace only the deformable vertex binding. */
 export class GeometryUploader {
   private views = new Map<number, GPUBuffer>();
   private indexBuffers = new Map<Primitive, GPUBuffer>();
+  private repacked = new Map<Float32Array, GPUBuffer>();
   constructor(
     private device: GPUDevice,
     private asset: Asset,
@@ -19,13 +20,17 @@ export class GeometryUploader {
       if (deformation?.source === binding.source)
         return { buffer: deformation.output, offset: deformation.outputOffset };
       if (typeof binding.source !== 'number') {
-        const buffer = uploadBuffer(
-          this.device,
-          this.resources,
-          binding.source,
-          GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-          'Repacked attributes',
-        );
+        let buffer = this.repacked.get(binding.source);
+        if (!buffer) {
+          buffer = uploadBuffer(
+            this.device,
+            this.resources,
+            binding.source,
+            GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+            'Repacked attributes',
+          );
+          this.repacked.set(binding.source, buffer);
+        }
         return { buffer, offset: 0 };
       }
       let buffer = this.views.get(binding.source);

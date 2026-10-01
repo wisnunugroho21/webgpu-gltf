@@ -1,6 +1,11 @@
-/** Scene ownership makes replacement and failed loads safe: destroy every allocation together. */
+/** One allocation owner for a scene or shared model; destruction also releases its leases. */
 export class Resources {
   private readonly owned: (GPUBuffer | GPUTexture)[] = [];
+  private readonly releases: (() => void)[] = [];
+  /** Attach a shared-resource lease to this scene's transactional lifetime. */
+  defer(release: () => void): void {
+    this.releases.push(release);
+  }
   own<T extends GPUBuffer | GPUTexture>(resource: T): T {
     this.owned.push(resource);
     return resource;
@@ -8,6 +13,41 @@ export class Resources {
   destroy(): void {
     for (const resource of this.owned) resource.destroy();
     this.owned.length = 0;
+    for (const release of this.releases.splice(0)) release();
+  }
+}
+
+/** Candidate and active scenes can overlap. Release shared allocations only after
+ * the final scene lease ends; failed candidates cannot destroy an active model. */
+export class ResourceCache<K, T> {
+  private records = new Map<K, { value: Promise<T>; resources: Resources; users: number }>();
+  acquire(key: K, owner: Resources, create: (resources: Resources) => Promise<T>): Promise<T> {
+    let record = this.records.get(key);
+    if (!record) {
+      const resources = new Resources();
+      // Defer creation until the record and its release hook are registered.
+      const created = { resources, users: 0 };
+      const value = Promise.resolve().then(async () => {
+        try {
+          return await create(resources);
+        } finally {
+          // An owner can be disposed while asynchronous preparation is pending.
+          // Also release allocations created after that early disposal.
+          if (!created.users) resources.destroy();
+        }
+      });
+      record = Object.assign(created, { value });
+      this.records.set(key, record);
+    }
+    const retained = record;
+    retained.users++;
+    owner.defer(() => {
+      if (--retained.users === 0) {
+        this.records.delete(key);
+        retained.resources.destroy();
+      }
+    });
+    return retained.value;
   }
 }
 

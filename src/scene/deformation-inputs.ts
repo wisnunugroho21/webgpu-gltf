@@ -20,7 +20,7 @@ export interface DeformationInputs {
   readonly ranges: readonly { min: vec3; max: vec3 }[];
 }
 
-/** One cache per prepared scene/asset. Primitive identity, not node or skin identity,
+/** One cache per immutable loaded model resource set (or low-level scene). Primitive identity, not node or skin identity,
  * determines immutable vertex data. Never mutate decoded arrays after caching them. */
 export class DeformationInputCache {
   private vertices = new Map<Primitive, DeformationInputs>();

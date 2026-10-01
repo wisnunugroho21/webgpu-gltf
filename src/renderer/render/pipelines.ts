@@ -38,7 +38,7 @@ export function pipelineArgs(
 }
 
 /** Keys contain immutable GPU state, never buffer identities, material colors, or node IDs.
- * Cache lifetime is one prepared scene, preventing unbounded growth across model loads. */
+ * The renderer keeps this cache in its model resource record, evicted after the final scene lease. */
 export class PipelineCache {
   private pipelines = new Map<string, Promise<GPURenderPipeline>>();
   private shaders = new Map<string, GPUShaderModule>();

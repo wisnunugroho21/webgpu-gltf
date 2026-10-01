@@ -107,6 +107,43 @@ test('entities render independent multi-node models with root transforms, shadow
     };
     try {
       const stats = await renderer.setWorld(world);
+      const playerUpdates = internal.scene.updates.filter(
+        (u: any) => u.pose === player.model!.pose,
+      );
+      const npcUpdates = internal.scene.updates.filter((u: any) => u.pose === npc.model!.pose);
+      const sharedInputs = playerUpdates.every((a: any) => {
+        const b = npcUpdates.find((u: any) => u.node === a.node);
+        return (
+          a.deformation.inputs.base === b.deformation.inputs.base &&
+          a.deformation.inputs.targets === b.deformation.inputs.targets &&
+          a.deformation.inputs.influences === b.deformation.inputs.influences &&
+          a.draw.material === b.draw.material &&
+          a.draw.pipeline === b.draw.pipeline &&
+          a.draw.index === b.draw.index
+        );
+      });
+      const independentOutputs = playerUpdates.every(
+        (a: any) =>
+          a.deformation.output !==
+          npcUpdates.find((u: any) => u.node === a.node).deformation.output,
+      );
+      const sharedBuffers = [
+        ...new Set<GPUBuffer>(
+          playerUpdates.flatMap((u: any) => [
+            u.deformation.inputs.base,
+            u.deformation.inputs.targets,
+            u.deformation.inputs.influences,
+          ]),
+        ),
+      ];
+      let sharedDestructions = 0;
+      for (const buffer of sharedBuffers) {
+        const destroy = buffer.destroy.bind(buffer);
+        buffer.destroy = () => {
+          sharedDestructions++;
+          destroy();
+        };
+      }
       watch();
       const localNodeCounts = world.modelInstances.map((model) => model.pose.nodes.length);
       const lightCount = internal.scene.lights.instances.length;
@@ -199,6 +236,15 @@ test('entities render independent multi-node models with root transforms, shadow
       const spawned = await renderer.setWorld(world);
       await frame();
       const releasedOnce = [...destroys.values()].every((count) => count === 1);
+      const retainedInputs =
+        internal.scene.updates
+          .filter((u: any) => u.deformation)
+          .every((u: any) => sharedBuffers.includes(u.deformation.inputs.base)) &&
+        sharedDestructions === 0;
+      // Every entity using a shared opaque pipeline must remain in its merged list.
+      const groupedDraws = new Set(
+        [...internal.scene.opaque.values()].flatMap((group: any) => [...group.values()].flat()),
+      ).size;
       world.destroyEntity('party');
       await renderer.setWorld(world);
       await frame();
@@ -207,10 +253,16 @@ test('entities render independent multi-node models with root transforms, shadow
       const emptyStats = await renderer.setWorld(empty);
       await frame();
       const emptyFrame = renderer.frameStats;
+      const sharedReleasedOnce = sharedDestructions === sharedBuffers.length;
       await renderer.setAsset(demoAsset());
       await frame();
       return {
         stats,
+        sharedInputs,
+        independentOutputs,
+        retainedInputs,
+        sharedReleasedOnce,
+        groupedDraws,
         localNodeCounts,
         lightCount,
         addressing,
@@ -241,6 +293,13 @@ test('entities render independent multi-node models with root transforms, shadow
   });
   expect(result.errors).toEqual([]);
   expect(result.stats.instances).toBe(8);
+  expect(
+    result.sharedInputs &&
+      result.independentOutputs &&
+      result.retainedInputs &&
+      result.sharedReleasedOnce,
+  ).toBe(true);
+  expect(result.groupedDraws).toBe(10);
   expect(result.localNodeCounts).toEqual([5, 5, 4]);
   expect(result.lightCount).toBe(2);
   expect(new Set(result.addressing).size).toBe(8);

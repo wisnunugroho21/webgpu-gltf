@@ -58,7 +58,14 @@ export async function prepareWorld(
     transformData.set(part.transformData, offset);
     for (const draw of part.draws) draw.firstInstance += offset / instanceFloatCount;
     for (const update of part.updates) update.pose = part.pose;
-    for (const [pipeline, group] of part.opaque) opaque.set(pipeline, group);
+    // Shared model pipelines/materials now recur across entities. Merge their draw
+    // lists instead of replacing a previous entity's group under the same key.
+    for (const [pipeline, group] of part.opaque) {
+      const combined = opaque.get(pipeline) ?? new Map();
+      for (const [material, draws] of group)
+        combined.set(material, [...(combined.get(material) ?? []), ...draws]);
+      opaque.set(pipeline, combined);
+    }
     vec3.min(min, min, part.min);
     vec3.max(max, max, part.max);
     offset += part.transformData.length;
@@ -95,7 +102,13 @@ export async function prepareWorld(
     min,
     max,
     stats: {
-      pipelines: parts.reduce((n, part) => n + part.stats.pipelines, 0),
+      pipelines: new Set(
+        parts.flatMap((part) => [
+          ...part.opaque.keys(),
+          ...part.transparent.map((draw) => draw.pipeline),
+          ...part.transmission.map((draw) => draw.pipeline),
+        ]),
+      ).size,
       draws: parts.reduce((n, part) => n + part.stats.draws, 0),
       instances: parts.reduce((n, part) => n + part.stats.instances, 0),
     },
