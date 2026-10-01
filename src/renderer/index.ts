@@ -4,5 +4,10 @@ export type { EnvironmentImage } from './lighting/source';
 export { loadEnvironmentImage } from './lighting/source';
 export { decodeRadiance } from './lighting/radiance';
 export type { EnvironmentSettings } from './lighting/environment';
-export type { ShadowSettings, ShadowResolution, ShadowUpdate } from './lighting/punctual';
+export type {
+  ShadowSettings,
+  ShadowResolution,
+  ShadowUpdate,
+  ShadowMemoryStats,
+} from './lighting/punctual';
 export type { TransparencyMode } from './render/transparency';

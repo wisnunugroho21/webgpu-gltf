@@ -23,6 +23,7 @@ import {
   type ShadowResolution,
   type ShadowSettings,
   type ShadowUpdate,
+  type ShadowMemoryStats,
 } from './lighting/punctual';
 export type { FrameStats, SceneStats } from './scene/types';
 
@@ -55,6 +56,9 @@ export class Renderer {
   private lighting: PunctualLighting;
   get shadowSettings(): Readonly<ShadowSettings> {
     return this.lighting.settings;
+  }
+  get shadowMemory(): Readonly<ShadowMemoryStats> {
+    return this.lighting.memoryStats;
   }
   setShadows(settings: ShadowUpdate): void {
     this.lighting.setSettings(settings);
@@ -292,6 +296,7 @@ export class Renderer {
       this.transparency?.resize(this.viewport.width, this.viewport.height);
     this.bindings.uploadCamera(this.camera, this.viewport.width / this.viewport.height);
     if (scene) this.lighting.update(scene);
+    if (this.bindings.refreshLighting()) this.transmission.refreshLighting();
     // Visibility consumes updated bounds. Query input uploads also finish before
     // encoding; visibility cannot suppress deformation or shadow preparation.
     this.lastFrame.draws = 0;

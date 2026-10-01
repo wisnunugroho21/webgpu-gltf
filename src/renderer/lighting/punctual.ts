@@ -15,17 +15,46 @@ export interface ShadowSettings {
   normalBias: number;
 }
 export type ShadowUpdate = Partial<Pick<ShadowSettings, 'enabled' | 'depthBias' | 'normalBias'>>;
+export interface ShadowMemoryStats {
+  /** Active map capacity, not the maximum supported number of maps. */
+  maps: number;
+  neutralBytes: number;
+  depthSamplesBytes: number;
+  depthAttachmentBytes: number;
+  matrixBytes: number;
+  /** Requested GPU resource bytes; excludes light records and driver overhead. */
+  totalBytes: number;
+}
 
-/** Renderer-owned light records and shadow resources have fixed binding identities.
+/** Renderer-owned light records and shadow resources use a fixed binding layout.
  * One depth attachment is reused face-by-face; its values are copied GPU-to-GPU into
  * storage for PCF, avoiding a seventeenth sampled texture on baseline WebGPU devices. */
 export class PunctualLighting {
   readonly buffer: GPUBuffer;
-  readonly shadowBuffer: GPUBuffer;
+  private neutral: GPUBuffer;
+  private samples?: GPUBuffer;
+  get shadowBuffer(): GPUBuffer {
+    return this.samples ?? this.neutral;
+  }
   readonly shadowLayout: GPUBindGroupLayout;
-  private depth: GPUTexture;
-  private view: GPUTextureView;
-  private matrices: GPUBuffer;
+  private depth?: GPUTexture;
+  private view?: GPUTextureView;
+  private matrices?: GPUBuffer;
+  private capacity = 0;
+  get memoryStats(): Readonly<ShadowMemoryStats> {
+    const neutralBytes = this.neutral.size;
+    const depthSamplesBytes = this.samples?.size ?? 0;
+    const depthAttachmentBytes = this.depth ? this.values.resolution ** 2 * 4 : 0;
+    const matrixBytes = this.matrices?.size ?? 0;
+    return {
+      maps: this.capacity,
+      neutralBytes,
+      depthSamplesBytes,
+      depthAttachmentBytes,
+      matrixBytes,
+      totalBytes: neutralBytes + depthSamplesBytes + depthAttachmentBytes + matrixBytes,
+    };
+  }
   private mapGroups: GPUBindGroup[] = [];
   private data = new Float32Array(lightingFloats);
   private views = 0;
@@ -48,26 +77,16 @@ export class PunctualLighting {
       size: this.data.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    const bytes = resolution * resolution * 4 * maxShadowMaps;
-    if (bytes > device.limits.maxStorageBufferBindingSize)
-      throw new Error('Shadow resolution exceeds this device’s storage buffer limit.');
-    this.shadowBuffer = device.createBuffer({
-      label: 'Shadow depth samples',
-      size: bytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    // Binding 4 is always present. No maps are read when each light's shadow index
+    // is -1; one initialized f32 keeps the runtime-array binding valid in that case.
+    this.neutral = device.createBuffer({
+      label: 'Neutral shadow depth',
+      size: 4,
+      usage: GPUBufferUsage.STORAGE,
+      mappedAtCreation: true,
     });
-    this.depth = device.createTexture({
-      label: 'Reusable shadow depth attachment',
-      size: [resolution, resolution],
-      format: 'depth32float',
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-    });
-    this.view = this.depth.createView();
-    this.matrices = device.createBuffer({
-      label: 'Shadow view matrices',
-      size: maxShadowMaps * 256,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    new Float32Array(this.neutral.getMappedRange())[0] = 1;
+    this.neutral.unmap();
     this.shadowLayout = device.createBindGroupLayout({
       entries: [
         {
@@ -77,13 +96,59 @@ export class PunctualLighting {
         },
       ],
     });
-    for (let i = 0; i < maxShadowMaps; i++)
-      this.mapGroups.push(
-        device.createBindGroup({
-          layout: this.shadowLayout,
-          entries: [{ binding: 0, resource: { buffer: this.matrices, offset: i * 256, size: 64 } }],
-        }),
-      );
+  }
+  /** Called only during frame preparation. Exact sizing releases unused capacity on
+   * scene replacement or disabling shadows; unchanged poses allocate nothing. */
+  private resizeMaps(count: number): void {
+    if (count === this.capacity) return;
+    const resolution = this.values.resolution;
+    const bytes = resolution ** 2 * 4 * count;
+    if (
+      bytes >
+        Math.min(
+          this.device.limits.maxStorageBufferBindingSize,
+          this.device.limits.maxBufferSize,
+        ) ||
+      (count > 0 && resolution > this.device.limits.maxTextureDimension2D)
+    )
+      throw new Error('Active shadow maps exceed this device’s resource limits.');
+    this.releaseMaps();
+    if (!count) return;
+    this.samples = this.device.createBuffer({
+      label: 'Shadow depth samples',
+      size: bytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    this.depth = this.device.createTexture({
+      label: 'Reusable shadow depth attachment',
+      size: [resolution, resolution],
+      format: 'depth32float',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+    this.view = this.depth.createView();
+    this.matrices = this.device.createBuffer({
+      label: 'Shadow view matrices',
+      size: count * 256,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.mapGroups = Array.from({ length: count }, (_, i) =>
+      this.device.createBindGroup({
+        layout: this.shadowLayout,
+        entries: [{ binding: 0, resource: { buffer: this.matrices!, offset: i * 256, size: 64 } }],
+      }),
+    );
+    this.capacity = count;
+  }
+  private releaseMaps(): void {
+    this.samples?.destroy();
+    this.depth?.destroy();
+    this.matrices?.destroy();
+    this.samples = undefined;
+    this.depth = undefined;
+    this.view = undefined;
+    this.matrices = undefined;
+    this.mapGroups = [];
+    this.capacity = 0;
   }
   setSettings(update: ShadowUpdate): void {
     const next = {
@@ -145,6 +210,7 @@ export class PunctualLighting {
     this.data[1] = this.values.resolution;
     this.views = 0;
     let casting = 0;
+    const hasCasters = scene.draws.some((draw) => !!draw.shadowPipeline);
     for (const [index, light] of scene.lights.instances.entries()) {
       const offset = 4 + index * 20;
       this.data.set(light.position, offset);
@@ -158,7 +224,7 @@ export class PunctualLighting {
       this.data[offset + 11] = 1 / Math.max(Math.cos(light.inner) - Math.cos(light.outer), 0.001);
       this.data[offset + 12] = -Math.cos(light.outer) * this.data[offset + 11];
       this.data[offset + 16] = -1;
-      if (this.values.enabled && light.intensity > 0 && casting < maxShadowLights) {
+      if (hasCasters && this.values.enabled && light.intensity > 0 && casting < maxShadowLights) {
         const maps = shadowMatrices(light, bounds);
         casting++;
         this.data[offset + 16] = this.views;
@@ -167,15 +233,20 @@ export class PunctualLighting {
         this.data[offset + 19] = this.values.normalBias;
         for (const matrix of maps) {
           this.data.set(matrix, 4 + maxPunctualLights * 20 + this.views * 16);
-          this.device.queue.writeBuffer(
-            this.matrices,
-            this.views * 256,
-            matrix as Float32Array<ArrayBuffer>,
-          );
           this.views++;
         }
       }
     }
+    this.resizeMaps(this.views);
+    for (let map = 0; map < this.views; map++)
+      this.device.queue.writeBuffer(
+        this.matrices!,
+        map * 256,
+        this.data.subarray(
+          4 + maxPunctualLights * 20 + map * 16,
+          4 + maxPunctualLights * 20 + (map + 1) * 16,
+        ),
+      );
     this.device.queue.writeBuffer(this.buffer, 0, this.data);
     this.shadowDirty = this.views > 0;
   }
@@ -187,7 +258,7 @@ export class PunctualLighting {
         label: `Shadow map ${map}`,
         colorAttachments: [],
         depthStencilAttachment: {
-          view: this.view,
+          view: this.view!,
           depthClearValue: 1,
           depthLoadOp: 'clear',
           depthStoreOp: 'store',
@@ -199,7 +270,7 @@ export class PunctualLighting {
       pass.end();
       const resolution = this.values.resolution;
       encoder.copyTextureToBuffer(
-        { texture: this.depth, aspect: 'depth-only' },
+        { texture: this.depth!, aspect: 'depth-only' },
         {
           buffer: this.shadowBuffer,
           offset: map * resolution * resolution * 4,
@@ -213,9 +284,8 @@ export class PunctualLighting {
   }
   destroy(): void {
     this.buffer.destroy();
-    this.shadowBuffer.destroy();
-    this.depth.destroy();
-    this.matrices.destroy();
+    this.releaseMaps();
+    this.neutral.destroy();
   }
 }
 function submitCaster(pass: GPURenderPassEncoder, draw: Draw): void {

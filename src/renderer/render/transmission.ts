@@ -32,6 +32,10 @@ export class TransmissionBuffer {
     output.copyScene(encoder, this.texture);
   }
 
+  refreshLighting(): void {
+    if (this.texture) this.group = this.bindings.withTransmission(this.texture.createView());
+  }
+
   destroy(): void {
     this.texture?.destroy();
   }

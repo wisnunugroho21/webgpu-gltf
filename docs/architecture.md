@@ -46,15 +46,15 @@ Preparation failure destroys candidate allocations and retains the displayed sce
 
 Preparation delegates vertex/index uploads to `GeometryUploader`. Its view and index caches live for one candidate scene. CPU `DeformationInputCache` and GPU `GpuDeformationInputCache` share immutable primitive inputs across nodes; each `GpuDeformation` retains independent output, palette and weight ranges. Compatible nodes share aligned arenas planned by `deformation/batch.ts`, with device-limit splitting and standalone singleton fallback. The builder reuses one deformation pipeline across scene replacements. Material and scene pipeline caches remain scoped to a candidate scene.
 
-| Owner                 | Owned state                                                                        | Released when                                                                |
-| --------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Scene `Resources`     | Geometry, instance transforms, material textures/uniforms, deformation buffers     | Replacement, preparation failure, renderer disposal                          |
-| `SceneBindings`       | Frame uniform buffer; explicit scene binding layouts                               | Renderer disposal                                                            |
-| `Viewport`            | Matching depth attachment                                                          | Resize or renderer disposal                                                  |
-| `OutputPass`          | HDR/MSAA attachments and presentation resources                                    | Resize or renderer disposal                                                  |
-| `EnvironmentLighting` | Environment maps and lighting parameters/LUT                                       | Environment replacement or renderer disposal, according to resource lifetime |
-| `PunctualLighting`    | Light records, shadow matrix uniforms, reusable depth attachment and depth storage | Renderer disposal; allocations are reused across model replacement           |
-| `Renderer`            | Device/context, camera controls, RAF loop and subsystem coordination               | `destroy()`                                                                  |
+| Owner                 | Owned state                                                                    | Released when                                                                   |
+| --------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| Scene `Resources`     | Geometry, instance transforms, material textures/uniforms, deformation buffers | Replacement, preparation failure, renderer disposal                             |
+| `SceneBindings`       | Frame uniform buffer; explicit scene binding layouts                           | Renderer disposal                                                               |
+| `Viewport`            | Matching depth attachment                                                      | Resize or renderer disposal                                                     |
+| `OutputPass`          | HDR/MSAA attachments and presentation resources                                | Resize or renderer disposal                                                     |
+| `EnvironmentLighting` | Environment maps and lighting parameters/LUT                                   | Environment replacement or renderer disposal, according to resource lifetime    |
+| `PunctualLighting`    | Light records, neutral depth, lazy shadow matrix/depth resources               | Capacity changes release map allocations; renderer disposal releases everything |
+| `Renderer`            | Device/context, camera controls, RAF loop and subsystem coordination           | `destroy()`                                                                     |
 
 Bind groups and pipelines do not have explicit destroy methods. Their references disappear with their owners. Layouts are fixed for the renderer lifetime; texture presence never changes the material interface.
 
@@ -83,6 +83,8 @@ The frame loop in `Renderer` explicitly coordinates these phases. `uploadFrame()
 Held or paused poses reuse output buffers. Conservative bounds update with the same pose dependencies as deformation. Skinned outputs are world-space; moving only the mesh node does not change their geometry. Culling preserves original transform indices through `firstInstance` rather than repacking instance buffers.
 
 Shadows track selected mesh world revisions, morph weights and active influencing joints, plus authored light-node revisions. Unrelated nodes, camera movement and presentation settings do not invalidate maps. Frame group bindings 3/4 hold light records and shadow depth storage for opaque and transmission passes alike. Storage-based PCF keeps the existing 16 sampled textures and explicit twelve-slot material layout within baseline limits. Shadow passes have separate cached single-sample depth pipelines, so they do not affect color-pipeline/draw statistics.
+
+Shadow capacity is planned in `PunctualLighting.update()` after selecting positive-intensity lights and checking for eligible casters. The shadow sample buffer, reusable depth attachment and per-view matrix uniforms allocate only when needed. Capacity matches active face count and shrinks/releases when that count changes. Binding 4 falls back to a persistent initialized 4-byte buffer when no maps are active, with shadow indices set to -1. `SceneBindings.refreshLighting()` checks resource identity and refreshes the opaque group; `TransmissionBuffer.refreshLighting()` refreshes any existing snapshot group using the same layout. Both run before encoder creation, including when the viewport size is unchanged. Old shadow resources are destroyed only during preparation, never while recording passes. `Renderer.shadowMemory` exposes a copied allocation snapshot; [measurements](shadow-memory.md) describe its accounting limits.
 
 ## Where to add features
 

@@ -14,7 +14,8 @@ export class SceneBindings {
   readonly materials: GPUBindGroupLayout;
   readonly pipeline: GPUPipelineLayout;
   readonly shadowPipeline: GPUPipelineLayout;
-  readonly frame: GPUBindGroup;
+  frame: GPUBindGroup;
+  private shadowBuffer: GPUBuffer;
   readonly frameData = new Float32Array(frameFloatCount);
   private frameBuffer: GPUBuffer;
   private frameLayout: GPUBindGroupLayout;
@@ -48,6 +49,7 @@ export class SceneBindings {
       ],
     });
     this.frameLayout = frameLayout;
+    this.shadowBuffer = lighting.shadowBuffer;
     this.instances = device.createBindGroupLayout({
       entries: [
         {
@@ -77,6 +79,15 @@ export class SceneBindings {
     });
     device.queue.writeTexture({ texture: this.neutralScene }, new Uint16Array(4), {}, [1, 1]);
     this.frame = this.withTransmission(this.neutralScene.createView());
+  }
+
+  /** Resource identities may change as shadow capacity grows/shrinks. Layouts and
+   * pipelines remain fixed; refresh both opaque and transmission groups before encoding. */
+  refreshLighting(): boolean {
+    if (this.shadowBuffer === this.lighting.shadowBuffer) return false;
+    this.shadowBuffer = this.lighting.shadowBuffer;
+    this.frame = this.withTransmission(this.neutralScene.createView());
+    return true;
   }
 
   /** Same frame layout for opaque and glass passes; only the snapshot resource differs. */

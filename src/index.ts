@@ -9,6 +9,7 @@ export type {
   ShadowSettings,
   ShadowResolution,
   ShadowUpdate,
+  ShadowMemoryStats,
   TransparencyMode,
 } from './renderer';
 export {
