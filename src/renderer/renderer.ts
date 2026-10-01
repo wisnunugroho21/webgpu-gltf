@@ -9,6 +9,7 @@ import { MaterialFactory, materialLayoutEntries, type GpuMaterial } from './mate
 import { PipelineCache, pipelineArgs } from './pipelines';
 import { Resources, uploadBuffer } from './resources';
 import { DeformationCompute, GpuDeformation } from './deformation';
+import { AnimationController } from '../animation/controller';
 
 interface Draw {
   pipeline: GPURenderPipeline;
@@ -47,6 +48,7 @@ interface PoseDraw {
 
 export class Renderer {
   readonly camera: OrbitCamera;
+  readonly animation = new AnimationController();
   private scene?: Scene;
   private depth?: GPUTexture;
   private frameBuffer: GPUBuffer;
@@ -54,46 +56,31 @@ export class Renderer {
   private instanceLayout: GPUBindGroupLayout;
   private materialLayout: GPUBindGroupLayout;
   private pipelineLayout: GPUPipelineLayout;
-  private animation = 0;
+  private frameRequest = 0;
   private disposed = false;
   private width = 0;
   private height = 0;
   private frameData = new Float32Array(20);
-  private clip = -1;
-  private time = 0;
-  private playing = true;
-  private lastTime = 0;
-  private poseDirty = false;
   private compute?: DeformationCompute;
   private deformationDirty = false;
-  onAnimationChange?: () => void;
+  // Keep the original public playback API as small delegates for existing consumers.
+  get onAnimationChange(): (() => void) | undefined {
+    return this.animation.onChange;
+  }
+  set onAnimationChange(callback: (() => void) | undefined) {
+    this.animation.onChange = callback;
+  }
   get animationState() {
-    return {
-      clips: this.scene?.pose.clips.map((clip) => clip.name) ?? [],
-      clip: this.clip,
-      time: this.time,
-      playing: this.playing,
-      duration: this.scene?.pose.clips[this.clip]?.duration ?? 0,
-    };
+    return this.animation.state;
   }
   selectAnimation(index: number): void {
-    if (index !== -1 && !this.scene?.pose.clips[index]) throw new Error('Unknown animation clip.');
-    this.clip = index;
-    this.time = 0;
-    this.poseDirty = true;
-    this.lastTime = 0;
-    this.onAnimationChange?.();
+    this.animation.select(index);
   }
   setPlaying(playing: boolean): void {
-    this.playing = playing;
-    this.lastTime = 0;
-    this.onAnimationChange?.();
+    this.animation.setPlaying(playing);
   }
   seek(time: number): void {
-    this.time = Math.max(0, Math.min(this.animationState.duration, time));
-    this.poseDirty = true;
-    this.lastTime = 0;
-    this.onAnimationChange?.();
+    this.animation.seek(time);
   }
 
   static async create(
@@ -169,7 +156,7 @@ export class Renderer {
       layout: frameLayout,
       entries: [{ binding: 0, resource: { buffer: this.frameBuffer } }],
     });
-    this.animation = requestAnimationFrame(this.render);
+    this.frameRequest = requestAnimationFrame(this.render);
   }
 
   /** Prepare a replacement fully before swapping. A failed load leaves the current model usable. */
@@ -190,8 +177,7 @@ export class Renderer {
     }
     const previous = this.scene;
     this.scene = candidate!;
-    this.playing = true;
-    this.selectAnimation(candidate!.pose.clips.length ? 0 : -1);
+    this.animation.setPose(candidate!.pose);
     this.camera.frame(candidate!.min, candidate!.max);
     previous?.resources.destroy();
     return candidate!.stats;
@@ -434,8 +420,8 @@ export class Renderer {
     });
   }
 
-  private updatePose(scene: Scene): void {
-    scene.pose.evaluate(this.clip, this.time);
+  /** Playback already evaluated the pose; this phase only updates render-side resources. */
+  private uploadPose(scene: Scene): void {
     for (const update of scene.updates) {
       update.deformation?.update();
       const world = scene.pose.nodes[update.node].world;
@@ -461,29 +447,18 @@ export class Renderer {
         0,
         scene.transformData.buffer as ArrayBuffer,
       );
-    this.poseDirty = false;
     this.deformationDirty = true;
   }
 
   private render = (timestamp: number): void => {
     if (this.disposed) return;
-    const delta = this.lastTime ? (timestamp - this.lastTime) / 1000 : 0;
-    this.lastTime = timestamp;
     if (this.scene) {
-      const duration = this.animationState.duration;
-      if (this.playing && this.clip >= 0 && duration > 0) {
-        this.time = (this.time + delta) % duration;
-        this.poseDirty = true;
-      }
-      if (this.poseDirty) {
-        try {
-          this.updatePose(this.scene);
-          this.onAnimationChange?.();
-        } catch (error) {
-          this.stop();
-          this.onError(error instanceof Error ? error.message : String(error));
-          return;
-        }
+      try {
+        if (this.animation.update(timestamp)) this.uploadPose(this.scene);
+      } catch (error) {
+        this.stop();
+        this.onError(error instanceof Error ? error.message : String(error));
+        return;
       }
     }
     this.resize();
@@ -542,7 +517,7 @@ export class Renderer {
     }
     pass.end();
     this.device.queue.submit([encoder.finish()]);
-    this.animation = requestAnimationFrame(this.render);
+    this.frameRequest = requestAnimationFrame(this.render);
   };
 
   private draw(pass: GPURenderPassEncoder, draw: Draw): void {
@@ -555,7 +530,7 @@ export class Renderer {
     } else pass.draw(draw.count, draw.instanceCount, 0, draw.firstInstance);
   }
   private stop(): void {
-    cancelAnimationFrame(this.animation);
+    cancelAnimationFrame(this.frameRequest);
   }
   destroy(): void {
     this.disposed = true;

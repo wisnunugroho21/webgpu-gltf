@@ -16,7 +16,7 @@ let busy = false;
 let failed = false;
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 function updateAnimationControls(): void {
-  const state = renderer.animationState;
+  const state = renderer.animation.state;
   element('animation-controls').hidden = !state.clips.length;
   element<HTMLSelectElement>('animation-clip').value = String(state.clip);
   const timeline = element<HTMLInputElement>('animation-time');
@@ -42,7 +42,7 @@ async function show(source: () => Promise<Asset> | Asset, name: string): Promise
     const select = element<HTMLSelectElement>('animation-clip');
     select.replaceChildren(
       new Option('Authored pose', '-1'),
-      ...renderer.animationState.clips.map((name, index) => new Option(name, String(index))),
+      ...renderer.animation.state.clips.map((name, index) => new Option(name, String(index))),
     );
     if (!failed) status.textContent = name;
     element('stats').textContent =
@@ -68,18 +68,18 @@ async function start(): Promise<void> {
         control.disabled = true;
       });
     });
-    renderer.onAnimationChange = updateAnimationControls;
+    renderer.animation.onChange = updateAnimationControls;
     element('animation-clip').addEventListener('change', () =>
-      renderer.selectAnimation(Number(element<HTMLSelectElement>('animation-clip').value)),
+      renderer.animation.select(Number(element<HTMLSelectElement>('animation-clip').value)),
     );
     element('animation-play').addEventListener('click', () =>
-      renderer.setPlaying(!renderer.animationState.playing),
+      renderer.animation.setPlaying(!renderer.animation.state.playing),
     );
-    element('animation-restart').addEventListener('click', () => renderer.seek(0));
+    element('animation-restart').addEventListener('click', () => renderer.animation.seek(0));
     element('animation-time').addEventListener('input', () => {
       const time = Number(element<HTMLInputElement>('animation-time').value);
-      renderer.setPlaying(false);
-      renderer.seek(time);
+      renderer.animation.setPlaying(false);
+      renderer.animation.seek(time);
     });
     element('demo').addEventListener('click', () => {
       void show(demoAsset, 'Built-in instancing scene');

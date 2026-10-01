@@ -30,25 +30,26 @@ Models with animation clips show a clip selector, Play/Pause, Restart, and a tim
 
 ## Code map
 
-| Module                               | Responsibility                                                                |
-| ------------------------------------ | ----------------------------------------------------------------------------- |
-| `src/main.ts`                        | UI events, serialized loading, status and errors                              |
-| `src/gltf/types.ts`                  | Typed subset of the glTF JSON schema                                          |
-| `src/gltf/loader.ts`                 | JSON/GLB parsing, URI resolution, buffer and image loading                    |
-| `src/gltf/accessors.ts`              | Strided component decoding, normalization, sparse overlays, bounds checks     |
-| `src/gltf/geometry.ts`               | Canonical GPU layouts, exceptional repacking, index/topology conversion       |
-| `src/gltf/scene.ts`                  | Selected-scene traversal, world/normal matrices, instance collection          |
-| `src/gltf/animation.ts`              | Validated animation tracks, interpolation, clip metadata, reusable node poses |
-| `src/gltf/deformation.ts`            | Validated deformation inputs, joint palettes, bounds, CPU reference evaluator |
-| `src/renderer/deformation.ts`        | Compute pipeline, node-owned GPU buffers, pose uploads and dispatch           |
-| `src/renderer/deformation-shader.ts` | WGSL morphing and linear blend skinning kernel                                |
-| `src/renderer/resources.ts`          | Padded uploads and explicit GPU allocation ownership                          |
-| `src/renderer/materials.ts`          | Cached images/samplers/material bind groups and uniform packing               |
-| `src/renderer/shader.ts`             | Commented WGSL generated for available vertex inputs                          |
-| `src/renderer/pipelines.ts`          | Immutable-state pipeline keys and cached async compilation                    |
-| `src/renderer/renderer.ts`           | Scene preparation, batching, transparent ordering, rendering and disposal     |
-| `src/renderer/camera.ts`             | Orbit controls, scene framing, WebGPU depth projection                        |
-| `src/demo.ts`                        | Original procedural glTF demo                                                 |
+| Module                               | Responsibility                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------- |
+| `src/main.ts`                        | UI events, serialized loading, status and errors                                |
+| `src/gltf/types.ts`                  | Typed subset of the glTF JSON schema                                            |
+| `src/gltf/loader.ts`                 | JSON/GLB parsing, URI resolution, buffer and image loading                      |
+| `src/gltf/accessors.ts`              | Strided component decoding, normalization, sparse overlays, bounds checks       |
+| `src/gltf/geometry.ts`               | Canonical GPU layouts, exceptional repacking, index/topology conversion         |
+| `src/gltf/scene.ts`                  | Selected-scene traversal, world/normal matrices, instance collection            |
+| `src/gltf/animation.ts`              | Validated animation tracks, interpolation, clip metadata, reusable node poses   |
+| `src/animation/controller.ts`        | Playback state, clip selection, frame timing, looping, seeking, pose evaluation |
+| `src/gltf/deformation.ts`            | Validated deformation inputs, joint palettes, bounds, CPU reference evaluator   |
+| `src/renderer/deformation.ts`        | Compute pipeline, node-owned GPU buffers, pose uploads and dispatch             |
+| `src/renderer/deformation-shader.ts` | WGSL morphing and linear blend skinning kernel                                  |
+| `src/renderer/resources.ts`          | Padded uploads and explicit GPU allocation ownership                            |
+| `src/renderer/materials.ts`          | Cached images/samplers/material bind groups and uniform packing                 |
+| `src/renderer/shader.ts`             | Commented WGSL generated for available vertex inputs                            |
+| `src/renderer/pipelines.ts`          | Immutable-state pipeline keys and cached async compilation                      |
+| `src/renderer/renderer.ts`           | Scene preparation, batching, transparent ordering, rendering and disposal       |
+| `src/renderer/camera.ts`             | Orbit controls, scene framing, WebGPU depth projection                          |
+| `src/demo.ts`                        | Original procedural glTF demo                                                   |
 
 ## How the case study informs the implementation
 
@@ -135,7 +136,9 @@ The CPU deformation evaluator remains an oracle for tests and runs once on load 
 
 Playback is single-clip and looping, with no blending, crossfades, animation-pointer extensions, or runtime retargeting. Camera framing uses the initial authored pose rather than the whole animation's swept bounds; zoom out if a clip moves beyond the initial view. Degenerate transforms use a safe normal-matrix fallback; collapsed geometry has no well-defined surface normal. Models containing unsupported required extensions remain rejected.
 
-For programmatic playback, await `renderer.setAsset(asset)`, then use `selectAnimation(index)` (`-1` for authored pose), `setPlaying(boolean)`, and `seek(seconds)`. `animationState` exposes clip names, selected index, time, duration, and playback state. `onAnimationChange` updates UI after state changes; it does not alter GPU resources.
+`AnimationController` owns playback state and timing independently of WebGPU and the DOM. It selects clips, clamps seeks, loops time, handles pause/resume, and evaluates the attached `Pose`. The renderer calls `animation.update(frameTimestamp)`; a true result requests a render-side pose upload followed by GPU deformation. Static and paused poses return false until their state changes. A new pose is attached only after scene preparation succeeds, so failed replacements preserve playback. The controller does not schedule frames or allocate GPU resources.
+
+For programmatic playback, await `renderer.setAsset(asset)`, then use `renderer.animation.select(index)` (`-1` for authored pose), `renderer.animation.setPlaying(boolean)`, and `renderer.animation.seek(seconds)`. `renderer.animation.state` exposes clip names, selected index, time, duration, and playback state. Set `renderer.animation.onChange` to update UI after state changes and evaluated frames. The original renderer methods (`selectAnimation`, `setPlaying`, `seek`), `animationState`, and `onAnimationChange` remain forwarding aliases for existing callers.
 
 ## Extending the renderer
 
@@ -154,6 +157,8 @@ The DamagedHelmet regression loads the public Khronos GLB with all five material
 `tests/animation.test.ts` also covers key clamping, STEP boundaries, cubic tangent timing, normalized and shortest-path rotations, clip resets, morph-before-skin ordering, inverse binds, independent node weights, sparse targets, multiple influence sets, and malformed inputs. `browser-tests/animation.spec.ts` verifies rendered changes during node motion, skinning, and morph playback, paused-frame stability, scrubbing, and authored-pose restoration. Optional network tests load Khronos SimpleSkin and AnimatedMorphCube. Set TEST_REMOTE_MODELS as below to include these public-asset regressions.
 
 `browser-tests/compute.spec.ts` dispatches the production kernel on the real GPU and reads output back only for testing. It compares positions, normals, and tangents against the CPU oracle for skin-only, morph-only, combined, sparse, multiple-influence, reflected/nonuniform, and singular cases. Its 69-vertex fixtures exercise partial workgroups, and repeated dispatches change weights and joint matrices to detect accumulation and stale uploads.
+
+`tests/animation-controller.test.ts` verifies frame-time conversion and looping, pause/resume without time jumps, paused seeks, authored-pose restoration, scene replacement, static-pose reuse, notifications, and invalid playback requests without requiring a GPU or browser.
 
 ```powershell
 $env:TEST_REMOTE_MODELS = '1'
