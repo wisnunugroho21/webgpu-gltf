@@ -1,4 +1,105 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+// Examine the presented canvas rather than just successful loading or shader compilation.
+// The white-emission bug can pass those checks while hiding all base-color details.
+async function colorfulPixels(page: Page, screenshot: Buffer): Promise<number> {
+  return page.evaluate(async (png) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${png}`;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let colorful = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      const max = Math.max(pixels[i], pixels[i + 1], pixels[i + 2]);
+      const min = Math.min(pixels[i], pixels[i + 1], pixels[i + 2]);
+      if (max > 60 && max - min > 30) colorful++;
+    }
+    return colorful;
+  }, screenshot.toString('base64'));
+}
+
+test('a black emissive map masks a white emissive factor without washing out base color', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await expect(page.locator('#stats')).toContainText('4 primitive instances');
+  const json = await page.evaluate(async () => {
+    const { demoAsset } = await import('/src/demo.ts');
+    const asset = demoAsset();
+    const gltf = asset.gltf;
+    const dataUri = (bytes: Uint8Array) =>
+      'data:application/octet-stream;base64,' + btoa(String.fromCharCode(...bytes));
+    gltf.buffers[0].uri = dataUri(new Uint8Array(asset.buffers[0]));
+    const uv = new Float32Array(48);
+    gltf.buffers.push({ uri: dataUri(new Uint8Array(uv.buffer)), byteLength: uv.byteLength });
+    gltf.bufferViews.push({ buffer: 1, byteLength: uv.byteLength });
+    gltf.accessors.push({ bufferView: 2, type: 'VEC2', componentType: 5126, count: 24 });
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = '#000000';
+    context.fillRect(0, 0, 1, 1);
+    gltf.images = [{ uri: canvas.toDataURL('image/png') }];
+    gltf.textures = [{ source: 0 }];
+    gltf.materials.forEach((material) => {
+      material.emissiveFactor = [1, 1, 1];
+      material.emissiveTexture = { index: 0 };
+    });
+    gltf.meshes.forEach((mesh) => {
+      mesh.primitives[0].attributes.TEXCOORD_0 = 3;
+    });
+    return JSON.stringify(gltf);
+  });
+  await page.route('**/emissive.gltf', (route) =>
+    route.fulfill({ contentType: 'model/gltf+json', body: json }),
+  );
+  await page.locator('#url').fill('http://127.0.0.1:5173/emissive.gltf');
+  await page.locator('#url-form button').click();
+  await expect(page.locator('#status')).toHaveText('emissive.gltf');
+  const screenshot = await page.locator('canvas').screenshot({ path: 'test-results/emissive.png' });
+  expect(await colorfulPixels(page, screenshot)).toBeGreaterThan(2000);
+  await expect(page.locator('#warnings')).not.toContainText('emissive');
+
+  // Removing the map must restore factor-only emission via the neutral white fallback.
+  // This also prevents an apparent fix that simply disables all emissive contributions.
+  const factorOnly = JSON.parse(json);
+  factorOnly.materials.forEach((material: { emissiveTexture?: unknown }) => {
+    delete material.emissiveTexture;
+  });
+  await page.route('**/factor-only.gltf', (route) =>
+    route.fulfill({ contentType: 'model/gltf+json', body: JSON.stringify(factorOnly) }),
+  );
+  await page.locator('#url').fill('http://127.0.0.1:5173/factor-only.gltf');
+  await page.locator('#url-form button').click();
+  await expect(page.locator('#status')).toHaveText('factor-only.gltf');
+  expect(await colorfulPixels(page, await page.locator('canvas').screenshot())).toBe(0);
+});
+
+test('Khronos DamagedHelmet GLB retains visible texture colors', async ({ page }) => {
+  test.skip(
+    !process.env.TEST_REMOTE_MODELS,
+    'Opt-in network test against the user-reported asset.',
+  );
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await expect(page.locator('#stats')).toContainText('4 primitive instances');
+  await page
+    .locator('#url')
+    .fill(
+      'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/refs/heads/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb',
+    );
+  await page.locator('#url-form button').click();
+  await expect(page.locator('#status')).toHaveText('DamagedHelmet.glb', { timeout: 60_000 });
+  const screenshot = await page
+    .locator('canvas')
+    .screenshot({ path: 'test-results/damaged-helmet.png' });
+  expect(await colorfulPixels(page, screenshot)).toBeGreaterThan(500);
+});
 
 test('offline demo compiles, instances, resizes, and responds to orbit controls', async ({
   page,

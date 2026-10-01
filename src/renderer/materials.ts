@@ -1,4 +1,4 @@
-import type { Asset, Material } from '../gltf/types';
+import type { Asset, Material, TextureInfo } from '../gltf/types';
 import { Resources, uploadBuffer } from './resources';
 
 export interface GpuMaterial {
@@ -15,6 +15,8 @@ export const materialLayoutEntries: GPUBindGroupLayoutEntry[] = [
   },
   { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
   { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+  { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+  { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
 ];
 
 /** Separate image/sampler caches mirror glTF's image + sampler = texture model. */
@@ -60,7 +62,7 @@ export class MaterialFactory {
     if (!result) {
       result = (async () => {
         const blob = this.asset.images[index];
-        if (!blob) throw new Error('Base color texture references a missing image.');
+        if (!blob) throw new Error('Color texture references a missing image.');
         const bitmap = await createImageBitmap(blob, {
           colorSpaceConversion: 'none',
           premultiplyAlpha: 'none',
@@ -113,6 +115,20 @@ export class MaterialFactory {
     return sampler;
   }
 
+  /** Both base color and emissive maps contain sRGB colors. Share image uploads, but
+   * resolve samplers per texture: one image may be used with different filtering. */
+  private async colorBinding(info: TextureInfo | undefined, label: string) {
+    if (info && ((info.texCoord ?? 0) !== 0 || info.extensions?.KHR_texture_transform))
+      throw new Error(`${label} supports TEXCOORD_0 without KHR_texture_transform only.`);
+    const reference = info ? this.asset.gltf.textures?.[info.index] : undefined;
+    if (info && reference?.source === undefined)
+      throw new Error(`${label} texture has no image source.`);
+    return {
+      texture: reference ? await this.image(reference.source!) : this.white,
+      sampler: this.sampler(reference?.sampler),
+    };
+  }
+
   private async create(index: number): Promise<GpuMaterial> {
     const definition: Material =
       index === -1
@@ -122,13 +138,10 @@ export class MaterialFactory {
             throw new Error(`Missing material ${index}.`);
           })());
     const pbr = definition.pbrMetallicRoughness ?? {};
-    const info = pbr.baseColorTexture;
-    if (info && ((info.texCoord ?? 0) !== 0 || info.extensions?.KHR_texture_transform))
-      throw new Error('Base color supports TEXCOORD_0 without KHR_texture_transform only.');
-    const reference = info ? this.asset.gltf.textures?.[info.index] : undefined;
-    if (info && reference?.source === undefined)
-      throw new Error('Base color texture has no image source.');
-    const texture = reference ? await this.image(reference.source!) : this.white;
+    const baseColor = await this.colorBinding(pbr.baseColorTexture, 'Base color');
+    // A white fallback preserves factor-only emission. With a map, the sampled color
+    // must multiply the factor; adding the factor alone washes out assets like DamagedHelmet.
+    const emissive = await this.colorBinding(definition.emissiveTexture, 'Emissive');
     const alphaMode = definition.alphaMode ?? 'OPAQUE';
     if (!['OPAQUE', 'MASK', 'BLEND'].includes(alphaMode))
       throw new Error('Invalid material alpha mode.');
@@ -156,8 +169,10 @@ export class MaterialFactory {
       layout: this.layout,
       entries: [
         { binding: 0, resource: { buffer: uniform } },
-        { binding: 1, resource: this.sampler(reference?.sampler) },
-        { binding: 2, resource: texture.createView() },
+        { binding: 1, resource: baseColor.sampler },
+        { binding: 2, resource: baseColor.texture.createView() },
+        { binding: 3, resource: emissive.sampler },
+        { binding: 4, resource: emissive.texture.createView() },
       ],
     });
     return { bindGroup, alphaMode, doubleSided: definition.doubleSided ?? false };

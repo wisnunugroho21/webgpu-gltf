@@ -13,6 +13,8 @@ struct Material { baseColor: vec4f, emissive: vec4f, parameters: vec4f }
 @group(2) @binding(0) var<uniform> material: Material;
 @group(2) @binding(1) var colorSampler: sampler;
 @group(2) @binding(2) var colorTexture: texture_2d<f32>;
+@group(2) @binding(3) var emissiveSampler: sampler;
+@group(2) @binding(4) var emissiveTexture: texture_2d<f32>;
 
 struct VertexInput {
   @location(0) position: vec3f,
@@ -49,6 +51,9 @@ fn linearToSrgb(v: vec3f) -> vec3f {
 @fragment fn fragmentMain(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   // sRGB texture views decode color into linear space; factors and vertex colors are linear.
   let base = textureSample(colorTexture, colorSampler, input.uv) * material.baseColor * input.color;
+  // Emissive factor scales the map; it is not uniform illumination of the surface.
+  // Sample before conditional discard so texture derivatives stay in uniform control flow.
+  let emission = textureSample(emissiveTexture, emissiveSampler, input.uv).rgb * material.emissive.rgb;
   let alphaMode = material.emissive.w; // 0 = opaque, 1 = mask, 2 = blend
   if (alphaMode == 1.0 && base.a < material.parameters.z) { discard; }
   var N = ${features.normal ? 'safeNormalize(input.normal)' : 'safeNormalize(cross(dpdx(input.world), dpdy(input.world)))'};
@@ -71,7 +76,7 @@ fn linearToSrgb(v: vec3f) -> vec3f {
   let fresnel = f0 + (vec3f(1.0) - f0) * pow(1.0 - vh, 5.0);
   let specular = distribution * visibility * fresnel / max(4.0 * nl * nv, 0.001);
   let diffuse = (vec3f(1.0) - fresnel) * (1.0 - metallic) * base.rgb / 3.14159265;
-  var color = (diffuse + specular) * nl * 3.0 + base.rgb * 0.12 + material.emissive.rgb;
+  var color = (diffuse + specular) * nl * 3.0 + base.rgb * 0.12 + emission;
   if (material.parameters.w == 1.0) { color = base.rgb; } // KHR_materials_unlit
   let alpha = select(1.0, base.a, alphaMode == 2.0);
   return vec4f(linearToSrgb(color), alpha);

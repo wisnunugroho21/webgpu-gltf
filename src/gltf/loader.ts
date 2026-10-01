@@ -86,14 +86,11 @@ async function load(data: ArrayBuffer, resolve: Resolve): Promise<Asset> {
   if (
     gltf.materials?.some(
       (m) =>
-        m.normalTexture ||
-        m.occlusionTexture ||
-        m.emissiveTexture ||
-        m.pbrMetallicRoughness?.metallicRoughnessTexture,
+        m.normalTexture || m.occlusionTexture || m.pbrMetallicRoughness?.metallicRoughnessTexture,
     )
   ) {
     warnings.push(
-      'Normal, occlusion, emissive, and metallic/roughness textures are ignored. Material factors still apply.',
+      'Normal, occlusion, and metallic/roughness textures are ignored. Material factors still apply.',
     );
   }
   const buffers = await Promise.all(

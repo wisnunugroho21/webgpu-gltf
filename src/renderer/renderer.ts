@@ -157,8 +157,10 @@ export class Renderer {
     for (const [primitive, instances] of primitiveInstances) {
       const geometry = prepareGeometry(asset, primitive);
       const material = await materials.get(primitive.material);
+      const materialDefinition = asset.gltf.materials?.[primitive.material!];
       if (
-        asset.gltf.materials?.[primitive.material!]?.pbrMetallicRoughness?.baseColorTexture &&
+        (materialDefinition?.pbrMetallicRoughness?.baseColorTexture ||
+          materialDefinition?.emissiveTexture) &&
         !geometry.features.uv
       )
         throw new Error('Textured primitive is missing TEXCOORD_0.');

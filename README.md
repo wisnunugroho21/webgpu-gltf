@@ -62,7 +62,9 @@ All GPU buffer allocations are rounded up to four bytes. Initial uploads use map
 
 `PipelineCache` keys contain canonical vertex layouts, topology, strip index format, available shader inputs, blending, culling, and winding. Uniform values, texture identities, absolute buffer offsets, and node IDs are excluded. Color target format, depth format, and bind group layouts are fixed for a renderer and do not need redundant key fields. Pipeline creation is asynchronous and finishes before the scene is swapped in.
 
-Shaders vary only when NORMAL, TEXCOORD_0, or COLOR_0 inputs differ. Alpha cutoff and unlit behavior are uniform-driven. Missing UVs use zero coordinates and missing colors use white. Missing normals use fragment derivatives for flat triangle lighting. Every material has the same bind group layout and always binds a base-color texture; a shared white pixel supplies the default. A new scene receives a fresh cache so loading many unrelated assets cannot grow the pipeline cache indefinitely.
+Shaders vary only when NORMAL, TEXCOORD_0, or COLOR_0 inputs differ. Alpha cutoff and unlit behavior are uniform-driven. Missing UVs use zero coordinates and missing colors use white. Missing normals use fragment derivatives for flat triangle lighting. Every material has the same bind group layout and always binds base-color and emissive textures; a shared white pixel supplies either default. Both color maps use sRGB decoding and independent samplers. A new scene receives a fresh cache so loading many unrelated assets cannot grow the pipeline cache indefinitely.
+
+Emission is `emissiveFactor * sampledEmissiveColor` in linear space. Without an emissive texture, the white default preserves factor-only emission; the default factor is zero. A factor of `[1, 1, 1]` with a mostly black map must emit only where the map is bright. Ignoring that map and adding its factor alone turns models such as DamagedHelmet white and hides their base-color details.
 
 ### Instance and order draws
 
@@ -80,12 +82,12 @@ Every scene owns its buffers and textures through `Resources`. A replacement is 
 - Selected/default scene, hierarchy, matrix or TRS transforms, repeated mesh instancing, and inverse-transpose normals for nonuniform scales.
 - Indexed/non-indexed points, lines, line strips/loops, triangles, triangle strips/fans. Missing normals give useful flat shading for triangles; supply normals or an unlit material for points/lines.
 - Float POSITION/NORMAL/UV/COLOR plus decoded normalized integer UV/color attributes and sparse accessors. Only TEXCOORD_0 and COLOR_0 are consumed; tangents and additional attributes are ignored.
-- Base-color factors and textures, vertex colors, metallic/roughness factors, emissive factors, OPAQUE/MASK/BLEND, double-sided materials, and KHR_materials_unlit.
-- JPEG/PNG browser-decoded base-color images, wrap/filter sampler translation, and linear-light shading with sRGB texture decoding and output encoding.
+- Base-color and emissive factors/textures, vertex colors, metallic/roughness factors, OPAQUE/MASK/BLEND, double-sided materials, and KHR_materials_unlit.
+- JPEG/PNG browser-decoded color images, wrap/filter sampler translation, and linear-light shading with sRGB texture decoding and output encoding.
 
 This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light plus a simple ambient term. It has no environment lighting, shadows, exposure/tone mapping, antialiasing, frustum culling, or mipmap generation. Samplers are clamped to level zero; distant textured surfaces can alias. Blending operates on encoded canvas colors rather than a separate linear offscreen target.
 
-Normal, occlusion, emissive, and metallic/roughness **textures** are ignored with a visible warning; their supported factors remain active. Base-color texture transforms and TEXCOORD sets other than zero are rejected. Skins and morph targets are rejected; animations are ignored with a warning and authored node transforms are displayed. Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator.
+Normal, occlusion, and metallic/roughness **textures** are ignored with a visible warning; their supported factors remain active. Base-color/emissive texture transforms and TEXCOORD sets other than zero are rejected. Skins and morph targets are rejected; animations are ignored with a warning and authored node transforms are displayed. Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator.
 
 ## Extending the renderer
 
@@ -95,4 +97,14 @@ Add material texture slots with neutral default textures and the same explicit b
 
 `tests/gltf.test.ts` checks interleaved grouping, large attribute offsets, deterministic pipeline keys, byte indices, fan conversion, bounds failures, sparse normalized data, scene selection, parent transforms, mirrored winding, singular/cyclic scenes, and GLB chunk validation. These are CPU tests; they do not prove shader compilation or visible rendering.
 
-`browser-tests/viewer.spec.ts` runs the real viewer in installed Microsoft Edge with WebGPU enabled. It checks the offline instancing demo, resizing and camera controls, a generated textured scene with normalized integer UV/colors and missing normals, MASK/BLEND materials, mirrored transforms, local GLB loading, and recovery from an unsupported model. Screenshots are saved under `test-results/` for visual inspection. The browser must have a usable GPU adapter; this suite intentionally fails if WebGPU is unavailable. Change `channel` in `playwright.config.ts` to use another installed Chromium browser. Test your own textured and transparent assets before depending on broader feature coverage.
+`browser-tests/viewer.spec.ts` runs the real viewer in installed Microsoft Edge with WebGPU enabled. It checks the offline instancing demo, resizing and camera controls, a generated textured scene with normalized integer UV/colors and missing normals, MASK/BLEND materials, mirrored transforms, local GLB loading, and recovery from an unsupported model. The emissive regression examines rendered pixels to catch color washout, rather than only asserting that the asset loaded. Screenshots are saved under `test-results/` for visual inspection. The browser must have a usable GPU adapter; this suite intentionally fails if WebGPU is unavailable. Change `channel` in `playwright.config.ts` to use another installed Chromium browser.
+
+The DamagedHelmet regression loads the public Khronos GLB and requires network access. It is skipped by default. To include it in PowerShell:
+
+```powershell
+$env:TEST_REMOTE_MODELS = '1'
+npm run test:browser
+Remove-Item Env:TEST_REMOTE_MODELS
+```
+
+Test your own textured and transparent assets before depending on broader feature coverage.
