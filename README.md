@@ -30,6 +30,8 @@ Models with animation clips show a clip selector, Play/Pause, Restart, and a tim
 
 Display controls select **Reinhard** tone mapping (default) or **None**, and adjust exposure from −6 to +6 EV. One extra EV doubles linear brightness; negative exposure reveals highlight detail. None retains the HDR rendering path but clips display values above one after exposure. Display settings persist across model replacements and do not rebuild scene pipelines.
 
+Environment lighting starts with an original, generated HDR **Studio** panorama. **Open environment** accepts an equirectangular PNG/JPEG panorama (typically 2:1, longitude across X and north pole at the top). Adjust **Intensity** or rotate it around the vertical axis with **Rotation**. Studio restores the default map. Map and lighting settings persist across model loads; failed environment loads retain the current lighting. Environment intensity zero disables its contribution while retaining the existing directional light and small ambient term.
+
 ## Code map
 
 | Module                               | Responsibility                                                                     |
@@ -51,6 +53,9 @@ Display controls select **Reinhard** tone mapping (default) or **None**, and adj
 | `src/renderer/material-slots.ts`     | Shared texture slot bindings, color spaces, neutral defaults and WGSL declarations |
 | `src/renderer/mipmaps.ts`            | Cached GPU mipmap generation in linear light                                       |
 | `src/renderer/output.ts`             | Linear HDR viewport target, exposure, tone mapping and sRGB presentation           |
+| `src/renderer/environment-source.ts` | Procedural HDR panorama, linear pixel validation and PNG/JPEG decoding             |
+| `src/renderer/environment.ts`        | Environment convolution, shared lighting bindings and resource replacement         |
+| `src/renderer/environment-shader.ts` | Cosine/GGX environment filtering and split-sum BRDF integration                    |
 | `src/renderer/samplers.ts`           | glTF wrap/filter modes and mip-selection policy                                    |
 | `src/renderer/shader.ts`             | Commented WGSL generated for available vertex inputs                               |
 | `src/renderer/pipelines.ts`          | Immutable-state pipeline keys and cached async compilation                         |
@@ -112,6 +117,27 @@ All six glTF minification filters map to their corresponding in-level and mip fi
 
 Anisotropic filtering requests up to **16×** for samplers with linear magnification and LINEAR_MIPMAP_LINEAR minification, including the renderer's default sampler. This improves texture detail at oblique viewing angles. [WebGPU requires all three filtering modes to be linear](https://gpuweb.github.io/gpuweb/#dom-gpusamplerdescriptor-maxanisotropy) when anisotropy exceeds one, so authored nearest filtering, nearest mip selection, and non-mip modes retain `maxAnisotropy: 1`. No glTF filter mode is silently overridden. The platform clamps the request to its supported maximum; visual results and cost vary by GPU. `samplerDescriptor(definition, requestedAnisotropy)` accepts integers from 1 to 16, with one disabling the enhancement. Material samplers use the default request of 16; the mip-generation sampler itself remains ordinary bilinear filtering.
 
+### Prepare environment lighting once
+
+`EnvironmentLighting` supplies image-based lighting (IBL) using the split-sum approach described in [Filament's image-based lighting documentation](https://google.github.io/filament/main/filament.html#lighting/imagebasedlights). A panorama is converted into a **16×16 diffuse irradiance cubemap**, a **64×64 specular cubemap with seven roughness mips**, and a **64×64 BRDF integration LUT**. The GPU compute shader uses 128 Hammersley samples per filtered texel: cosine-weighted hemisphere samples store diffuse irradiance divided by π; GGX half-vector importance samples filter specular radiance. Specular level zero samples the panorama directly. Roughness increases linearly from zero to one across levels, so shading selects `roughness * 6`. The BRDF LUT stores the scale/bias terms indexed by N·V and roughness and is generated once per renderer.
+
+Panorama pixels are linear floating-point radiance. PNG/JPEG input converts browser-decoded sRGB RGB to linear once; these formats supply LDR lighting. The generated studio map and API-supplied arrays support values above one. An `rgba32float` panorama uses explicit bilinear `textureLoad` interpolation, wrapping longitude and clamping latitude, avoiding a dependency on optional float32 filtering support. All filtered resources use `rgba16float`. Each dispatch has its own parameter buffer so queued jobs do not accidentally share the final job's parameters. Temporary source textures and buffers are released after GPU preparation completes.
+
+All scene shader variants use one explicit environment bind group at **group 3**: filtering sampler, diffuse cube, specular cube, BRDF LUT, and a 16-byte intensity/rotation/maximum-LOD uniform. The five material texture slots remain unchanged at group 2, including their neutral defaults and color-space rules. Intensity and yaw updates write only uniform data; replacing a panorama reuses the same layout and scene pipelines. Replacement maps are prepared before their bind group is swapped; failure releases candidate resources and preserves the previous map. Renderer disposal releases lighting textures and uniforms.
+
+The fragment shader rotates the world-space surface normal and reflection direction into environment space. Diffuse lighting is suppressed for metals; specular reflection uses the material's metallic F0, roughness-selected radiance, and BRDF LUT. Normal maps influence both terms. Occlusion scales indirect environment light and the existing ambient term, while leaving directional light and emission unchanged. Unlit materials bypass lighting. The resulting linear HDR radiance is blended into the scene attachment before exposure, tone mapping, and display encoding. Environment preparation happens only at initialization or replacement; the animation pose-upload → deformation compute → scene render phases remain separate.
+
+Programmatic callers can supply decoded HDR pixels without depending on a file format:
+
+```ts
+// RGBA Float32Array in linear radiance; alpha is ignored by environment filtering.
+await renderer.setEnvironmentMap({ width, height, pixels });
+renderer.setEnvironment({ intensity: 1.5, rotation: Math.PI / 2 }); // radians
+console.log(renderer.environmentSettings);
+```
+
+Await environment and scene replacements sequentially. Dimensions must fit the device, and pixels must be finite, nonnegative, and within float16's maximum of 65504. Intensity must be finite and nonnegative; rotation must be finite. This is one distant environment, with no local reflection probes, parallax correction, skybox, or `.hdr`/EXR file decoder. The fixed resolution/sample count favors a small teaching renderer; tiny bright sources can alias, low-resolution cube seams may remain, and the specular filter does not use solid-angle source mip selection. The existing ambient floor is retained for compatibility rather than claiming full physical calibration.
+
 ### Instance and order draws
 
 Scene shaders write linear radiance to a viewport-sized `rgba16float` attachment. Opaque, masked, and blended geometry all use this target; transparent RGB blends in linear space while alpha remains linear. Values above one survive until presentation. After the scene pass ends, `OutputPass.encode()` draws one fullscreen triangle into the canvas. It applies exposure as `2^EV`, then the selected tone curve, then sRGB display encoding. Reinhard uses `color / (1 + color)` per channel, compressing highlights smoothly. None skips the curve for debugging. The preferred unorm canvas receives explicit sRGB encoding; an sRGB attachment instead uses hardware encoding to avoid a double transfer function.
@@ -139,7 +165,7 @@ Every scene owns its buffers and textures through `Resources`. A replacement is 
 - All five core material textures: base color, emissive, metallic/roughness, normal (with scale), and occlusion (with strength). Material factors, vertex colors, OPAQUE/MASK/BLEND, double-sided materials, and KHR_materials_unlit are supported.
 - JPEG/PNG browser-decoded images, KHR_texture_transform, wrap/filter sampler translation, GPU mipmap generation, and linear-light shading with sRGB decoding for color maps and linear sampling for data maps.
 
-This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light plus a simple ambient term. It has no environment lighting, shadows, antialiasing, or frustum culling. Center-based transparency sorting remains approximate even with correct linear blending.
+This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light, a small ambient term, and diffuse/specular environment lighting. It has no shadows, antialiasing, or frustum culling. Center-based transparency sorting remains approximate even with correct linear blending.
 
 Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit and KHR_texture_transform. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
 
@@ -189,7 +215,9 @@ Sampler tests also check anisotropy eligibility, explicit quality requests, and 
 
 `browser-tests/output.spec.ts` blends an HDR foreground over a known background on the GPU, then compares readback pixels against linear blending, exposure, Reinhard, and sRGB equations. Both unorm and sRGB presentation formats are tested, including highlight recovery with reduced exposure, invalid exposure requests, and resizing. Viewer tests check display controls without scene pipeline changes. Texture channel regressions explicitly select None at zero exposure to isolate material math from the nonlinear tone curve.
 
-The DamagedHelmet regression loads the public Khronos GLB with all five material textures and requires network access. It is skipped by default. To include it in PowerShell:
+`tests/environment.test.ts` validates the procedural HDR source and malformed radiance inputs. `browser-tests/environment.spec.ts` reads GPU-filtered maps to check constant HDR radiance across every face/mip, cube orientation, roughness broadening, finite BRDF coefficients, sRGB panorama decoding, and preservation after invalid replacement. Viewer checks cover intensity, yaw, metallic reflections, unlit stability, local panorama loading, failed-image recovery, and Studio reset without changing scene pipeline counts. Existing channel-math regressions disable environment intensity to isolate their original direct/ambient equations.
+
+The DamagedHelmet regression loads the public Khronos GLB with all five material textures and requires network access. It is skipped by default.
 
 `tests/animation.test.ts` also covers key clamping, STEP boundaries, cubic tangent timing, normalized and shortest-path rotations, clip resets, morph-before-skin ordering, inverse binds, independent node weights, sparse targets, multiple influence sets, and malformed inputs. `browser-tests/animation.spec.ts` verifies rendered changes during node motion, skinning, and morph playback, paused-frame stability, scrubbing, and authored-pose restoration. Optional network tests load Khronos SimpleSkin and AnimatedMorphCube. Set TEST_REMOTE_MODELS as below to include these public-asset regressions.
 

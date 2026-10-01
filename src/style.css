@@ -26,6 +26,18 @@ select {
   align-items: center;
   font-size: 12px;
 }
+#environment-controls {
+  align-items: center;
+  font-size: 12px;
+}
+#environment-controls input[type='range'] {
+  width: 100px;
+  accent-color: #67d5b6;
+}
+#environment-name {
+  max-width: 180px;
+  overflow-wrap: anywhere;
+}
 #exposure {
   flex: 1;
   min-width: 100px;

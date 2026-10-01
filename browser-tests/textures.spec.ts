@@ -141,6 +141,11 @@ test.beforeEach(async ({ page }) => {
   // These tests measure channel math before a nonlinear display curve. The scene still
   // renders through HDR; presentation uses identity tone mapping at zero exposure.
   await page.locator('#tone-mapping').selectOption('none');
+  // Isolate the original direct/ambient channel equations from image-based lighting.
+  await page.locator('#environment-intensity').evaluate((input) => {
+    (input as HTMLInputElement).value = '0';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
 });
 
 test('each material slot selects UV1 and honors extension override, rotation, scale and offset', async ({

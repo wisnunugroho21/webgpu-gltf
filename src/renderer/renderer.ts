@@ -14,6 +14,8 @@ import { materialTextureSlots } from './material-slots';
 import { textureCoordinates } from '../gltf/texture-coordinates';
 import { MipmapGenerator } from './mipmaps';
 import { OutputPass, hdrFormat, type OutputSettings } from './output';
+import { EnvironmentLighting, type EnvironmentSettings } from './environment';
+import type { EnvironmentImage } from './environment-source';
 
 interface Draw {
   pipeline: GPURenderPipeline;
@@ -67,6 +69,15 @@ export class Renderer {
   private frameData = new Float32Array(20);
   private compute?: DeformationCompute;
   private mipmaps: MipmapGenerator;
+  get environmentSettings(): Readonly<EnvironmentSettings> {
+    return this.environment.settings;
+  }
+  setEnvironment(settings: Partial<EnvironmentSettings>): void {
+    this.environment.setSettings(settings);
+  }
+  setEnvironmentMap(image: EnvironmentImage): Promise<void> {
+    return this.environment.setImage(image);
+  }
   get outputSettings(): Readonly<OutputSettings> {
     return this.output.settings;
   }
@@ -108,14 +119,17 @@ export class Renderer {
       throw new Error('Could not create a WebGPU canvas context.');
     }
     const format = navigator.gpu.getPreferredCanvasFormat();
-    let output: OutputPass;
+    let output: OutputPass | undefined;
+    let environment: EnvironmentLighting;
     try {
       output = await OutputPass.create(device, format);
+      environment = await EnvironmentLighting.create(device);
     } catch (error) {
+      output?.destroy();
       device.destroy();
       throw error;
     }
-    const renderer = new Renderer(canvas, device, context, format, onError, output);
+    const renderer = new Renderer(canvas, device, context, format, onError, output, environment);
     device.addEventListener('uncapturederror', (event) => {
       renderer.stop();
       onError(`GPU error: ${event.error.message}`);
@@ -136,6 +150,7 @@ export class Renderer {
     format: GPUTextureFormat,
     private onError: (message: string) => void,
     private output: OutputPass,
+    private environment: EnvironmentLighting,
   ) {
     context.configure({ device, format, alphaMode: 'opaque' });
     this.mipmaps = new MipmapGenerator(device);
@@ -160,7 +175,7 @@ export class Renderer {
     });
     this.materialLayout = device.createBindGroupLayout({ entries: materialLayoutEntries });
     this.pipelineLayout = device.createPipelineLayout({
-      bindGroupLayouts: [frameLayout, this.instanceLayout, this.materialLayout],
+      bindGroupLayouts: [frameLayout, this.instanceLayout, this.materialLayout, environment.layout],
     });
     this.frameBuffer = device.createBuffer({
       size: 80,
@@ -532,6 +547,7 @@ export class Renderer {
     if (scene) {
       pass.setBindGroup(0, this.frameGroup);
       pass.setBindGroup(1, scene.instances);
+      pass.setBindGroup(3, this.environment.bindGroup);
       // Opaque rendering is deliberately organized by immutable state rather than the node tree.
       for (const [pipeline, materials] of scene.opaque) {
         pass.setPipeline(pipeline);
@@ -574,6 +590,7 @@ export class Renderer {
     this.scene?.resources.destroy();
     this.depth?.destroy();
     this.output.destroy();
+    this.environment.destroy();
     this.frameBuffer.destroy();
     this.camera.destroy();
     this.context.unconfigure();

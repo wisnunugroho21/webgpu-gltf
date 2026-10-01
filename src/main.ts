@@ -4,6 +4,11 @@ import { loadFiles, loadUrl } from './gltf/loader';
 import type { Asset } from './gltf/types';
 import { Renderer } from './renderer/renderer';
 import type { ToneMapping } from './renderer/output';
+import {
+  loadEnvironmentImage,
+  studioEnvironment,
+  type EnvironmentImage,
+} from './renderer/environment-source';
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = element('status');
@@ -70,6 +75,47 @@ async function start(): Promise<void> {
       });
     });
     renderer.animation.onChange = updateAnimationControls;
+    const updateEnvironment = () => {
+      const intensity = Number(element<HTMLInputElement>('environment-intensity').value);
+      const degrees = Number(element<HTMLInputElement>('environment-rotation').value);
+      renderer.setEnvironment({ intensity, rotation: (degrees * Math.PI) / 180 });
+      element('environment-intensity-value').textContent = intensity.toFixed(1);
+      element('environment-rotation-value').textContent = `${degrees}°`;
+    };
+    element('environment-intensity').addEventListener('input', updateEnvironment);
+    element('environment-rotation').addEventListener('input', updateEnvironment);
+    const showEnvironment = async (
+      source: () => Promise<EnvironmentImage> | EnvironmentImage,
+      name: string,
+    ) => {
+      if (busy || failed) return;
+      busy = true;
+      controls.forEach((control) => {
+        control.disabled = true;
+      });
+      element('environment-name').textContent = `Preparing ${name}…`;
+      try {
+        await renderer.setEnvironmentMap(await source());
+        element('environment-name').textContent = name;
+      } catch (error) {
+        element('environment-name').textContent = errorMessage(error);
+      } finally {
+        busy = false;
+        controls.forEach((control) => {
+          control.disabled = failed;
+        });
+        updateAnimationControls();
+      }
+    };
+    element('environment-studio').addEventListener('click', () => {
+      void showEnvironment(studioEnvironment, 'Studio environment');
+    });
+    element<HTMLInputElement>('environment-file').addEventListener('change', (event) => {
+      const input = event.target as HTMLInputElement;
+      const file = input.files?.[0];
+      if (file) void showEnvironment(() => loadEnvironmentImage(file), file.name);
+      input.value = '';
+    });
     const updateOutput = () => {
       const exposureEV = Number(element<HTMLInputElement>('exposure').value);
       renderer.setOutput({

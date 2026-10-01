@@ -17,6 +17,16 @@ struct Material { baseColor: vec4f, emissive: vec4f, parameters: vec4f, textureP
 @group(1) @binding(0) var<storage, read> instances: array<Instance>;
 @group(2) @binding(0) var<uniform> material: Material;
 ${materialTextureDeclarations}
+// All variants share this scene lighting layout, independently of material slots.
+@group(3) @binding(0) var environmentSampler: sampler;
+@group(3) @binding(1) var irradianceTexture: texture_cube<f32>;
+@group(3) @binding(2) var reflectionTexture: texture_cube<f32>;
+@group(3) @binding(3) var brdfTexture: texture_2d<f32>;
+@group(3) @binding(4) var<uniform> environment: vec4f; // intensity, yaw radians, max specular LOD, reserved
+fn environmentDirection(direction: vec3f) -> vec3f {
+  let c = cos(environment.y); let s = sin(environment.y);
+  return vec3f(c * direction.x - s * direction.z, direction.y, s * direction.x + c * direction.z);
+}
 
 struct VertexInput {
   @location(0) position: vec3f,
@@ -131,7 +141,17 @@ fn mappedNormal(N: vec3f, tangent: vec3f, bitangent: vec3f, sample: vec3f) -> ve
   let diffuse = (vec3f(1.0) - fresnel) * (1.0 - metallic) * base.rgb / 3.14159265;
   // Occlusion affects only indirect light: it must not dim the direct light or emission.
   let occlusion = mix(1.0, ao, material.textureParameters.y);
-  var color = (diffuse + specular) * nl * 3.0 + base.rgb * 0.12 * occlusion + emission;
+  // Split-sum IBL combines roughness-prefiltered radiance with integrated BRDF terms.
+  // Explicit LOD sampling remains valid after the alpha-mask discard above.
+  let irradiance = textureSampleLevel(irradianceTexture, environmentSampler, environmentDirection(N), 0.0).rgb;
+  let reflected = textureSampleLevel(reflectionTexture, environmentSampler, environmentDirection(reflect(-V, N)), roughness * environment.z).rgb;
+  let brdf = textureSampleLevel(brdfTexture, environmentSampler, vec2f(clamp(nv, 0.0, 1.0), roughness), 0.0).rg;
+  let environmentFresnel = f0 + (max(vec3f(1.0 - roughness), f0) - f0) * pow(1.0 - clamp(nv, 0.0, 1.0), 5.0);
+  // Irradiance already includes the Lambertian 1/pi normalization.
+  let indirectDiffuse = (1.0 - environmentFresnel) * (1.0 - metallic) * base.rgb * irradiance;
+  let indirectSpecular = reflected * (f0 * brdf.x + brdf.y);
+  let indirect = base.rgb * 0.12 + environment.x * (indirectDiffuse + indirectSpecular);
+  var color = (diffuse + specular) * nl * 3.0 + indirect * occlusion + emission;
   if (material.parameters.w == 1.0) { color = base.rgb; } // KHR_materials_unlit
   let alpha = select(1.0, base.a, alphaMode == 2.0);
   // Preserve HDR linear radiance for lighting and alpha blending. Display encoding and

@@ -59,6 +59,19 @@
         />
         <output id="exposure-value" for="exposure">0.0 EV</output>
       </section>
+      <section id="environment-controls" class="toolbar" aria-label="Environment lighting controls">
+        <label class="button"
+          >Open environment<input id="environment-file" type="file" accept=".png,.jpg,.jpeg"
+        /></label>
+        <button id="environment-studio">Studio</button>
+        <span id="environment-name" role="status">Studio environment</span>
+        <label for="environment-intensity">Intensity</label>
+        <input id="environment-intensity" type="range" min="0" max="3" step="0.1" value="1" />
+        <output id="environment-intensity-value" for="environment-intensity">1.0</output>
+        <label for="environment-rotation">Rotation</label>
+        <input id="environment-rotation" type="range" min="0" max="360" step="1" value="0" />
+        <output id="environment-rotation-value" for="environment-rotation">0°</output>
+      </section>
       <section id="animation-controls" class="toolbar" aria-label="Animation controls" hidden>
         <label
           >Animation
@@ -96,8 +109,9 @@
           Geometry is prepared once, pipelines are cached, and repeated meshes share instanced
           draws. All five core glTF material textures are supported: base color, metallic/roughness,
           normal, occlusion, and emissive. Lighting uses a directional light with a small ambient
-          term. Animation, linear blend skinning, and morph targets are supported. Environment
-          lighting is not implemented.
+          term, plus environment diffuse light and roughness-dependent reflections. Open an
+          equirectangular PNG/JPEG panorama or use the built-in studio environment. Animation,
+          linear blend skinning, and morph targets are supported.
         </p>
         <p id="warnings"></p>
       </details>
