@@ -24,7 +24,15 @@ export interface Primitive {
 export interface TextureInfo {
   index: number;
   texCoord?: number;
-  extensions?: Record<string, unknown>;
+  extensions?: {
+    KHR_texture_transform?: {
+      offset?: number[];
+      rotation?: number;
+      scale?: number[];
+      texCoord?: number;
+    };
+    [name: string]: unknown;
+  };
 }
 export interface Material {
   name?: string;

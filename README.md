@@ -37,6 +37,7 @@ Models with animation clips show a clip selector, Play/Pause, Restart, and a tim
 | `src/gltf/loader.ts`                 | JSON/GLB parsing, URI resolution, buffer and image loading                         |
 | `src/gltf/accessors.ts`              | Strided component decoding, normalization, sparse overlays, bounds checks          |
 | `src/gltf/geometry.ts`               | Canonical GPU layouts, exceptional repacking, index/topology conversion            |
+| `src/gltf/texture-coordinates.ts`    | UV-set selection, texture-transform validation and affine-row packing              |
 | `src/gltf/scene.ts`                  | Selected-scene traversal, world/normal matrices, instance collection               |
 | `src/gltf/animation.ts`              | Validated animation tracks, interpolation, clip metadata, reusable node poses      |
 | `src/animation/controller.ts`        | Playback state, clip selection, frame timing, looping, seeking, pose evaluation    |
@@ -46,6 +47,8 @@ Models with animation clips show a clip selector, Play/Pause, Restart, and a tim
 | `src/renderer/resources.ts`          | Padded uploads and explicit GPU allocation ownership                               |
 | `src/renderer/materials.ts`          | Cached images/samplers/material bind groups and uniform packing                    |
 | `src/renderer/material-slots.ts`     | Shared texture slot bindings, color spaces, neutral defaults and WGSL declarations |
+| `src/renderer/mipmaps.ts`            | Cached GPU mipmap generation in linear light                                       |
+| `src/renderer/samplers.ts`           | glTF wrap/filter modes and mip-selection policy                                    |
 | `src/renderer/shader.ts`             | Commented WGSL generated for available vertex inputs                               |
 | `src/renderer/pipelines.ts`          | Immutable-state pipeline keys and cached async compilation                         |
 | `src/renderer/renderer.ts`           | Scene preparation, batching, transparent ordering, rendering and disposal          |
@@ -70,7 +73,7 @@ All GPU buffer allocations are rounded up to four bytes. Initial uploads use map
 
 `PipelineCache` keys contain canonical vertex layouts, topology, strip index format, available shader inputs, blending, culling, and winding. Uniform values, texture identities, absolute buffer offsets, and node IDs are excluded. Color target format, depth format, and bind group layouts are fixed for a renderer and do not need redundant key fields. Pipeline creation is asynchronous and finishes before the scene is swapped in.
 
-Shaders vary only when NORMAL, TEXCOORD_0, COLOR_0, or TANGENT inputs differ. Alpha cutoff, normal-map presence, and unlit behavior are uniform-driven. Missing UVs use zero coordinates and missing colors use white. Missing normals use fragment derivatives for flat triangle lighting. Every material has the same bind group layout with all five core glTF texture slots. Neutral one-pixel textures supply defaults without extra pipeline variants. A new scene receives a fresh cache so loading many unrelated assets cannot grow the pipeline cache indefinitely.
+Shaders vary only when NORMAL, available TEXCOORD sets, COLOR_0, or TANGENT inputs differ. Alpha cutoff, normal-map presence, UV-set selection, texture transforms, and unlit behavior are uniform-driven. Untextured primitives may omit UVs; every actual texture must reference an available coordinate set. Missing colors use white. Missing normals use fragment derivatives for flat triangle lighting. Every material has the same bind group layout with all five core glTF texture slots. Neutral one-pixel textures supply defaults without extra pipeline variants. A new scene receives a fresh cache so loading many unrelated assets cannot grow the pipeline cache indefinitely.
 
 Emission is `emissiveFactor * sampledEmissiveColor` in linear space. Without an emissive texture, the white default preserves factor-only emission; the default factor is zero. A factor of `[1, 1, 1]` with a mostly black map must emit only where the map is bright. Ignoring that map and adding its factor alone turns models such as DamagedHelmet white and hides their base-color details.
 
@@ -94,6 +97,16 @@ Authored VEC4 tangents use XYZ for the tangent and W for bitangent handedness. T
 
 The derivative fallback is useful for assets such as DamagedHelmet, but is not MikkTSpace tangent generation and may differ at seams from the basis used when baking the map. Export authored tangents for the closest match. No normal-map-specific pipeline variant is needed: a material uniform controls its use.
 
+### Select UV coordinates and generate mipmaps
+
+Each of the five texture slots independently selects `textureInfo.texCoord`, defaulting to zero. [KHR_texture_transform](https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_texture_transform/README.md) can override that selection and supplies offset, rotation in radians, and scale. The shader applies `offset + rotation * (scale * uv)` before sampling. The extension works both when optional and when listed in `extensionsRequired`. Missing selected UV sets are reported with the slot name and required TEXCOORD semantic, preserving the current scene if replacement fails.
+
+Geometry binds available `TEXCOORD_n` sets in a deterministic order, including normalized integer and sparse accessors. Additional sets receive compact shader locations, so semantic numbering need not be consecutive. Vertex and inter-stage limits still depend on the GPU; this is not unlimited UV storage. Each material uniform contains 64 bytes of factors plus five pairs of vec4 transform rows (32 bytes per slot), for 224 bytes total. Binding numbers and texture defaults are unchanged across variants. The normal slot uses authored tangents only for TEXCOORD_0 with an unchanged linear UV basis; alternate sets, UV rotation, or scale use derivatives of the normal slot's transformed coordinates. Offset alone preserves the authored tangent basis. Degenerate UV transforms retain the geometric normal.
+
+Image uploads allocate a complete mip chain, including non-power-of-two and one-pixel-wide/tall images. `MipmapGenerator` renders each lower level from a view of the preceding level during scene preparation. Color textures use sRGB views: sampling decodes to linear light, filtering averages there, and the sRGB attachment encodes the result. Data textures remain unorm throughout; alpha remains linear in both cases. The generator caches one pipeline per format and mipmaps belong to the scene's texture allocation. No mip generation occurs in the playback pose-upload, compute, or render phases.
+
+All six glTF minification filters map to their corresponding in-level and mip filtering modes. NEAREST/LINEAR without mipmaps clamp sampling to level zero; the four mip filters can select the full chain. An omitted minification filter uses linear filtering with linear mip interpolation. Neutral 1×1 defaults need no generation. Mipmaps add roughly one-third texture memory for large square images. This basic bilinear downsampling does not preserve alpha-mask coverage or adjust material roughness for normal-map variance; anisotropic filtering is not enabled.
+
 ### Instance and order draws
 
 The selected scene's initial parent transforms are accumulated once. Each instance stores a world matrix and its inverse transpose as two mat4 values (128 bytes, matching WGSL storage alignment). Primitive instance ranges are packed into one scene storage buffer, bound once, and addressed with `instance_index` and `firstInstance`. Static nodes referencing the same opaque primitive are drawn together. Transform records are duplicated for each primitive of a multi-primitive mesh; this keeps ranges contiguous and avoids another indirection in this teaching renderer. Static data is never uploaded again each frame.
@@ -111,13 +124,13 @@ Every scene owns its buffers and textures through `Resources`. A replacement is 
 - glTF JSON and GLB 2.0, relative/data URI buffers and images, and embedded GLB images.
 - Selected/default scene, hierarchy, matrix or TRS transforms, repeated mesh instancing, and inverse-transpose normals for nonuniform scales.
 - Indexed/non-indexed points, lines, line strips/loops, triangles, triangle strips/fans. Missing normals give useful flat shading for triangles; supply normals or an unlit material for points/lines.
-- Float POSITION/NORMAL/UV/COLOR/TANGENT plus decoded normalized integer UV/color attributes and sparse accessors. Only TEXCOORD_0 and COLOR_0 are consumed; additional sets are ignored.
+- Float POSITION/NORMAL/UV/COLOR/TANGENT plus decoded normalized integer UV/color attributes and sparse accessors. TEXCOORD_n sets are available per texture; only COLOR_0 is consumed.
 - All five core material textures: base color, emissive, metallic/roughness, normal (with scale), and occlusion (with strength). Material factors, vertex colors, OPAQUE/MASK/BLEND, double-sided materials, and KHR_materials_unlit are supported.
-- JPEG/PNG browser-decoded images, wrap/filter sampler translation, and linear-light shading with sRGB decoding for color maps and linear sampling for data maps.
+- JPEG/PNG browser-decoded images, KHR_texture_transform, wrap/filter sampler translation, GPU mipmap generation, and linear-light shading with sRGB decoding for color maps and linear sampling for data maps.
 
-This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light plus a simple ambient term. It has no environment lighting, shadows, exposure/tone mapping, antialiasing, frustum culling, or mipmap generation. Samplers are clamped to level zero; distant textured surfaces can alias. Blending operates on encoded canvas colors rather than a separate linear offscreen target.
+This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses a GGX-style direct light plus a simple ambient term. It has no environment lighting, shadows, exposure/tone mapping, antialiasing, or frustum culling. Blending operates on encoded canvas colors rather than a separate linear offscreen target.
 
-Texture transforms and TEXCOORD sets other than zero are rejected for every supported texture slot. Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
+Authored glTF cameras/lights are ignored in favor of orbit controls and the viewer light. Unsupported required extensions (including Draco, meshopt, KTX2, and quantization) are rejected. Optional extensions are not applied except KHR_materials_unlit and KHR_texture_transform. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
 
 ## Animation and deformation
 
@@ -157,7 +170,9 @@ Keep material texture slots on the same explicit bind group layout across varian
 
 `browser-tests/textures.spec.ts` compares presented pixels against equivalent factor-only materials to check metallic/roughness G/B channels and linear decoding, including an image reused for both color and data. It checks that occlusion strength changes only the expected ambient contribution and that normal scale zero preserves surface normals. It also compares authored and derivative tangent bases under nonuniform and mirrored transforms. These fixtures run offline.
 
-Color-space regressions compare base-color and emissive maps against equivalent linear factors. `tests/material-slots.test.ts` verifies the neutral defaults and color-space contract, plus identical material declarations across all 24 vertex-input shader variants.
+Color-space regressions compare base-color and emissive maps against equivalent linear factors. `tests/material-slots.test.ts` verifies the neutral defaults and color-space contract, plus identical material declarations across 60 combinations of vertex inputs and UV-set availability. UV browser fixtures compare all five slots against baked coordinates, including extension overrides and transformed normal-map bases; missing selected sets retain the current model.
+
+`tests/texture-coordinates.test.ts` checks affine-transform order, defaults, malformed values, sparse normalized UV sets, compact UV locations, mip counts, and all six minification modes. `browser-tests/mipmaps.spec.ts` reads GPU-generated mip levels back to verify linear-light color filtering, linear data/alpha, and NPOT/thin images. The optional live ChronographWatch GLB regression verifies texture-transform loading and saves a screenshot alongside the other public-model tests.
 
 The DamagedHelmet regression loads the public Khronos GLB with all five material textures and requires network access. It is skipped by default. To include it in PowerShell:
 

@@ -7,12 +7,12 @@ describe('material texture interface', () => {
     const bindings = Array.from({ length: 11 }, (_, binding) => binding);
     const entries = createMaterialLayoutEntries(2); // fragment-stage bit; no browser globals
     expect(entries.map((entry) => entry.binding)).toEqual(bindings);
-    expect(entries[0].buffer).toEqual({ type: 'uniform', minBindingSize: 64 });
+    expect(entries[0].buffer).toEqual({ type: 'uniform', minBindingSize: 224 });
     for (const normal of [false, true])
-      for (const uv of [false, true])
+      for (const uvSets of [[], [0], [1], [0, 1], [0, 7]])
         for (const color of [0, 3, 4])
           for (const tangent of [false, true]) {
-            const source = shaderSource({ normal, uv, color, tangent });
+            const source = shaderSource({ normal, uv: uvSets.length > 0, uvSets, color, tangent });
             const declarations = [...source.matchAll(/@group\(2\) @binding\((\d+)\)/g)];
             expect(declarations.map((match) => Number(match[1]))).toEqual(bindings);
           }

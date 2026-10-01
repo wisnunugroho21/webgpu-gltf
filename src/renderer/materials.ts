@@ -1,6 +1,9 @@
 import type { Asset, Material, TextureInfo } from '../gltf/types';
 import { Resources, uploadBuffer } from './resources';
 import { createMaterialLayoutEntries, materialTextureSlots } from './material-slots';
+import { textureCoordinates } from '../gltf/texture-coordinates';
+import { MipmapGenerator, mipLevelCount } from './mipmaps';
+import { samplerDescriptor } from './samplers';
 
 export interface GpuMaterial {
   bindGroup: GPUBindGroup;
@@ -22,6 +25,7 @@ export class MaterialFactory {
     private asset: Asset,
     private resources: Resources,
     private layout: GPUBindGroupLayout,
+    private mipmaps: MipmapGenerator,
   ) {}
 
   private defaultTexture(
@@ -73,6 +77,7 @@ export class MaterialFactory {
               label: `glTF image ${index} (${format})`,
               size: [bitmap.width, bitmap.height],
               format,
+              mipLevelCount: mipLevelCount(bitmap.width, bitmap.height),
               usage:
                 GPUTextureUsage.TEXTURE_BINDING |
                 GPUTextureUsage.COPY_DST |
@@ -85,6 +90,7 @@ export class MaterialFactory {
             { texture, premultipliedAlpha: false },
             [bitmap.width, bitmap.height],
           );
+          await this.mipmaps.generate(texture);
           return texture;
         } finally {
           bitmap.close();
@@ -99,17 +105,7 @@ export class MaterialFactory {
     let sampler = this.samplers.get(index);
     if (!sampler) {
       const definition = this.asset.gltf.samplers?.[index] ?? {};
-      const wrap = (value?: number): GPUAddressMode =>
-        value === 33071 ? 'clamp-to-edge' : value === 33648 ? 'mirror-repeat' : 'repeat';
-      sampler = this.device.createSampler({
-        addressModeU: wrap(definition.wrapS),
-        addressModeV: wrap(definition.wrapT),
-        magFilter: definition.magFilter === 9728 ? 'nearest' : 'linear',
-        minFilter: [9728, 9984, 9986].includes(definition.minFilter ?? 9987) ? 'nearest' : 'linear',
-        // This intentionally small implementation uploads level zero only.
-        mipmapFilter: [9984, 9985].includes(definition.minFilter ?? 9987) ? 'nearest' : 'linear',
-        lodMaxClamp: 0,
-      });
+      sampler = this.device.createSampler(samplerDescriptor(definition));
       this.samplers.set(index, sampler);
     }
     return sampler;
@@ -123,8 +119,6 @@ export class MaterialFactory {
     format: GPUTextureFormat,
     neutral: readonly number[],
   ) {
-    if (info && ((info.texCoord ?? 0) !== 0 || info.extensions?.KHR_texture_transform))
-      throw new Error(`${label} supports TEXCOORD_0 without KHR_texture_transform only.`);
     const reference = info ? this.asset.gltf.textures?.[info.index] : undefined;
     if (info && reference?.source === undefined)
       throw new Error(`${label} texture has no image source.`);
@@ -161,7 +155,11 @@ export class MaterialFactory {
     const alphaMode = definition.alphaMode ?? 'OPAQUE';
     if (!['OPAQUE', 'MASK', 'BLEND'].includes(alphaMode))
       throw new Error('Invalid material alpha mode.');
-    const values = new Float32Array(16);
+    // Four material vec4s followed by five pairs of UV-transform rows = 224 bytes.
+    const values = new Float32Array(56);
+    materialTextureSlots.forEach((slot, i) =>
+      values.set(textureCoordinates(slot.read(definition)), 16 + i * 8),
+    );
     values.set(pbr.baseColorFactor ?? [1, 1, 1, 1], 0);
     values.set(definition.emissiveFactor ?? [0, 0, 0], 4);
     values[7] = { OPAQUE: 0, MASK: 1, BLEND: 2 }[alphaMode];
@@ -179,7 +177,15 @@ export class MaterialFactory {
         definition.normalTexture?.scale ?? 1,
         definition.occlusionTexture?.strength ?? 1,
         definition.normalTexture ? 1 : 0,
-        0,
+        // Authored tangents describe TEXCOORD_0. A different or transformed normal UV
+        // basis must be recovered from derivatives of that slot's effective coordinates.
+        Number(
+          values[40] === 1 &&
+            values[41] === 0 &&
+            values[43] === 0 &&
+            values[44] === 0 &&
+            values[45] === 1,
+        ),
       ],
       12,
     );

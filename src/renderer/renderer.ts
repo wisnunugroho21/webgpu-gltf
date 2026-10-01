@@ -11,6 +11,8 @@ import { Resources, uploadBuffer } from './resources';
 import { DeformationCompute, GpuDeformation } from './deformation';
 import { AnimationController } from '../animation/controller';
 import { materialTextureSlots } from './material-slots';
+import { textureCoordinates } from '../gltf/texture-coordinates';
+import { MipmapGenerator } from './mipmaps';
 
 interface Draw {
   pipeline: GPURenderPipeline;
@@ -63,6 +65,7 @@ export class Renderer {
   private height = 0;
   private frameData = new Float32Array(20);
   private compute?: DeformationCompute;
+  private mipmaps: MipmapGenerator;
   // Keep the original public playback API as small delegates for existing consumers.
   get onAnimationChange(): (() => void) | undefined {
     return this.animation.onChange;
@@ -125,6 +128,7 @@ export class Renderer {
     private onError: (message: string) => void,
   ) {
     context.configure({ device, format, alphaMode: 'opaque' });
+    this.mipmaps = new MipmapGenerator(device);
     this.camera = new OrbitCamera(canvas);
     const frameLayout = device.createBindGroupLayout({
       entries: [
@@ -196,7 +200,13 @@ export class Renderer {
       )
     )
       this.compute = await DeformationCompute.create(this.device);
-    const materials = new MaterialFactory(this.device, asset, resources, this.materialLayout);
+    const materials = new MaterialFactory(
+      this.device,
+      asset,
+      resources,
+      this.materialLayout,
+      this.mipmaps,
+    );
     const pipelines = new PipelineCache(this.device, this.pipelineLayout, this.format);
     const views = new Map<number, GPUBuffer>();
     const indexBuffers = new Map<object, GPUBuffer>();
@@ -228,11 +238,13 @@ export class Renderer {
         const geometry = deformation ? deformation.geometry(baseGeometry) : baseGeometry;
         const material = await materials.get(primitive.material);
         const materialDefinition = asset.gltf.materials?.[primitive.material!];
-        if (
-          materialTextureSlots.some((slot) => slot.read(materialDefinition ?? {})) &&
-          !geometry.features.uv
-        )
-          throw new Error('Textured primitive is missing TEXCOORD_0.');
+        for (const slot of materialTextureSlots) {
+          const info = slot.read(materialDefinition ?? {});
+          if (!info) continue;
+          const set = textureCoordinates(info)[3];
+          if (!geometry.features.uvSets?.includes(set))
+            throw new Error(`${slot.label} texture requires missing TEXCOORD_${set}.`);
+        }
         const vertices = geometry.bindings.map((binding) => {
           if (deformation?.source === binding.source)
             return { buffer: deformation.output, offset: 0 };

@@ -1,5 +1,6 @@
 import { components, decodeAccessor } from './accessors';
 import type { Asset, Primitive } from './types';
+import { uvLocation } from './texture-coordinates';
 
 // Fixed locations are shared by geometry layouts and generated WGSL.
 export const locations: Record<string, number> = {
@@ -19,7 +20,7 @@ export interface Geometry {
   count: number;
   indices?: Uint16Array | Uint32Array;
   topology: GPUPrimitiveTopology;
-  features: { normal: boolean; uv: boolean; color: number; tangent: boolean };
+  features: { normal: boolean; uv: boolean; uvSets?: number[]; color: number; tangent: boolean };
   positions: number[];
 }
 
@@ -30,16 +31,22 @@ export function prepareGeometry(asset: Asset, primitive: Primitive): Geometry {
   if (!position || position.type !== 'VEC3' || position.componentType !== 5126)
     throw new Error('POSITION must be a float VEC3.');
   const groups: VertexBinding[] = [];
-  const features = { normal: false, uv: false, color: 0, tangent: false };
+  const uvSets = Object.keys(primitive.attributes)
+    .filter((name) => /^TEXCOORD_\d+$/.test(name))
+    .map((name) => Number(name.slice(9)))
+    .sort((a, b) => a - b);
+  const attributeLocations = { ...locations };
+  for (const set of uvSets) attributeLocations[`TEXCOORD_${set}`] = uvLocation(set, uvSets);
+  const features = { normal: false, uv: uvSets.length > 0, uvSets, color: 0, tangent: false };
   let positions: number[] = [];
   // Visit offsets in ascending order so a group's first attribute is its binding base.
-  const semantics = Object.keys(locations).sort((a, b) => {
+  const semantics = Object.keys(attributeLocations).sort((a, b) => {
     const left = asset.gltf.accessors?.[primitive.attributes[a]];
     const right = asset.gltf.accessors?.[primitive.attributes[b]];
     return (
       (left?.bufferView ?? -1) - (right?.bufferView ?? -1) ||
       (left?.byteOffset ?? 0) - (right?.byteOffset ?? 0) ||
-      locations[a] - locations[b]
+      attributeLocations[a] - attributeLocations[b]
     );
   });
   for (const semantic of semantics) {
@@ -51,7 +58,7 @@ export function prepareGeometry(asset: Asset, primitive: Primitive): Geometry {
     const width = components[accessor.type];
     if (
       ((semantic === 'POSITION' || semantic === 'NORMAL') && width !== 3) ||
-      (semantic === 'TEXCOORD_0' && width !== 2) ||
+      (semantic.startsWith('TEXCOORD_') && width !== 2) ||
       (semantic === 'TANGENT' && width !== 4) ||
       (semantic === 'COLOR_0' && width !== 3 && width !== 4)
     )
@@ -92,7 +99,7 @@ export function prepareGeometry(asset: Asset, primitive: Primitive): Geometry {
       groups.push(group);
     }
     (group.layout.attributes as GPUVertexAttribute[]).push({
-      shaderLocation: locations[semantic],
+      shaderLocation: attributeLocations[semantic],
       offset: direct ? offset - group.offset : 0,
       format: `float32x${width}` as GPUVertexFormat,
     });

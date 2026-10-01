@@ -1,15 +1,18 @@
 import type { Geometry } from '../gltf/geometry';
 import { materialTextureDeclarations } from './material-slots';
+import { uvLocation } from '../gltf/texture-coordinates';
 
 /** Variants are limited to missing vertex inputs. Material values remain uniform data,
  * so changing a color or supplying a texture doesn't create another pipeline. */
 export function shaderSource(features: Geometry['features']): string {
+  const uvSets = features.uvSets ?? (features.uv ? [0] : []);
   return /* wgsl */ `
 struct Frame { viewProjection: mat4x4f, eye: vec4f }
 struct Instance { world: mat4x4f, normal: mat4x4f }
-// Four vec4 values = 64 bytes, matching the CPU material packing exactly.
-// textureParameters = normal scale, occlusion strength, normal-map presence, reserved.
-struct Material { baseColor: vec4f, emissive: vec4f, parameters: vec4f, textureParameters: vec4f }
+// 64 bytes of factors + five 32-byte UV transforms = 224 bytes, matching CPU packing.
+// textureParameters = normal scale, occlusion strength, normal-map presence, authored basis.
+struct UVTransform { row0: vec4f, row1: vec4f }
+struct Material { baseColor: vec4f, emissive: vec4f, parameters: vec4f, textureParameters: vec4f, uv: array<UVTransform, 5> }
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(1) @binding(0) var<storage, read> instances: array<Instance>;
 @group(2) @binding(0) var<uniform> material: Material;
@@ -18,7 +21,7 @@ ${materialTextureDeclarations}
 struct VertexInput {
   @location(0) position: vec3f,
   ${features.normal ? '@location(1) normal: vec3f,' : ''}
-  ${features.uv ? '@location(2) uv: vec2f,' : ''}
+  ${uvSets.map((set) => `@location(${uvLocation(set, uvSets)}) uv${set}: vec2f,`).join('\n  ')}
   ${features.color ? `@location(3) color: vec${features.color}f,` : ''}
   ${features.tangent ? '@location(4) tangent: vec4f,' : ''}
   @builtin(instance_index) instance: u32,
@@ -27,7 +30,7 @@ struct VertexOutput {
   @builtin(position) clip: vec4f,
   @location(0) world: vec3f,
   @location(1) normal: vec3f,
-  @location(2) uv: vec2f,
+  ${uvSets.map((set) => `@location(${uvLocation(set, uvSets)}) uv${set}: vec2f,`).join('\n  ')}
   @location(3) color: vec4f,
   @location(4) tangent: vec4f,
 }
@@ -38,7 +41,7 @@ struct VertexOutput {
   output.clip = frame.viewProjection * world;
   output.world = world.xyz;
   output.normal = ${features.normal ? '(model.normal * vec4f(input.normal, 0.0)).xyz' : 'vec3f(0.0)'};
-  output.uv = ${features.uv ? 'input.uv' : 'vec2f(0.0)'};
+  ${uvSets.map((set) => `output.uv${set} = input.uv${set};`).join('\n  ')}
   output.color = ${features.color === 4 ? 'input.color' : features.color === 3 ? 'vec4f(input.color, 1.0)' : 'vec4f(1.0)'};
   ${
     features.normal && features.tangent
@@ -50,6 +53,16 @@ struct VertexOutput {
       : 'output.tangent = vec4f(0.0);'
   }
   return output;
+}
+
+// Select coordinates independently for each slot, then apply scale → rotation → offset.
+// Material values remain uniforms; UV-set selection/transforms never change bindings.
+fn textureUV(input: VertexOutput, slot: u32) -> vec2f {
+  let transform = material.uv[slot];
+  var uv = vec2f(0.0);
+  ${uvSets.map((set) => `if (transform.row0.w == ${set}.0) { uv = input.uv${set}; }`).join('\n  ')}
+  let homogeneous = vec3f(uv, 1.0);
+  return vec2f(dot(transform.row0.xyz, homogeneous), dot(transform.row1.xyz, homogeneous));
 }
 
 fn safeNormalize(v: vec3f) -> vec3f { return v * inverseSqrt(max(dot(v, v), 0.000001)); }
@@ -69,36 +82,36 @@ fn linearToSrgb(v: vec3f) -> vec3f {
 }
 @fragment fn fragmentMain(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   // sRGB texture views decode color into linear space; factors and vertex colors are linear.
-  let base = textureSample(colorTexture, colorSampler, input.uv) * material.baseColor * input.color;
+  let base = textureSample(colorTexture, colorSampler, textureUV(input, 0u)) * material.baseColor * input.color;
   // Emissive factor scales the map; it is not uniform illumination of the surface.
   // Sample before conditional discard so texture derivatives stay in uniform control flow.
-  let emission = textureSample(emissiveTexture, emissiveSampler, input.uv).rgb * material.emissive.rgb;
+  let emission = textureSample(emissiveTexture, emissiveSampler, textureUV(input, 1u)).rgb * material.emissive.rgb;
   // glTF packs roughness in green and metallic in blue. Red is reserved here;
   // the occlusion slot can independently reuse that same image's red channel.
-  let mr = textureSample(metallicRoughnessTexture, metallicRoughnessSampler, input.uv);
-  let normalSample = textureSample(normalTexture, normalSampler, input.uv).xyz * 2.0 - 1.0;
-  let ao = textureSample(occlusionTexture, occlusionSampler, input.uv).r;
+  let mr = textureSample(metallicRoughnessTexture, metallicRoughnessSampler, textureUV(input, 2u));
+  let normalUV = textureUV(input, 3u);
+  let normalSample = textureSample(normalTexture, normalSampler, normalUV).xyz * 2.0 - 1.0;
+  let ao = textureSample(occlusionTexture, occlusionSampler, textureUV(input, 4u)).r;
   let alphaMode = material.emissive.w; // 0 = opaque, 1 = mask, 2 = blend
   var N = ${features.normal ? 'safeNormalize(input.normal)' : 'safeNormalize(cross(dpdx(input.world), dpdy(input.world)))'};
   ${features.normal ? '' : '// Screen derivatives already follow the visible surface orientation.\n  if (dot(N, frame.eye.xyz - input.world) < 0.0) { N = -N; }'}
-  ${
-    features.normal && features.tangent
-      ? `
-  if (material.textureParameters.z == 1.0) {
-    N = mappedNormal(N, input.tangent.xyz, cross(N, input.tangent.xyz) * input.tangent.w, normalSample);
-  }`
-      : `
   // Assets such as DamagedHelmet omit tangents. Recover a triangle-local basis from
   // position and UV derivatives, preserving mirrored UV orientation. This is a
   // fallback, not MikkTSpace generation; authored tangents give seam-consistent results.
   let px = dpdx(input.world); let py = dpdy(input.world);
-  let ux = dpdx(input.uv); let uy = dpdy(input.uv);
+  let ux = dpdx(normalUV); let uy = dpdy(normalUV);
   let determinant = ux.x * uy.y - ux.y * uy.x;
+  ${
+    features.normal && features.tangent
+      ? `if (material.textureParameters.z == 1.0 && material.textureParameters.w == 1.0) {
+    N = mappedNormal(N, input.tangent.xyz, cross(N, input.tangent.xyz) * input.tangent.w, normalSample);
+  } else`
+      : ''
+  }
   if (material.textureParameters.z == 1.0 && abs(determinant) > 0.00000001) {
     let T = (px * uy.y - py * ux.y) / determinant;
     let B = (py * ux.x - px * uy.x) / determinant;
     N = mappedNormal(N, T, B, normalSample);
-  }`
   }
   ${features.normal ? '// Reverse the complete perturbed normal for double-sided back faces.\n  if (!front) { N = -N; }' : ''}
   // All texture samples and screen derivatives precede this nonuniform discard.

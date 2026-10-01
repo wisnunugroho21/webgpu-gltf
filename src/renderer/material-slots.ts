@@ -67,7 +67,7 @@ export function createMaterialLayoutEntries(
   visibility: GPUShaderStageFlags,
 ): GPUBindGroupLayoutEntry[] {
   return [
-    { binding: 0, visibility, buffer: { type: 'uniform', minBindingSize: 64 } },
+    { binding: 0, visibility, buffer: { type: 'uniform', minBindingSize: 224 } },
     ...materialTextureSlots.flatMap((slot): GPUBindGroupLayoutEntry[] => [
       { binding: slot.samplerBinding, visibility, sampler: { type: 'filtering' } },
       {
