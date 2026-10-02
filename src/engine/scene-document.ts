@@ -1,3 +1,4 @@
+import { validateParents } from './world/validation';
 /** Engine scenes reference glTF models by stable asset IDs. Entity IDs are gameplay
  * identities and never glTF node indices. Components contain serializable data. */
 export type JsonValue =
@@ -111,15 +112,7 @@ export function parseSceneDocument(value: unknown): SceneDocument {
   for (const entity of entities) {
     if (entity.model && !Object.hasOwn(assets, entity.model.asset))
       throw new Error(`Missing model asset ${entity.model.asset}.`);
-    const visited = new Set<string>();
-    let current: EntityDefinition | undefined = entity;
-    while (current) {
-      if (visited.has(current.id)) throw new Error('Cycle in entity hierarchy.');
-      visited.add(current.id);
-      if (current.parent !== undefined && !byId.has(current.parent))
-        throw new Error(`Missing parent ${current.parent}.`);
-      current = current.parent === undefined ? undefined : byId.get(current.parent);
-    }
   }
+  validateParents(new Map(entities.map((entity) => [entity.id, entity.parent])));
   return { version: 1, assets, entities };
 }

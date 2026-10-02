@@ -25,6 +25,7 @@ npm run check:browser # Strict checking of browser tests, benchmarks and Playwri
 npm run test:browser:offline # Local fixtures only, excludes all @remote tests
 npm run test:browser:remote # Explicit opt-in to four live Khronos regressions
 npm run bench:migration # Small/medium/large scene baseline JSON
+npm run bench:hierarchy # Wide/deep gameplay hierarchy comparison
 ```
 
 The first scene is generated locally and makes no network requests for models. Three green cubes share one primitive, so they render in one instanced draw; the orange cube shares the pipeline but uses a different material. The demo reports **1 pipeline, 2 draws, and 4 primitive instances**. These counts describe scene geometry; the fixed fullscreen presentation pipeline and draw are additional.
@@ -120,7 +121,7 @@ For a single asset, declare movable subtrees with `await renderer.setAsset(asset
 
 ## Game entities and model instances
 
-`World` stores gameplay entities identified by strings. An entity may instantiate one glTF model containing many mesh, joint and light nodes; those node indices stay local to that `ModelInstance`. Entity hierarchy, placement and component data remain outside glTF. Multiple entities can reference one loaded `Asset`, while each instance owns its pose and animation controller. Selecting an authored pose or crossfading changes model locals without resetting entity placement.
+`World` stores gameplay entities identified by strings. An entity may instantiate one glTF model containing many mesh, joint and light nodes; those node indices stay local to that `ModelInstance`. Entity hierarchy, placement and component data remain outside glTF. Iterative cached traversal and effective world revisions evaluate changed branches only; held entity roots perform no matrix work. Multiple entities can reference one loaded `Asset`, while each instance owns its pose and animation controller. Selecting an authored pose or crossfading changes model locals without resetting entity placement.
 
 ```ts
 import { World, ModelLibrary, Renderer, loadUrl } from './src';
@@ -156,6 +157,8 @@ const savedScene = JSON.stringify(world.toDocument(), null, 2);
 ```
 
 Engine scene JSON has `version: 1`, an `assets` dictionary mapping stable IDs to model URIs, and `entities` containing IDs, optional parents/names, transforms, model references and JSON component data. `parseSceneDocument()` validates it; `loadWorld(document, resolver?)` loads each asset ID once and builds independent model instances. Component data is preserved for gameplay systems; it does not automatically implement physics or behaviors. Scene saving does not embed glTF nodes, geometry, GPU resources or current animation playback state.
+
+Use `world.applyChanges(changes)` to create, reparent and destroy entities at one atomic CPU topology boundary, including child-before-parent scene creation. Failed batches preserve the live graph. See [scalable world hierarchy](docs/world-hierarchy.md) for examples, revision diagnostics and wide/deep measurements.
 
 `setTransform()` and `world.setParent()` become visible after the next engine world evaluation and render, without rebuilding GPU membership. Creating or destroying entities changes membership: pause submission, mutate the world, await `renderer.setWorld(world)`, then resume. Rendering an uncommitted membership change throws a recoverable error instead of drawing stale entities. A failed replacement releases candidate resources and retains the previously attached scene. Empty worlds render the background. The original viewer and `setAsset()` remain available.
 

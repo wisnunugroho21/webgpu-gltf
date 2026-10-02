@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { Scene } from '../src/renderer/scene/types';
 
 test('entities render independent multi-node models with root transforms, shadows and safe world replacement', async ({
   page,
@@ -53,7 +54,8 @@ test('entities render independent multi-node models with root transforms, shadow
     npc.model!.animation.select(-1);
     const dispatched: string[] = [],
       phases: string[] = [];
-    let maxError = 0;
+    let maxError = 0,
+      poseUploads = 0;
     const watch = () => {
       for (const update of internal.scene.updates)
         if (update.deformation) {
@@ -70,9 +72,15 @@ test('entities render independent multi-node models with root transforms, shadow
     const frame = async (timestamp = 0) => {
       phases.length = 0;
       dispatched.length = 0;
+      poseUploads = 0;
       if (!renderViewerFrame(renderer, timestamp)) throw new Error('World frame failed');
       await device.queue.onSubmittedWorkDone();
-      return { phases: [...phases], dispatched: [...dispatched].sort() };
+      return {
+        phases: [...phases],
+        dispatched: [...dispatched].sort(),
+        hierarchy: world.hierarchyStats,
+        poseUploads,
+      };
     };
     const oracle = async () => {
       for (const update of internal.scene.updates)
@@ -163,6 +171,17 @@ test('entities render independent multi-node models with root transforms, shadow
       const addressing = internal.scene.updates.map((u: any) => u.draw.firstInstance);
       device.queue.writeBuffer = (...args) => {
         phases.push('upload');
+        const scene = internal.scene as Scene;
+        if (
+          args[0] === scene.transformBuffer ||
+          [
+            'Joint palette',
+            'Morph weights',
+            'Batched joint palettes',
+            'Batched morph weights',
+          ].includes(args[0].label)
+        )
+          poseUploads++;
         write(...args);
       };
       device.createCommandEncoder = (...args) => {
@@ -192,13 +211,29 @@ test('entities render independent multi-node models with root transforms, shadow
       player.model!.clearNodeOverride(1);
       await frame();
       group.setTransformOwner('physics');
+      const unrelatedRevision = npc.model!.pose.revision;
       group.setTransform({ translation: [1, 0, 0] }, 'physics');
       // CPU simulations may update before rendering; its persistent revision keeps
       // this root change visible even though the renderer evaluates the same time.
       world.update(0);
+      const movedHierarchy = world.hierarchyStats;
       const moved = await frame();
+      const unrelatedHeld = npc.model!.pose.revision === unrelatedRevision;
       await oracle();
       const nodeWorld = player.model!.pose.nodes[3].world[12];
+      const attachedBeforeReparent = internal.scene;
+      const membershipBeforeReparent = world.structureRevision;
+      world.setParent('player', 'level');
+      world.update(0);
+      const reparentHierarchy = world.hierarchyStats;
+      const reparented = await frame();
+      await oracle();
+      const retainedAfterReparent =
+        internal.scene === attachedBeforeReparent &&
+        world.structureRevision === membershipBeforeReparent;
+      world.setParent('player', 'party');
+      await frame();
+      await oracle();
       group.setTransformOwner('gameplay');
       player.model!.animation.select(1);
       player.model!.animation.seek(2);
@@ -295,6 +330,11 @@ test('entities render independent multi-node models with root transforms, shadow
         held,
         gameplayJoint,
         moved,
+        reparentHierarchy,
+        reparented,
+        retainedAfterReparent,
+        movedHierarchy,
+        unrelatedHeld,
         animated,
         outside,
         nodeWorld,
@@ -333,6 +373,25 @@ test('entities render independent multi-node models with root transforms, shadow
   expect(new Set(result.addressing).size).toBe(8);
   expect(result.initial.dispatched).toEqual(['npc:0', 'npc:3', 'player:0', 'player:3']);
   expect(result.held.dispatched).toEqual([]);
+  expect(result.held.poseUploads).toBe(0);
+  expect(result.held.hierarchy).toMatchObject({
+    visitedEntities: 0,
+    recomputedWorlds: 0,
+    syncedModelRoots: 0,
+  });
+  expect(result.movedHierarchy).toMatchObject({
+    visitedEntities: 2,
+    recomputedWorlds: 2,
+    syncedModelRoots: 1,
+  });
+  expect(result.moved.hierarchy.recomputedWorlds).toBe(0); // Repeated CPU evaluation before rendering.
+  expect(result.unrelatedHeld && result.retainedAfterReparent).toBe(true);
+  expect(result.reparentHierarchy).toMatchObject({
+    recomputedWorlds: 1,
+    syncedModelRoots: 1,
+    traversalRebuilds: 1,
+  });
+  expect(result.reparented.dispatched).toEqual(['player:0']);
   expect(result.gameplayJoint.dispatched).toEqual(['player:0']);
   expect(result.moved.dispatched).toEqual(['player:0']);
   expect(result.animated.dispatched).toEqual(['npc:0', 'player:0', 'player:3']);

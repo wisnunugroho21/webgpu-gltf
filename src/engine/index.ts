@@ -1,4 +1,4 @@
-export { World } from './world';
+export { World, type WorldChange, type HierarchyStats } from './world';
 export {
   EngineRuntime,
   type RuntimeHooks,

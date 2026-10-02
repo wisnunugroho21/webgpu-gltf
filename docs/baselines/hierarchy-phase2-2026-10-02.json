@@ -1,0 +1,412 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-02T02:46:39.100Z",
+  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+  "platform": "Win32",
+  "logicalProcessors": 16,
+  "workload": {
+    "warmupFrames": 10,
+    "measuredFrames": 30,
+    "shapes": ["wide", "deep"],
+    "counts": [1000, 10000, 25000]
+  },
+  "scope": "CPU hierarchy evaluation only, no GPU or animation. Historical reference reproduces recursive full traversal and parent copies. Deep input is child-before-parent. Timings may be timer-quantized; matrix counts are deterministic.",
+  "rows": [
+    {
+      "shape": "wide",
+      "count": 1000,
+      "mode": "held",
+      "constructionMs": 5.100000001490116,
+      "initializationMs": 2.800000000745058,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0
+        },
+        "matrices": 0,
+        "visited": 0
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 0.5,
+          "p95Ms": 0.9000000022351742
+        },
+        "matrices": 1000,
+        "error": null
+      }
+    },
+    {
+      "shape": "wide",
+      "count": 1000,
+      "mode": "leaf",
+      "constructionMs": 5.100000001490116,
+      "initializationMs": 2.800000000745058,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0.09999999776482582
+        },
+        "matrices": 1,
+        "visited": 1
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 0.5999999977648258,
+          "p95Ms": 0.9000000022351742
+        },
+        "matrices": 1000,
+        "error": null
+      }
+    },
+    {
+      "shape": "wide",
+      "count": 1000,
+      "mode": "root",
+      "constructionMs": 5.100000001490116,
+      "initializationMs": 2.800000000745058,
+      "current": {
+        "timing": {
+          "p50Ms": 0.09999999776482582,
+          "p95Ms": 0.20000000298023224
+        },
+        "matrices": 1000,
+        "visited": 1000
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 0.5,
+          "p95Ms": 1
+        },
+        "matrices": 1000,
+        "error": null
+      }
+    },
+    {
+      "shape": "wide",
+      "count": 10000,
+      "mode": "held",
+      "constructionMs": 26.100000001490116,
+      "initializationMs": 4.399999998509884,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0
+        },
+        "matrices": 0,
+        "visited": 0
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 4.300000000745058,
+          "p95Ms": 6.899999998509884
+        },
+        "matrices": 10000,
+        "error": null
+      }
+    },
+    {
+      "shape": "wide",
+      "count": 10000,
+      "mode": "leaf",
+      "constructionMs": 26.100000001490116,
+      "initializationMs": 4.399999998509884,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0
+        },
+        "matrices": 1,
+        "visited": 1
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 4.199999999254942,
+          "p95Ms": 6
+        },
+        "matrices": 10000,
+        "error": null
+      }
+    },
+    {
+      "shape": "wide",
+      "count": 10000,
+      "mode": "root",
+      "constructionMs": 26.100000001490116,
+      "initializationMs": 4.399999998509884,
+      "current": {
+        "timing": {
+          "p50Ms": 0.6999999992549419,
+          "p95Ms": 0.9000000022351742
+        },
+        "matrices": 10000,
+        "visited": 10000
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 4.399999998509884,
+          "p95Ms": 5.699999999254942
+        },
+        "matrices": 10000,
+        "error": null
+      }
+    },
+    {
+      "shape": "wide",
+      "count": 25000,
+      "mode": "held",
+      "constructionMs": 41,
+      "initializationMs": 8.099999997764826,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0.09999999776482582
+        },
+        "matrices": 0,
+        "visited": 0
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 10.5,
+          "p95Ms": 16
+        },
+        "matrices": 25000,
+        "error": null
+      }
+    },
+    {
+      "shape": "wide",
+      "count": 25000,
+      "mode": "leaf",
+      "constructionMs": 41,
+      "initializationMs": 8.099999997764826,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0.10000000149011612
+        },
+        "matrices": 1,
+        "visited": 1
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 10.5,
+          "p95Ms": 11.599999997764826
+        },
+        "matrices": 25000,
+        "error": null
+      }
+    },
+    {
+      "shape": "wide",
+      "count": 25000,
+      "mode": "root",
+      "constructionMs": 41,
+      "initializationMs": 8.099999997764826,
+      "current": {
+        "timing": {
+          "p50Ms": 1.7000000029802322,
+          "p95Ms": 2.5
+        },
+        "matrices": 25000,
+        "visited": 25000
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 10.600000001490116,
+          "p95Ms": 12.100000001490116
+        },
+        "matrices": 25000,
+        "error": null
+      }
+    },
+    {
+      "shape": "deep",
+      "count": 1000,
+      "mode": "held",
+      "constructionMs": 1.699999999254942,
+      "initializationMs": 0.3999999985098839,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0
+        },
+        "matrices": 0,
+        "visited": 0
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 0.5,
+          "p95Ms": 0.7000000029802322
+        },
+        "matrices": 1000,
+        "error": null
+      }
+    },
+    {
+      "shape": "deep",
+      "count": 1000,
+      "mode": "leaf",
+      "constructionMs": 1.699999999254942,
+      "initializationMs": 0.3999999985098839,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0
+        },
+        "matrices": 1,
+        "visited": 1
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 0.3999999985098839,
+          "p95Ms": 0.7000000029802322
+        },
+        "matrices": 1000,
+        "error": null
+      }
+    },
+    {
+      "shape": "deep",
+      "count": 1000,
+      "mode": "root",
+      "constructionMs": 1.699999999254942,
+      "initializationMs": 0.3999999985098839,
+      "current": {
+        "timing": {
+          "p50Ms": 0.10000000149011612,
+          "p95Ms": 0.19999999925494194
+        },
+        "matrices": 1000,
+        "visited": 1000
+      },
+      "previous": {
+        "timing": {
+          "p50Ms": 0.3999999985098839,
+          "p95Ms": 0.5
+        },
+        "matrices": 1000,
+        "error": null
+      }
+    },
+    {
+      "shape": "deep",
+      "count": 10000,
+      "mode": "held",
+      "constructionMs": 14.699999999254942,
+      "initializationMs": 1.8999999985098839,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0
+        },
+        "matrices": 0,
+        "visited": 0
+      },
+      "previous": {
+        "timing": null,
+        "matrices": null,
+        "error": "RangeError"
+      }
+    },
+    {
+      "shape": "deep",
+      "count": 10000,
+      "mode": "leaf",
+      "constructionMs": 14.699999999254942,
+      "initializationMs": 1.8999999985098839,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0
+        },
+        "matrices": 1,
+        "visited": 1
+      },
+      "previous": {
+        "timing": null,
+        "matrices": null,
+        "error": "RangeError"
+      }
+    },
+    {
+      "shape": "deep",
+      "count": 10000,
+      "mode": "root",
+      "constructionMs": 14.699999999254942,
+      "initializationMs": 1.8999999985098839,
+      "current": {
+        "timing": {
+          "p50Ms": 0.6000000014901161,
+          "p95Ms": 0.8000000007450581
+        },
+        "matrices": 10000,
+        "visited": 10000
+      },
+      "previous": {
+        "timing": null,
+        "matrices": null,
+        "error": "RangeError"
+      }
+    },
+    {
+      "shape": "deep",
+      "count": 25000,
+      "mode": "held",
+      "constructionMs": 41.19999999925494,
+      "initializationMs": 6.599999997764826,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0
+        },
+        "matrices": 0,
+        "visited": 0
+      },
+      "previous": {
+        "timing": null,
+        "matrices": null,
+        "error": "RangeError"
+      }
+    },
+    {
+      "shape": "deep",
+      "count": 25000,
+      "mode": "leaf",
+      "constructionMs": 41.19999999925494,
+      "initializationMs": 6.599999997764826,
+      "current": {
+        "timing": {
+          "p50Ms": 0,
+          "p95Ms": 0
+        },
+        "matrices": 1,
+        "visited": 1
+      },
+      "previous": {
+        "timing": null,
+        "matrices": null,
+        "error": "RangeError"
+      }
+    },
+    {
+      "shape": "deep",
+      "count": 25000,
+      "mode": "root",
+      "constructionMs": 41.19999999925494,
+      "initializationMs": 6.599999997764826,
+      "current": {
+        "timing": {
+          "p50Ms": 1.6000000014901161,
+          "p95Ms": 2
+        },
+        "matrices": 25000,
+        "visited": 25000
+      },
+      "previous": {
+        "timing": null,
+        "matrices": null,
+        "error": "RangeError"
+      }
+    }
+  ]
+}

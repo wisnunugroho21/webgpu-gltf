@@ -4,9 +4,9 @@
 
 Evolve the current renderer into a browser game engine through small, verified changes. The first milestone is a third-person character moving through a small level with collision, a follow camera, idle/walk/run animation, and spawn/destruction of another character sharing the same model resources. Keep the glTF viewer working throughout migration. Anime-specific rendering follows this milestone so it can be evaluated in an actual game scene.
 
-This document is a plan. Proposed APIs, modules and systems below are not implemented yet. The [current review](review-2026-10-02.md) records existing capabilities and verification.
+This document combines implemented migration phases with the remaining plan. APIs, modules and systems in unfinished phases are proposals. The [current review](review-2026-10-02.md) records existing capabilities and verification.
 
-Phase 0 safeguards and Phase 1 engine-owned updates/cameras are implemented; see [engine runtime and cameras](engine-runtime.md) for the new update/render contract; see the [migration safeguards guide](migration-safeguards.md) for commands, CI provisioning and baseline measurements. Phases 2 onward remain proposed work.
+Phase 0 safeguards, Phase 1 engine-owned updates/cameras and Phase 2 scalable world hierarchy are implemented; see [engine runtime and cameras](engine-runtime.md) for the new update/render contract; see the [migration safeguards guide](migration-safeguards.md) for commands, CI provisioning and baseline measurements. See [world hierarchy](world-hierarchy.md) for Phase 2 APIs and measurements. Phases 3 onward remain proposed work.
 
 ## Architecture and ownership contract
 
@@ -122,4 +122,4 @@ Implement each phase as small reviewable changes. Preserve the viewer, shared im
 
 Use CPU tests for hierarchy, clocks, ownership, serialization and systems. Use real GPU tests for resource lifetime, deformed output, bindings, bounds/visibility and rendered appearance. Repeat relevant checks after changes; broaden testing when new behavior or failures justify it. Establish performance acceptance from measured baselines rather than arbitrary FPS targets.
 
-The next concrete implementation should be **Phase 1: engine-owned evaluation and an injected camera**, after adding the minimum Phase 0 test protection it needs. Follow with hierarchy revisions and incremental instance membership before introducing complex gameplay or streaming. No calendar estimate is assigned until the playable slice's assets, target devices and physics backend are agreed.
+The next concrete implementation is **Phase 3: retain rendering instances across world changes**. Engine-owned evaluation/cameras and scalable entity hierarchy now provide its prerequisites. Complete incremental instance membership before introducing complex gameplay or streaming. No calendar estimate is assigned until the playable slice's assets, target devices and physics backend are agreed.

@@ -33,6 +33,8 @@ export { loadEnvironmentImage, decodeRadiance } from './renderer';
 export type { Asset, Gltf } from './gltf/types';
 export {
   World,
+  type WorldChange,
+  type HierarchyStats,
   EngineRuntime,
   OrbitCamera,
   FollowCamera,
