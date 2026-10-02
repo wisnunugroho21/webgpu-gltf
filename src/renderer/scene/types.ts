@@ -75,3 +75,6 @@ export interface PoseDraw {
   mirrored: GPURenderPipeline;
   worldRevision: number;
 }
+/** Prepared model draw data before a world assigns global transform addresses.
+ * Private deformation buffers already exist; instance storage is bound only once. */
+export type SceneData = Omit<Scene, 'resources' | 'transformBuffer' | 'instances'>;

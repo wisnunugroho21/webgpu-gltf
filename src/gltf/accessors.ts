@@ -47,7 +47,10 @@ function source(
   const view = asset.gltf.bufferViews?.[viewIndex];
   if (
     !view ||
-    !Number.isInteger(offset) ||
+    !Number.isSafeInteger(view.byteOffset ?? 0) ||
+    (view.byteOffset ?? 0) < 0 ||
+    !Number.isSafeInteger(view.byteLength) ||
+    !Number.isSafeInteger(offset) ||
     offset < 0 ||
     offset + (count ? (count - 1) * stride + elementSize : 0) > view.byteLength
   )

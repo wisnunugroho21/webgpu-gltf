@@ -3,9 +3,10 @@ import type { World } from '../../engine/world';
 import { Pose } from '../../scene/pose';
 import { PunctualLights, maxPunctualLights } from '../../scene/lights';
 import { instanceFloatCount, type SceneBindings } from '../core/bindings';
-import { uploadBuffer, type Resources } from '../core/resources';
+import type { Resources } from '../core/resources';
 import type { SceneBuilder } from './builder';
-import type { Scene } from './types';
+import type { Scene, SceneData } from './types';
+import { bindSceneInstances } from './instance-binding';
 
 /** Rendering bridge only. glTF nodes remain model-local; entities and gameplay
  * data are never synthesized into, or serialized as, glTF nodes. Preparation owns
@@ -20,10 +21,10 @@ export async function prepareWorld(
   const structureRevision = world.structureRevision;
   world.updateTransforms();
   const models = world.modelInstances;
-  const parts: Scene[] = [];
+  const parts: SceneData[] = [];
   for (const model of models)
     parts.push(
-      await builder.prepare(model.asset, resources, { pose: model.pose, mutableRoot: true }),
+      await builder.prepareModel(model.asset, resources, { pose: model.pose, mutableRoot: true }),
     );
   if (world.structureRevision !== structureRevision)
     throw new Error('World structure changed during preparation.');
@@ -61,10 +62,16 @@ export async function prepareWorld(
     // Shared model pipelines/materials now recur across entities. Merge their draw
     // lists instead of replacing a previous entity's group under the same key.
     for (const [pipeline, group] of part.opaque) {
-      const combined = opaque.get(pipeline) ?? new Map();
-      for (const [material, draws] of group)
-        combined.set(material, [...(combined.get(material) ?? []), ...draws]);
-      opaque.set(pipeline, combined);
+      const combined = opaque.get(pipeline);
+      if (!combined) {
+        opaque.set(pipeline, group);
+        continue;
+      }
+      for (const [material, draws] of group) {
+        const list = combined.get(material);
+        if (list) for (const draw of draws) list.push(draw);
+        else combined.set(material, draws);
+      }
     }
     vec3.min(min, min, part.min);
     vec3.max(max, max, part.max);
@@ -74,44 +81,37 @@ export async function prepareWorld(
     vec3.set(min, -1, -1, -1);
     vec3.set(max, 1, 1, 1);
   }
-  const transformBuffer = uploadBuffer(
+  return bindSceneInstances(
     device,
+    bindings,
     resources,
-    length ? transformData : new Float32Array(instanceFloatCount),
-    GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    {
+      pose: emptyPose,
+      lights,
+      transformData,
+      updates: parts.flatMap((part) => part.updates),
+      pendingDeformations: [],
+      opaque,
+      transparent: parts.flatMap((part) => part.transparent),
+      visibleTransparent: [],
+      transmission: parts.flatMap((part) => part.transmission),
+      visibleTransmission: [],
+      draws: parts.flatMap((part) => part.draws),
+      min,
+      max,
+      stats: {
+        pipelines: new Set(
+          parts.flatMap((part) => [
+            ...part.opaque.keys(),
+            ...part.transparent.map((draw) => draw.pipeline),
+            ...part.transmission.map((draw) => draw.pipeline),
+          ]),
+        ).size,
+        draws: parts.reduce((n, part) => n + part.stats.draws, 0),
+        instances: parts.reduce((n, part) => n + part.stats.instances, 0),
+      },
+      world: { source: world, models, structureRevision, poseRevision: -1 },
+    },
     'World model instances',
   );
-  return {
-    pose: emptyPose,
-    lights,
-    resources,
-    transformData,
-    transformBuffer,
-    instances: device.createBindGroup({
-      layout: bindings.instances,
-      entries: [{ binding: 0, resource: { buffer: transformBuffer } }],
-    }),
-    updates: parts.flatMap((part) => part.updates),
-    pendingDeformations: [],
-    opaque,
-    transparent: parts.flatMap((part) => part.transparent),
-    visibleTransparent: [],
-    transmission: parts.flatMap((part) => part.transmission),
-    visibleTransmission: [],
-    draws: parts.flatMap((part) => part.draws),
-    min,
-    max,
-    stats: {
-      pipelines: new Set(
-        parts.flatMap((part) => [
-          ...part.opaque.keys(),
-          ...part.transparent.map((draw) => draw.pipeline),
-          ...part.transmission.map((draw) => draw.pipeline),
-        ]),
-      ).size,
-      draws: parts.reduce((n, part) => n + part.stats.draws, 0),
-      instances: parts.reduce((n, part) => n + part.stats.instances, 0),
-    },
-    world: { source: world, models, structureRevision, poseRevision: -1 },
-  };
 }

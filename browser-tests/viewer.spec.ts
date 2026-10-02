@@ -209,6 +209,45 @@ test('textured glTF exercises missing attributes, mask/blend, colors, mirroring 
   expect(errors).toEqual([]);
 });
 
+test('invalid and relative model URLs use the recoverable viewer loading path', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/');
+  await expect(page.locator('#stats')).toContainText('4 primitive instances');
+  const original = await page.locator('#stats').textContent();
+  await page.locator('#url').fill('http://[');
+  // Native URL input validation can prevent the submit event; explicitly exercise
+  // the listener to verify its own error boundary as well.
+  await page
+    .locator('#url-form')
+    .evaluate((form) =>
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+  await expect(page.locator('#status')).toContainText('Invalid URL');
+  await expect(page.locator('#stats')).toHaveText(original!);
+  await expect(page.locator('#url-form button')).toBeEnabled();
+  await page.route('**/relative.gltf', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        asset: { version: '2.0' },
+        extensionsRequired: ['TEST_unsupported_extension'],
+      }),
+    }),
+  );
+  await page.locator('#url').fill('relative.gltf');
+  await page
+    .locator('#url-form')
+    .evaluate((form) =>
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+  await expect(page.locator('#status')).toContainText('Required extensions are unsupported');
+  await expect(page.locator('#stats')).toHaveText(original!);
+  expect(errors).toEqual([]);
+});
+
 test('local GLB loads and a rejected replacement keeps the current scene', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');

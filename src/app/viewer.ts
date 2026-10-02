@@ -104,9 +104,15 @@ export class Viewer {
     element('url-form').addEventListener('submit', (event) => {
       event.preventDefault();
       const url = element<HTMLInputElement>('url').value;
+      // Naming is cosmetic. Invalid URLs must reach load()'s recoverable error
+      // path instead of throwing synchronously from the event listener.
+      let name = 'Remote model';
+      try {
+        name = new URL(url, location.href).pathname.split('/').pop() || name;
+      } catch {}
       void this.show(
         () => loadUrl(url, { textureCompression: this.renderer!.textureCompression }),
-        new URL(url).pathname.split('/').pop() || 'Remote model',
+        name,
       );
     });
   }

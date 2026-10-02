@@ -42,7 +42,7 @@ Each preparation acquires a lease attached to its scene `Resources`. The model's
 
 There is no permanent unused-asset GPU cache. Removing an entity from `World` requires the existing explicit `await renderer.setWorld(world)` commit before the attached scene releases it. CPU assets remain in `ModelLibrary` for future instantiation. Renderer disposal releases the active scene and its leases; pending failed preparation also releases allocations created asynchronously after disposal.
 
-Opaque grouping merges draw lists when shared pipeline/material objects recur across entities. Global transform indices and model-local pose ownership remain distinct. The pose-upload → compute → shadow → render phases are unchanged; visibility never suppresses required deformation/shadow updates.
+`SceneBuilder.prepareModel()` returns draw data before final instance binding. World composition assigns global indices and allocates one transform buffer, avoiding unused per-model buffers. Opaque grouping appends draw references when shared pipeline/material objects recur across entities. Global transform indices and model-local pose ownership remain distinct. The pose-upload → compute → shadow → render phases are unchanged; visibility never suppresses required deformation/shadow updates.
 
 ## Verification
 

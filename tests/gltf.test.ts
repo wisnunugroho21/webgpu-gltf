@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { demoAsset } from '../src/app/demo';
 import { decodeAccessor } from '../src/gltf/accessors';
 import { prepareGeometry } from '../src/gltf/geometry';
-import { parseGlb } from '../src/gltf/loader';
+import { parseGlb, loadFiles } from '../src/gltf/loader';
 import { collectInstances } from '../src/gltf/scene';
 import type { Asset } from '../src/gltf/types';
 import { pipelineArgs } from '../src/renderer/render/pipelines';
@@ -95,6 +95,18 @@ describe('WebGPU vertex layout preparation', () => {
 });
 
 describe('accessor decoding', () => {
+  it('rejects fractional bufferView metadata instead of truncating byte addresses', async () => {
+    for (const metadata of [{ byteOffset: 0.5 }, { byteLength: 11.5 }]) {
+      const asset = packedAsset(new Float32Array(9), [0]);
+      Object.assign(asset.gltf.bufferViews![0], metadata);
+      expect(() => decodeAccessor(asset, asset.gltf.accessors![0])).toThrow('bufferView');
+      asset.gltf.buffers = [
+        { byteLength: 36, uri: 'data:application/octet-stream;base64,' + 'AAAA'.repeat(12) },
+      ];
+      const file = new File([JSON.stringify(asset.gltf)], 'invalid.gltf');
+      await expect(loadFiles([file])).rejects.toThrow('bufferView 0');
+    }
+  });
   it('applies normalized sparse values to a zero-initialized accessor', () => {
     const asset: Asset = {
       buffers: [new Uint8Array([1, 0, 0, 0, 255, 128, 0, 255]).buffer],

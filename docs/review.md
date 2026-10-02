@@ -1,5 +1,7 @@
 # Code review — October 1, 2026
 
+For the current engine/resource/transform audit, see the [October 2 follow-up](review-2026-10-02.md). This document preserves the earlier findings and verification results.
+
 The project has a sound foundation and useful regression coverage. Asset decoding, CPU animation/poses, GPU preparation, pass encoding and browser controls already have distinct responsibilities. A second wholesale restructuring would mostly move files and destabilize internal imports. Focused changes to lifecycle handling, validation and frame coordination deliver more practical value.
 
 This review inspected source modules, shaders, tests, decoder workers, build configuration and documentation, then ran CPU and real-WebGPU checks. It does not establish complete glTF conformance or performance across every GPU. Browser results below use the installed Microsoft Edge and available local WebGPU adapter.

@@ -106,7 +106,15 @@ test('entities render independent multi-node models with root transforms, shadow
         }
     };
     try {
+      const instanceAllocations: { label: string; size: number }[] = [];
+      const createBuffer = device.createBuffer.bind(device);
+      device.createBuffer = (descriptor) => {
+        if (['Static scene instances', 'World model instances'].includes(descriptor.label ?? ''))
+          instanceAllocations.push({ label: descriptor.label!, size: descriptor.size });
+        return createBuffer(descriptor);
+      };
       const stats = await renderer.setWorld(world);
+      device.createBuffer = createBuffer;
       const sharedClips =
         player.model!.resources === npc.model!.resources &&
         player.model!.pose.clips === npc.model!.pose.clips;
@@ -269,6 +277,7 @@ test('entities render independent multi-node models with root transforms, shadow
       await frame();
       return {
         stats,
+        instanceAllocations,
         sharedInputs,
         sharedClips,
         independentOutputs,
@@ -306,6 +315,7 @@ test('entities render independent multi-node models with root transforms, shadow
   });
   expect(result.errors).toEqual([]);
   expect(result.stats.instances).toBe(8);
+  expect(result.instanceAllocations).toEqual([{ label: 'World model instances', size: 1024 }]);
   expect(
     result.sharedClips &&
       result.sharedInputs &&

@@ -6,7 +6,7 @@ import { PunctualLights } from '../../scene/lights';
 import { Deformation } from '../../scene/deformation';
 import { type GpuMaterial } from '../materials/factory';
 import { pipelineArgs } from '../render/pipelines';
-import { Resources, ResourceCache, uploadBuffer } from '../core/resources';
+import { Resources, ResourceCache } from '../core/resources';
 import { SceneBindings, instanceFloatCount } from '../core/bindings';
 import { DeformationCompute } from '../deformation/compute';
 import { GpuDeformation } from '../deformation/instance';
@@ -16,10 +16,17 @@ import { textureCoordinates } from '../../gltf/texture-coordinates';
 import { MipmapGenerator } from '../textures/mipmaps';
 import { type SceneSampleCount } from '../presentation/output';
 import { createBounds, transformBounds, type Bounds } from './frustum';
-import type { Draw, PoseDraw, Scene } from './types';
+import type { Draw, PoseDraw, Scene, SceneData } from './types';
 import type { TransparencyMode } from '../render/transparency';
 
 import { ModelResources } from './model-resources';
+import { bindSceneInstances } from './instance-binding';
+
+interface ModelOptions {
+  pose?: Pose;
+  mutableRoot?: boolean;
+  movableNodes?: readonly number[];
+}
 
 /** Load-time bridge: acquire shared model resources, then prepare independent pose/output state. */
 export class SceneBuilder {
@@ -33,11 +40,22 @@ export class SceneBuilder {
     private transparency: TransparencyMode = 'sorted',
   ) {}
 
-  async prepare(
+  async prepare(asset: Asset, resources: Resources, options: ModelOptions = {}): Promise<Scene> {
+    const data = await this.prepareModel(asset, resources, options);
+    return bindSceneInstances(
+      this.device,
+      this.bindings,
+      resources,
+      data,
+      'Static scene instances',
+    );
+  }
+
+  async prepareModel(
     asset: Asset,
     resources: Resources,
-    options: { pose?: Pose; mutableRoot?: boolean; movableNodes?: readonly number[] } = {},
-  ): Promise<Scene> {
+    options: ModelOptions = {},
+  ): Promise<SceneData> {
     const movableNodes = new Set<number>();
     const mark = (index: number) => {
       if (!Number.isInteger(index) || !asset.gltf.nodes?.[index])
@@ -245,17 +263,6 @@ export class SceneBuilder {
     if (transforms.length * 4 > this.device.limits.maxStorageBufferBindingSize)
       throw new Error('Scene transforms exceed this device’s storage-buffer binding limit.');
     const transformData = new Float32Array(transforms);
-    const buffer = uploadBuffer(
-      this.device,
-      resources,
-      transformData,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      'Static scene instances',
-    );
-    const bindGroup = this.device.createBindGroup({
-      layout: this.bindings.instances,
-      entries: [{ binding: 0, resource: { buffer } }],
-    });
     return {
       lights,
       pose,
@@ -264,9 +271,6 @@ export class SceneBuilder {
       updates,
       pendingDeformations: [],
       transformData,
-      transformBuffer: buffer,
-      resources,
-      instances: bindGroup,
       opaque,
       transparent,
       visibleTransparent: [],

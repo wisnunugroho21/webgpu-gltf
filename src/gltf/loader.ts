@@ -120,6 +120,8 @@ async function load(data: ArrayBuffer, resolve: Resolve, options: LoadOptions): 
     for (const [index, view] of (gltf.bufferViews ?? []).entries()) {
       if (
         !buffers[view.buffer] ||
+        !Number.isSafeInteger(view.byteOffset ?? 0) ||
+        !Number.isSafeInteger(view.byteLength) ||
         (view.byteOffset ?? 0) < 0 ||
         view.byteLength < 0 ||
         (view.byteOffset ?? 0) + view.byteLength > buffers[view.buffer].byteLength
