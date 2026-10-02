@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-02T09:11:02.158Z",
+  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+  "scope": "Warm removal candidates, 5 warmups + 25 CPU samples, 8 opaque primitives/model. No commit, rendering, GPU completion waits or new model allocation. Composition includes current bounds, light selection, draw lists and pipeline statistics. Timings are CPU wall time and include GC; p95 is descriptive, not a CI threshold.",
+  "rows": [
+    {
+      "count": 128,
+      "primitivesPerModel": 8,
+      "samples": 25,
+      "phases": {
+        "membershipMs": {
+          "median": 0,
+          "p95": 0.10000000149011612
+        },
+        "acquisitionMs": {
+          "median": 0,
+          "p95": 0
+        },
+        "compositionMs": {
+          "median": 0.20000000298023224,
+          "p95": 1
+        },
+        "transformsMs": {
+          "median": 0,
+          "p95": 0.10000000149011612
+        },
+        "bindingMs": {
+          "median": 0,
+          "p95": 0
+        }
+      },
+      "totalMs": {
+        "median": 0.29999999701976776,
+        "p95": 1
+      },
+      "errors": [],
+      "device": {
+        "vendor": "intel",
+        "architecture": "gen-12lp"
+      }
+    },
+    {
+      "count": 512,
+      "primitivesPerModel": 8,
+      "samples": 25,
+      "phases": {
+        "membershipMs": {
+          "median": 0.10000000149011612,
+          "p95": 0.20000000298023224
+        },
+        "acquisitionMs": {
+          "median": 0,
+          "p95": 0.19999999552965164
+        },
+        "compositionMs": {
+          "median": 0.7000000029802322,
+          "p95": 1.6999999955296516
+        },
+        "transformsMs": {
+          "median": 0.10000000149011612,
+          "p95": 0.29999999701976776
+        },
+        "bindingMs": {
+          "median": 0,
+          "p95": 0
+        }
+      },
+      "totalMs": {
+        "median": 1,
+        "p95": 2.2999999970197678
+      },
+      "errors": [],
+      "device": {
+        "vendor": "intel",
+        "architecture": "gen-12lp"
+      }
+    },
+    {
+      "count": 2048,
+      "primitivesPerModel": 8,
+      "samples": 25,
+      "phases": {
+        "membershipMs": {
+          "median": 0.29999999701976776,
+          "p95": 0.30000000447034836
+        },
+        "acquisitionMs": {
+          "median": 0.10000000149011612,
+          "p95": 0.29999999701976776
+        },
+        "compositionMs": {
+          "median": 2.8000000044703484,
+          "p95": 3.9000000059604645
+        },
+        "transformsMs": {
+          "median": 0.3999999985098839,
+          "p95": 4.700000002980232
+        },
+        "bindingMs": {
+          "median": 0,
+          "p95": 0
+        }
+      },
+      "totalMs": {
+        "median": 3.600000001490116,
+        "p95": 8.399999998509884
+      },
+      "errors": [],
+      "device": {
+        "vendor": "intel",
+        "architecture": "gen-12lp"
+      }
+    }
+  ]
+}

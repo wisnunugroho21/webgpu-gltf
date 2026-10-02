@@ -185,3 +185,7 @@ Startup registers page-exit cancellation before its first await. Every acquired 
 ## Hierarchy primitives
 
 `gltf/hierarchy.ts` provides complete indexed-forest validation for decoding/Pose and a separate selected-scene walker for mesh/light membership. `scene/hierarchy.ts` provides cycle-tolerant descendant set expansion for sparse poses and staged entity deletion. Entity parent-chain validation and cached subtree ranges remain in `engine/world/`; transform evaluation and scene-root diagnostics remain with their callers. See [hierarchy semantics and ownership](hierarchy-primitives.md). No helper merges selected membership with all-node validation or replaces final transactional validation with reachability.
+
+## World composition ownership
+
+`renderer/scene/world-builder.ts` stages membership, leases, slots, transform storage and commit-only uploads. `world-composition.ts` owns CPU structural draw lists/buckets and per-model prepared pipeline summaries; its `WorldComposition` contract in scene types avoids an implementation dependency cycle. Candidates reuse unaffected lists without mutating active structure, reread live bounds/winding, and allocate independent frame scratch. GPU resources remain owned by model/binding leases, and cache metadata lives only with its scene. See [profiling and cache contracts](world-composition.md).

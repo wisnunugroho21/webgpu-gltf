@@ -62,6 +62,7 @@ export interface Scene {
     structureRevision: number;
     uploadedPoseRevisions?: number[];
     parts: ReadonlyMap<ModelInstance, WorldRenderPart>;
+    composition: WorldComposition;
     slots: InstanceSlots;
     binding: WorldInstanceBinding;
     /** Commit-only writes to free/reclaimed ranges of a retained binding. */
@@ -99,3 +100,9 @@ export interface WorldInstanceBinding {
 /** Prepared model draw data before a world assigns global transform addresses.
  * Private deformation buffers already exist; instance storage is bound only once. */
 export type SceneData = Omit<Scene, 'resources' | 'transformBuffer' | 'instances'>;
+
+/** CPU cache contract keeps scene types independent of its implementation. */
+export interface WorldComposition {
+  next(parts: readonly SceneData[]): WorldComposition;
+  sceneData(transformData: Float32Array): SceneData;
+}

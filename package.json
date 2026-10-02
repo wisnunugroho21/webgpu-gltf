@@ -18,6 +18,7 @@
     "test:browser:remote": "node scripts/run-browser-tests.mjs remote",
     "bench:migration": "playwright test --config playwright.benchmark.config.ts migration.spec.ts",
     "bench:hierarchy": "playwright test --config playwright.benchmark.config.ts hierarchy.spec.ts",
+    "bench:composition": "playwright test --config playwright.benchmark.config.ts world-composition.spec.ts",
     "bench:membership": "playwright test --config playwright.benchmark.config.ts membership.spec.ts",
     "bench:playable": "playwright test --config playwright.benchmark.config.ts playable-scale.spec.ts"
   },
