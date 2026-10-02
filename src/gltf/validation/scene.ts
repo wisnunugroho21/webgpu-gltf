@@ -3,6 +3,7 @@ import { AssetBudget, checkLimit } from '../limits';
 import { components } from '../accessors';
 import { quantizedAttribute } from '../quantization';
 import { array, object, ref, vector, integer } from './fields';
+import { buildNodeForest } from '../hierarchy';
 
 export function validateSceneMetadata(gltf: Gltf, budget: AssetBudget): number {
   let primitiveCount = 0,
@@ -114,8 +115,7 @@ export function validateSceneMetadata(gltf: Gltf, budget: AssetBudget): number {
       }
     });
   budget.at('meshes', () => checkLimit(primitiveCount, budget.limits.maxDefinitions, 'primitives'));
-  const nodes = gltf.nodes ?? [],
-    parents = new Int32Array(nodes.length).fill(-1);
+  const nodes = gltf.nodes ?? [];
   let poseValues = 0;
   for (const [i, node] of nodes.entries())
     budget.at(`nodes[${i}]`, () => {
@@ -140,27 +140,20 @@ export function validateSceneMetadata(gltf: Gltf, budget: AssetBudget): number {
         throw new Error('Zero-length rotation.');
       if (node.weights !== undefined)
         vector(node.weights, gltf.meshes?.[node.mesh!]?.primitives[0]?.targets?.length ?? 0);
-      if (node.children !== undefined) {
-        array(node.children);
-        for (const child of node.children) {
-          ref(child, nodes);
-          if (parents[child] !== -1) throw new Error('Node has multiple parents.');
-          parents[child] = i;
-        }
-      }
     });
-  // Kahn traversal validates every node, including nodes outside the selected scene.
-  const pending = nodes.map((_, i) => i).filter((i) => parents[i] === -1);
-  let visited = 0;
-  while (pending.length) {
-    const index = pending.pop()!;
-    visited++;
-    for (const child of nodes[index].children ?? []) pending.push(child);
-  }
-  if (visited !== nodes.length)
-    budget.at('nodes', () => {
-      throw new Error('Node hierarchy contains a cycle.');
-    });
+  const { parents } = buildNodeForest(nodes, (issue) =>
+    budget.at(issue.parent === undefined ? 'nodes' : `nodes[${issue.parent}].children`, () => {
+      const detail =
+        issue.kind === 'cycle'
+          ? 'Node hierarchy contains a cycle.'
+          : issue.kind === 'multiple-parent'
+            ? 'Node has multiple parents.'
+            : issue.kind === 'children'
+              ? 'Expected an array.'
+              : 'Missing or invalid referenced node index.';
+      throw new Error(detail);
+    }),
+  );
   for (const [i, scene] of (gltf.scenes ?? []).entries())
     budget.at(`scenes[${i}].nodes`, () => {
       if (scene.nodes === undefined) return;

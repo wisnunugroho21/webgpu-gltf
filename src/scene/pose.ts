@@ -1,5 +1,7 @@
 import { mat4, quat, type ReadonlyMat4 } from 'gl-matrix';
 import type { Asset } from '../gltf/types';
+import { buildNodeForest } from '../gltf/hierarchy';
+import { descendantClosure } from './hierarchy';
 import { prepareClips, type Clip } from '../animation/tracks';
 import { PoseMixer, clonePose, type BlendSample } from '../animation/blending';
 import { transformData, type TransformData, type TransformField } from './transform';
@@ -17,7 +19,7 @@ export class Pose {
     worldRevision: number;
     weightsRevision: number;
   }[];
-  private parents: number[];
+  private parents: Int32Array;
   private order: number[] = [];
   private defaults: {
     translation: number[];
@@ -60,6 +62,13 @@ export class Pose {
     // arrays and revision counters below are still allocated for this pose alone.
     this.clips = clips ?? prepareClips(asset);
     const nodes = asset.gltf.nodes ?? [];
+    const forest = buildNodeForest(nodes, (issue) => {
+      throw new Error(
+        issue.kind === 'cycle' ? 'Cycle in node hierarchy.' : 'Invalid node hierarchy.',
+      );
+    });
+    this.parents = forest.parents;
+    this.order = forest.order;
     this.defaults = nodes.map((node) => {
       const mesh = asset.gltf.meshes?.[node.mesh!];
       const count = mesh?.primitives[0].targets?.length ?? 0;
@@ -92,29 +101,6 @@ export class Pose {
     }));
     this.worldChanged = new Uint8Array(nodes.length);
     this.mixer = new PoseMixer(this.defaults, this.clips);
-    this.parents = nodes.map(() => -1);
-    nodes.forEach((node, parent) =>
-      node.children?.forEach((child) => {
-        if (!nodes[child] || this.parents[child] !== -1) throw new Error('Invalid node hierarchy.');
-        this.parents[child] = parent;
-      }),
-    );
-    const visited = new Set<number>();
-    // Imported model hierarchies can be deep even when the entity hierarchy is
-    // shallow. Use an explicit stack and preserve authored parent-first order.
-    const pending = nodes
-      .map((_, i) => i)
-      .filter((i) => this.parents[i] === -1)
-      .reverse();
-    while (pending.length) {
-      const index = pending.pop()!;
-      if (visited.has(index)) throw new Error('Cycle in node hierarchy.');
-      visited.add(index);
-      this.order.push(index);
-      const children = nodes[index].children ?? [];
-      for (let i = children.length - 1; i >= 0; i--) pending.push(children[i]);
-    }
-    if (visited.size !== nodes.length) throw new Error('Cycle in node hierarchy.');
     this.rank = nodes.map(() => 0);
     this.order.forEach((node, rank) => (this.rank[node] = rank));
     this.animatedWorld = new Uint8Array(nodes.length);
@@ -313,15 +299,11 @@ export class Pose {
       }
       this.selected = [...new Set([...active, ...this.previousTargets])];
       const affected = new Set(this.selected);
-      const expanded = new Set<number>();
-      const pending = [...new Set([...worldTargets, ...this.previousWorldTargets])];
-      while (pending.length) {
-        const index = pending.pop()!;
-        if (expanded.has(index)) continue;
-        expanded.add(index);
+      for (const index of descendantClosure(
+        new Set([...worldTargets, ...this.previousWorldTargets]),
+        (index) => this.asset.gltf.nodes![index].children ?? [],
+      ))
         affected.add(index);
-        for (const child of this.asset.gltf.nodes![index].children ?? []) pending.push(child);
-      }
       this.candidates = this.initialized
         ? [...affected].sort((a, b) => this.rank[a] - this.rank[b])
         : this.order;

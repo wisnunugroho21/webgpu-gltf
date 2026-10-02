@@ -181,3 +181,7 @@ Startup registers page-exit cancellation before its first await. Every acquired 
 ## CPU decoding boundary
 
 `gltf/loader.ts` owns one per-load policy/budget; `transport.ts` bounds streaming/file reads and `validation/` separates accessor, scene, material, animation and payload checks. Compressed geometry and image headers are checked before output allocation, and the asset is returned only after payload validation. The registry's existing cancellation and publication contracts remain unchanged. See [asset validation](asset-validation.md) for limits, diagnostics and memory-accounting boundaries.
+
+## Hierarchy primitives
+
+`gltf/hierarchy.ts` provides complete indexed-forest validation for decoding/Pose and a separate selected-scene walker for mesh/light membership. `scene/hierarchy.ts` provides cycle-tolerant descendant set expansion for sparse poses and staged entity deletion. Entity parent-chain validation and cached subtree ranges remain in `engine/world/`; transform evaluation and scene-root diagnostics remain with their callers. See [hierarchy semantics and ownership](hierarchy-primitives.md). No helper merges selected membership with all-node validation or replaces final transactional validation with reachability.

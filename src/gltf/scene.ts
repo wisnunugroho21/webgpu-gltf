@@ -1,5 +1,6 @@
 import { mat4, quat, vec3 } from 'gl-matrix';
 import type { Gltf, Primitive } from './types';
+import { walkSelectedScene } from './hierarchy';
 
 export interface Instance {
   node: number;
@@ -8,32 +9,12 @@ export interface Instance {
   mirrored: boolean;
 }
 
-function sceneRoots(gltf: Gltf): number[] {
-  const nodes = gltf.nodes ?? [];
-  const scene = gltf.scenes?.[gltf.scene ?? 0];
-  if (gltf.scenes?.length && !scene) throw new Error('Invalid default scene.');
-  const children = new Set(nodes.flatMap((node) => node.children ?? []));
-  return (
-    scene?.nodes ??
-    (gltf.scenes?.length ? [] : nodes.map((_, i) => i).filter((i) => !children.has(i)))
-  );
-}
-
 /** Lights and meshes must use exactly the same selected-scene membership rules. */
 export function selectedSceneNodes(gltf: Gltf): number[] {
-  const result: number[] = [],
-    visited = new Set<number>();
-  const pending = sceneRoots(gltf).slice().reverse();
-  while (pending.length) {
-    const index = pending.pop()!;
-    const node = gltf.nodes?.[index];
-    if (!node || visited.has(index))
-      throw new Error('Scene has an invalid node, cycle, or multiple parents.');
-    visited.add(index);
+  const result: number[] = [];
+  walkSelectedScene(gltf, undefined, (index) => {
     result.push(index);
-    const children = node.children ?? [];
-    for (let i = children.length - 1; i >= 0; i--) pending.push(children[i]);
-  }
+  });
   return result;
 }
 
@@ -41,18 +22,9 @@ export function selectedSceneNodes(gltf: Gltf): number[] {
  * Mesh references, rather than geometry copies, become primitive instance lists. */
 export function collectInstances(gltf: Gltf): Map<Primitive, Instance[]> {
   const nodes = gltf.nodes ?? [];
-  const roots = sceneRoots(gltf);
   const result = new Map<Primitive, Instance[]>();
-  const visited = new Set<number>();
-  // Each stack entry retains the accumulated parent transform; no JS call-stack
-  // depth is consumed, and reverse pushes preserve authored traversal order.
-  const pending = roots.map((index) => ({ index, parent: mat4.create() })).reverse();
-  while (pending.length) {
-    const { index, parent } = pending.pop()!;
+  walkSelectedScene(gltf, mat4.create(), (index, parent) => {
     const node = nodes[index];
-    if (!node || visited.has(index))
-      throw new Error('Scene has an invalid node, cycle, or multiple parents.');
-    visited.add(index);
     const local = node.matrix
       ? mat4.clone(node.matrix as mat4)
       : mat4.fromRotationTranslationScale(
@@ -78,9 +50,7 @@ export function collectInstances(gltf: Gltf): Map<Primitive, Instance[]> {
         result.set(primitive, list);
       }
     }
-    const children = node.children ?? [];
-    for (let i = children.length - 1; i >= 0; i--)
-      pending.push({ index: children[i], parent: world });
-  }
+    return world;
+  });
   return result;
 }

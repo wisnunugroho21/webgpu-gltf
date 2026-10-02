@@ -1,5 +1,6 @@
 import type { Entity } from './entity';
 import { validateParents } from './validation';
+import { descendantClosure } from '../../scene/hierarchy';
 
 export interface HierarchyEntry {
   entity: Entity;
@@ -84,15 +85,9 @@ export class EntityHierarchy {
   }
   removeSubtree(id: string): Entity[] {
     this.get(id);
-    const ids = new Set<string>();
-    const stack = [id];
-    while (stack.length) {
-      const current = stack.pop()!;
-      // Staged batches can contain intermediate cycles; destruction still terminates.
-      if (ids.has(current)) continue;
-      ids.add(current);
-      for (const child of this.children.get(current) ?? []) stack.push(child);
-    }
+    // Staged batches may have intermediate cycles; expansion must terminate
+    // without interpreting that temporary topology as a validated forest.
+    const ids = descendantClosure([id], (current) => this.children.get(current) ?? []);
     const removed: Entity[] = [];
     for (const current of ids) {
       removed.push(this.get(current));
