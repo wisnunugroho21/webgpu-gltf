@@ -2,11 +2,12 @@ import type { mat4, vec3 } from 'gl-matrix';
 import type { Pose } from '../../scene/pose';
 import type { GpuDeformation } from '../deformation/instance';
 import type { GpuMaterial } from '../materials/factory';
-import type { Resources } from '../core/resources';
+import type { SharedResources, Resources } from '../core/resources';
 import type { Bounds } from './frustum';
 import type { SceneLights } from '../../scene/lights';
 import type { World } from '../../engine/world';
 import type { ModelInstance } from '../../engine/model';
+import type { InstanceSlots, RenderInstanceHandle } from '../../engine/rendering/instance-slots';
 
 export interface Draw {
   pipeline: GPURenderPipeline;
@@ -59,6 +60,11 @@ export interface Scene {
     models: readonly ModelInstance[];
     structureRevision: number;
     uploadedPoseRevisions?: number[];
+    parts: ReadonlyMap<ModelInstance, WorldRenderPart>;
+    slots: InstanceSlots;
+    binding: WorldInstanceBinding;
+    /** Commit-only writes to free/reclaimed ranges of a retained binding. */
+    activate?: () => void;
   };
   min: vec3;
   max: vec3;
@@ -75,6 +81,18 @@ export interface PoseDraw {
   mirrored: GPURenderPipeline;
   worldRevision: number;
 }
+export interface WorldRenderPart {
+  readonly handle: RenderInstanceHandle;
+  readonly data: SceneData;
+  readonly lifetime: SharedResources;
+}
+export interface WorldInstanceBinding {
+  readonly capacity: number;
+  readonly buffer: GPUBuffer;
+  readonly group: GPUBindGroup;
+  readonly lifetime: SharedResources;
+}
+
 /** Prepared model draw data before a world assigns global transform addresses.
  * Private deformation buffers already exist; instance storage is bound only once. */
 export type SceneData = Omit<Scene, 'resources' | 'transformBuffer' | 'instances'>;

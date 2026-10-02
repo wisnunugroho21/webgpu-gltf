@@ -22,3 +22,5 @@ export {
   type JsonValue,
 } from './scene-document';
 export type { TransformField } from '../scene/transform';
+
+export type { RenderInstanceHandle } from './rendering/instance-slots';

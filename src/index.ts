@@ -57,3 +57,5 @@ export {
   type EntityTransformOwner,
   type JsonValue,
 } from './engine';
+
+export type { RenderInstanceHandle } from './engine/rendering/instance-slots';

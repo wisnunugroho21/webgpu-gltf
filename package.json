@@ -17,7 +17,8 @@
     "test:browser:offline": "node scripts/run-browser-tests.mjs offline",
     "test:browser:remote": "node scripts/run-browser-tests.mjs remote",
     "bench:migration": "playwright test --config playwright.benchmark.config.ts migration.spec.ts",
-    "bench:hierarchy": "playwright test --config playwright.benchmark.config.ts hierarchy.spec.ts"
+    "bench:hierarchy": "playwright test --config playwright.benchmark.config.ts hierarchy.spec.ts",
+    "bench:membership": "playwright test --config playwright.benchmark.config.ts membership.spec.ts"
   },
   "dependencies": {
     "gl-matrix": "^3.4.4",

@@ -17,6 +17,8 @@ import type { Scene, FrameStats, SceneStats } from './scene/types';
 import { SceneBuilder } from './scene/builder';
 import { prepareWorld } from './scene/world-builder';
 import type { World } from '../engine/world';
+import type { ModelInstance } from '../engine/model';
+import type { RenderInstanceHandle } from '../engine/rendering/instance-slots';
 import { uploadPose } from './scene/pose-upload';
 import { SceneVisibility } from './scene/visibility';
 import { OcclusionCulling } from './scene/occlusion';
@@ -324,11 +326,23 @@ export class Renderer {
   }
 
   /** Attach an engine world without merging its entities into glTF node definitions.
-   * Spawn/destroy changes require another atomic preparation; transforms update per frame. */
+   * Same-world calls synchronize membership without recreating surviving instances. */
   async setWorld(world: World): Promise<SceneStats> {
     return this.replaceScene((resources) =>
-      prepareWorld(this.device, this.bindings, this.builder, world, resources),
+      prepareWorld(this.device, this.bindings, this.builder, world, resources, this.scene),
     );
+  }
+
+  /** Immutable attachment-local handle; its address survives membership commits.
+   * Removed instances return undefined, and a reused range receives a new identity. */
+  getRenderInstanceHandle(model: ModelInstance): RenderInstanceHandle | undefined {
+    return this.disposed ? undefined : this.scene?.world?.parts.get(model)?.handle;
+  }
+
+  /** Explicit engine membership boundary. Requests are serialized with all device
+   * preparation; rendering remains independent of gameplay/physics evaluation. */
+  async syncWorld(world: World): Promise<SceneStats> {
+    return this.setWorld(world);
   }
 
   private async replaceScene(
@@ -351,9 +365,18 @@ export class Renderer {
           )
             throw new Error('World structure changed during preparation.');
           const previous = this.scene;
+          if (previous === candidate) {
+            committed = true;
+            resources.destroy();
+            return candidate.stats;
+          }
+          const incremental = previous?.world && previous.world.source === candidate.world?.source;
+          candidate.world?.activate?.();
+          if (candidate.world) delete candidate.world.activate;
           this.scene = candidate;
           committed = true;
-          if (candidate.stats.instances) this.camera.frame(candidate.min, candidate.max);
+          if (!incremental && candidate.stats.instances)
+            this.camera.frame(candidate.min, candidate.max);
           this.occlusion.invalidate();
           previous?.resources.destroy();
           // Notify only after the valid scene is committed and old resources released.

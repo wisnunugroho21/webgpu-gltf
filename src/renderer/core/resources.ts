@@ -51,6 +51,24 @@ export class ResourceCache<K, T> {
   }
 }
 
+/** Retain private instance or binding allocations across transactional scene shells.
+ * Each candidate owns a lease; destroying a failed candidate releases only its lease. */
+export class SharedResources {
+  readonly resources = new Resources();
+  private users = 0;
+  private released = false;
+  retain(owner: Resources): void {
+    if (this.released) throw new Error('Cannot retain released resources.');
+    this.users++;
+    owner.defer(() => {
+      if (--this.users === 0) {
+        this.released = true;
+        this.resources.destroy();
+      }
+    });
+  }
+}
+
 export function uploadBuffer(
   device: GPUDevice,
   resources: Resources,

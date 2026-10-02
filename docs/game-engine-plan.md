@@ -6,7 +6,7 @@ Evolve the current renderer into a browser game engine through small, verified c
 
 This document combines implemented migration phases with the remaining plan. APIs, modules and systems in unfinished phases are proposals. The [current review](review-2026-10-02.md) records existing capabilities and verification.
 
-Phase 0 safeguards, Phase 1 engine-owned updates/cameras and Phase 2 scalable world hierarchy are implemented; see [engine runtime and cameras](engine-runtime.md) for the new update/render contract; see the [migration safeguards guide](migration-safeguards.md) for commands, CI provisioning and baseline measurements. See [world hierarchy](world-hierarchy.md) for Phase 2 APIs and measurements. Phases 3 onward remain proposed work.
+Phase 0 safeguards, Phase 1 engine-owned updates/cameras, Phase 2 scalable world hierarchy and Phase 3 retained rendering membership are implemented; see [engine runtime and cameras](engine-runtime.md) for the new update/render contract; see the [migration safeguards guide](migration-safeguards.md) for commands, CI provisioning and baseline measurements. See [world hierarchy](world-hierarchy.md) for Phase 2 APIs and measurements. See [retained rendering membership](rendering-membership.md) for Phase 3 synchronization and allocation measurements. Phases 4 onward remain proposed work.
 
 ## Architecture and ownership contract
 
@@ -122,4 +122,4 @@ Implement each phase as small reviewable changes. Preserve the viewer, shared im
 
 Use CPU tests for hierarchy, clocks, ownership, serialization and systems. Use real GPU tests for resource lifetime, deformed output, bindings, bounds/visibility and rendered appearance. Repeat relevant checks after changes; broaden testing when new behavior or failures justify it. Establish performance acceptance from measured baselines rather than arbitrary FPS targets.
 
-The next concrete implementation is **Phase 3: retain rendering instances across world changes**. Engine-owned evaluation/cameras and scalable entity hierarchy now provide its prerequisites. Complete incremental instance membership before introducing complex gameplay or streaming. No calendar estimate is assigned until the playable slice's assets, target devices and physics backend are agreed.
+The next concrete implementation is **Phase 4: asset and component services**. Engine-owned evaluation/cameras, scalable entity hierarchy and retained rendering membership now provide its prerequisites. Keep services driven by the first playable milestone before introducing complex gameplay or streaming. No calendar estimate is assigned until the playable slice's assets, target devices and physics backend are agreed.

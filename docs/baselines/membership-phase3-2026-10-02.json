@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-02T03:10:00.177Z",
+  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+  "scope": "One warm preparation sample per operation, including GPU validation scope completion. CPU world construction and GPU execution timing excluded. Requested allocation bytes are estimates, not physical VRAM. Full reference forces a new attachment with shared warm assets.",
+  "rows": [
+    {
+      "count": 128,
+      "growth": {
+        "mode": "incremental-grow",
+        "preparationMs": 0.8999999985098839,
+        "buffers": 9,
+        "requestedBytes": 66056,
+        "liveBytes": 133556,
+        "privateOutputs": 2,
+        "transformBindings": 1
+      },
+      "reuse": {
+        "mode": "incremental-reuse",
+        "preparationMs": 1,
+        "buffers": 8,
+        "requestedBytes": 520,
+        "liveBytes": 133556,
+        "privateOutputs": 2,
+        "transformBindings": 0
+      },
+      "full": {
+        "mode": "full-attachment-reference",
+        "preparationMs": 74.19999999925494,
+        "buffers": 1033,
+        "requestedBytes": 100104,
+        "liveBytes": 101044,
+        "privateOutputs": 258,
+        "transformBindings": 1
+      },
+      "retained": true,
+      "errors": [],
+      "liveBytesAfterDestroy": 0,
+      "device": {
+        "vendor": "intel",
+        "architecture": "gen-12lp"
+      }
+    },
+    {
+      "count": 512,
+      "growth": {
+        "mode": "incremental-grow",
+        "preparationMs": 1.300000000745058,
+        "buffers": 9,
+        "requestedBytes": 262664,
+        "liveBytes": 529844,
+        "privateOutputs": 2,
+        "transformBindings": 1
+      },
+      "reuse": {
+        "mode": "incremental-reuse",
+        "preparationMs": 1.199999999254942,
+        "buffers": 8,
+        "requestedBytes": 520,
+        "liveBytes": 529844,
+        "privateOutputs": 2,
+        "transformBindings": 0
+      },
+      "full": {
+        "mode": "full-attachment-reference",
+        "preparationMs": 274.3999999985099,
+        "buffers": 4105,
+        "requestedBytes": 398088,
+        "liveBytes": 399028,
+        "privateOutputs": 1026,
+        "transformBindings": 1
+      },
+      "retained": true,
+      "errors": [],
+      "liveBytesAfterDestroy": 0,
+      "device": {
+        "vendor": "intel",
+        "architecture": "gen-12lp"
+      }
+    }
+  ]
+}

@@ -45,7 +45,7 @@ Commands execute in order on a candidate graph. A destroy uses that candidate's 
 
 Batch staging copies the graph and validates it with a linear iterative parent-chain walk. It permits forward parent references and avoids repeating ancestor walks while loading an unordered scene. It uses O(N) temporary graph storage; this is a CPU topology transaction, not incremental GPU instance allocation.
 
-`hierarchyRevision` advances once per actual committed batch (or successful single topology edit). `structureRevision` advances only when entity membership changes. Reparenting changes topology without rebuilding GPU membership. After creating/destroying entities, evaluate roots and await `renderer.setWorld(world)` before submitting new membership. Pure transform/reparent changes need evaluation and rendering only. Incremental GPU membership remains Phase 3 work.
+`hierarchyRevision` advances once per actual committed batch (or successful single topology edit). `structureRevision` advances only when entity membership changes. Reparenting changes topology without rebuilding GPU membership. After creating/destroying entities, evaluate roots and await `renderer.setWorld(world)` before submitting new membership. Pure transform/reparent changes need evaluation and rendering only. Same-world `setWorld()` or `syncWorld()` now retain surviving render instances; see [Phase 3 membership](rendering-membership.md).
 
 ## Diagnostics and measurements
 
