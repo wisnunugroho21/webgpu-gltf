@@ -1,84 +1,31 @@
 import type { ComponentRegistry } from './components/registry';
-import { identifier, copyJson, type JsonValue } from './serialization/json';
+import { identifier } from './serialization/json';
 export { identifier, copyJson, type JsonValue } from './serialization/json';
 import { validateParents } from './world/validation';
-/** Engine scenes reference glTF models by stable asset IDs. Entity IDs are gameplay
- * identities and never glTF node indices. Components contain serializable data. */
-import { transformData, type TransformData } from '../scene/transform';
+import { expandAuthoringScene } from './serialization/prefabs';
+import {
+  record,
+  fields,
+  entityDefinition,
+  type EntityDefinition,
+} from './serialization/entity-definition';
+export {
+  entityDefinition,
+  transformOwner,
+  type EntityDefinition,
+  type EntityTransformOwner,
+} from './serialization/entity-definition';
 export { transformData, type TransformData } from '../scene/transform';
-export type EntityTransformOwner = 'gameplay' | 'physics';
-export function transformOwner(value: unknown): EntityTransformOwner {
-  if (value !== 'gameplay' && value !== 'physics')
-    throw new Error('Invalid entity transform owner.');
-  return value;
-}
-export interface EntityDefinition {
-  id: string;
-  name?: string;
-  parent?: string;
-  transform?: Partial<TransformData>;
-  transformOwner?: EntityTransformOwner;
-  model?: { asset: string };
-  components?: Record<string, JsonValue>;
-}
 export interface SceneDocument {
   version: 1;
   assets: Record<string, string>;
   entities: EntityDefinition[];
 }
 
-function record(value: unknown, label: string): Record<string, unknown> {
-  if (
-    !value ||
-    typeof value !== 'object' ||
-    Array.isArray(value) ||
-    ![Object.prototype, null].includes(Object.getPrototypeOf(value))
-  )
-    throw new Error(`${label} must be a JSON object.`);
-  return value as Record<string, unknown>;
-}
-function fields(value: Record<string, unknown>, allowed: string[], label: string): void {
-  for (const key of Object.keys(value))
-    if (!allowed.includes(key)) throw new Error(`Unknown ${label} field ${key}.`);
-}
-export function entityDefinition(value: unknown): EntityDefinition {
-  const source = record(value, 'Entity');
-  fields(
-    source,
-    ['id', 'name', 'parent', 'transform', 'transformOwner', 'model', 'components'],
-    'entity',
-  );
-  const id = identifier(source.id);
-  if (source.name !== undefined && typeof source.name !== 'string')
-    throw new Error('Entity name must be a string.');
-  const parent = source.parent === undefined ? undefined : identifier(source.parent);
-  let model: EntityDefinition['model'];
-  if (source.model !== undefined) {
-    const reference = record(source.model, 'Model reference');
-    fields(reference, ['asset'], 'model reference');
-    model = { asset: identifier(reference.asset) };
-  }
-  const components =
-    source.components === undefined
-      ? {}
-      : copyJson(record(source.components, 'Components') as Record<string, JsonValue>);
-  return {
-    id,
-    ...(source.name !== undefined ? { name: source.name as string } : {}),
-    ...(parent !== undefined ? { parent } : {}),
-    transform: transformData(source.transform),
-    ...(source.transformOwner !== undefined
-      ? { transformOwner: transformOwner(source.transformOwner) }
-      : {}),
-    ...(model ? { model } : {}),
-    components,
-  };
-}
-
 /** Validate before loading assets or publishing a world. Parents may appear later in
  * the file, but missing parents, duplicate IDs and cycles are rejected atomically. */
 export function parseSceneDocument(value: unknown, components?: ComponentRegistry): SceneDocument {
-  const source = record(typeof value === 'string' ? JSON.parse(value) : value, 'Scene');
+  const source = record(expandAuthoringScene(value), 'Scene');
   fields(source, ['version', 'assets', 'entities'], 'scene');
   if (source.version !== 1) throw new Error('Unsupported engine scene version.');
   const assets: Record<string, string> = Object.create(null);

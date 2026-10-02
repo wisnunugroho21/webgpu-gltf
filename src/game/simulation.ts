@@ -14,6 +14,15 @@ export class CharacterSimulation {
   readonly systems: readonly EngineSystem[];
   rootMotionEnabled = false;
   footfalls = 0;
+  private aim = false;
+  private extracting = false;
+  /** Reconnect game policy to a restored controller before the next input step. */
+  restorePolicy(): void {
+    const animation = this.locomotionAnimation;
+    this.aim = animation.state.overlays.some((layer) => layer.clip === 3 && layer.weight > 0);
+    this.extracting = animation.checkpoint().rootMotion?.mode === 'extract';
+  }
+  private locomotionAnimation;
   constructor(world: World, physics: PhysicsAdapter, input: ActionInput) {
     const player = world.getEntity('player');
     if (player.transformOwner !== 'physics' || !player.model)
@@ -23,10 +32,9 @@ export class CharacterSimulation {
     this.body = physics.createCharacter([position[12], position[13], position[14]]);
     this.locomotion = new Locomotion(player.model!.animation);
     const animation = player.model!.animation;
+    this.locomotionAnimation = animation;
     animation.setClock('external');
     animation.setRootMotion({ node: 0, mode: 'in-place' });
-    let aim = false,
-      extracting = false;
     let intent = { x: 0, z: 0, jump: false };
     this.systems = [
       {
@@ -36,15 +44,15 @@ export class CharacterSimulation {
           const actions = input.consume();
           intent = movement(actions);
           this.locomotion.update(Math.hypot(intent.x, intent.z));
-          if (extracting !== this.rootMotionEnabled) {
-            extracting = this.rootMotionEnabled;
-            animation.setRootMotion({ node: 0, mode: extracting ? 'extract' : 'in-place' });
+          if (this.extracting !== this.rootMotionEnabled) {
+            this.extracting = this.rootMotionEnabled;
+            animation.setRootMotion({ node: 0, mode: this.extracting ? 'extract' : 'in-place' });
           }
           const nextAim = actions.get('aim')?.held ?? false;
-          if (aim !== nextAim) {
-            aim = nextAim;
+          if (this.aim !== nextAim) {
+            this.aim = nextAim;
             animation.setOverlays(
-              aim
+              this.aim
                 ? [{ clip: 3, time: 0.5, speed: 0, weight: 1, additive: true, mask: [3, 4] }]
                 : [],
             );
@@ -54,7 +62,7 @@ export class CharacterSimulation {
             .drainEvents()
             .filter((event) => event.name.startsWith('foot-')).length;
           const displacement = animation.consumeRootMotion();
-          if (extracting) {
+          if (this.extracting) {
             const length = Math.hypot(intent.x, intent.z);
             const speed = Math.hypot(displacement[0], displacement[2]) / step.deltaSeconds;
             if (length > 0) {

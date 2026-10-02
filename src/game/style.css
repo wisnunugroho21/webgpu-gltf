@@ -21,6 +21,8 @@ aside {
   background: #14212bee;
   border: 1px solid #456;
   border-radius: 12px;
+  max-height: calc(100vh - 80px);
+  overflow: auto;
 }
 h1 {
   margin: 0;
@@ -36,4 +38,9 @@ button {
 }
 a {
   color: #90dccb;
+}
+pre {
+  max-height: 260px;
+  overflow: auto;
+  font-size: 11px;
 }

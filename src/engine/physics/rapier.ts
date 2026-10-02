@@ -43,6 +43,26 @@ export class RapierPhysics implements PhysicsAdapter {
       if (removed) throw new Error('Character is disposed.');
     };
     return {
+      checkpoint: () => {
+        live();
+        const p = body.translation();
+        return { position: [p.x, p.y - 0.9, p.z], verticalVelocity: vertical, grounded };
+      },
+      restore: (state) => {
+        live();
+        if (
+          state.position.length !== 3 ||
+          !state.position.every(Number.isFinite) ||
+          !Number.isFinite(state.verticalVelocity) ||
+          typeof state.grounded !== 'boolean'
+        )
+          throw new Error('Invalid character checkpoint.');
+        const p = { x: state.position[0], y: state.position[1] + 0.9, z: state.position[2] };
+        body.setTranslation(p, true);
+        body.setNextKinematicTranslation(p);
+        vertical = state.verticalVelocity;
+        grounded = state.grounded;
+      },
       get position(): Point3 {
         live();
         const p = body.translation();

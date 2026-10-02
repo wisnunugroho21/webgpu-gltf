@@ -5,6 +5,8 @@ export interface CharacterMotion {
   jump: boolean;
 }
 export interface CharacterBody {
+  checkpoint?(): { position: Point3; verticalVelocity: number; grounded: boolean };
+  restore?(state: { position: Point3; verticalVelocity: number; grounded: boolean }): void;
   readonly position: Point3;
   readonly grounded: boolean;
   move(motion: CharacterMotion, deltaSeconds: number): void;

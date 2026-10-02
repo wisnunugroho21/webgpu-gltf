@@ -4,7 +4,7 @@ export default defineConfig({
   workers: 1,
   timeout: 30_000,
   use: {
-    channel: 'msedge',
+    channel: process.env.GPU_BROWSER_CHANNEL ?? 'msedge',
     headless: true,
     baseURL: 'http://127.0.0.1:5173',
     viewport: { width: 1200, height: 850 },

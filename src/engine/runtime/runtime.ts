@@ -19,6 +19,28 @@ export interface RuntimeOptions {
   maxSteps?: number;
   maxFrameMs?: number;
 }
+export interface RuntimeCheckpoint {
+  version: 1;
+  stepMs: number;
+  simulationTimeMs: number;
+  accumulatorMs: number;
+  paused: boolean;
+}
+export function validateRuntimeCheckpoint(state: RuntimeCheckpoint): void {
+  if (
+    !state ||
+    state.version !== 1 ||
+    !Number.isFinite(state.stepMs) ||
+    state.stepMs <= 0 ||
+    typeof state.paused !== 'boolean' ||
+    !Number.isFinite(state.simulationTimeMs) ||
+    state.simulationTimeMs < 0 ||
+    !Number.isFinite(state.accumulatorMs) ||
+    state.accumulatorMs < 0 ||
+    state.accumulatorMs >= state.stepMs
+  )
+    throw new Error('Invalid runtime checkpoint.');
+}
 
 /** CPU coordination only: no RAF, canvas or GPU. Presentation time advances by
  * accepted simulation time, so suspension cannot fast-forward clips or physics. */
@@ -33,6 +55,26 @@ export class EngineRuntime {
   readonly stepMs: number;
   readonly maxSteps: number;
   readonly maxFrameMs: number;
+  checkpoint(): RuntimeCheckpoint {
+    if (this.advancing || this.disposed)
+      throw new Error('Capture runtime at an idle frame boundary.');
+    return {
+      version: 1,
+      stepMs: this.stepMs,
+      simulationTimeMs: this.simulationTime,
+      accumulatorMs: this.accumulator,
+      paused: this.paused,
+    };
+  }
+  restore(state: RuntimeCheckpoint): void {
+    validateRuntimeCheckpoint(state);
+    if (this.advancing || this.disposed || state.stepMs !== this.stepMs)
+      throw new Error('Invalid runtime checkpoint or fixed step.');
+    this.simulationTime = state.simulationTimeMs;
+    this.accumulator = state.accumulatorMs;
+    this.paused = state.paused;
+    this.lastTimestamp = undefined;
+  }
   constructor(
     readonly world: World,
     private hooks: RuntimeHooks = {},

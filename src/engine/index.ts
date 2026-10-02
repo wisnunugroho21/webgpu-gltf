@@ -3,6 +3,7 @@ export {
   EngineRuntime,
   type RuntimeHooks,
   type RuntimeOptions,
+  type RuntimeCheckpoint,
   type SimulationStep,
   type EngineFrame,
 } from './runtime/runtime';
@@ -45,3 +46,18 @@ export type { LoadWorldOptions } from './load-world';
 export { ActionInput, type ActionState } from './input/actions';
 export { writePhysicsPosition } from './physics/entity-pose';
 export type { PhysicsAdapter, CharacterBody, CharacterMotion, Point3 } from './physics/contracts';
+export {
+  migrateScene,
+  expandPrefab,
+  type AuthoringScene,
+  type PrefabDefinition,
+  type PrefabInstance,
+} from './serialization/prefabs';
+export { captureSaveState, loadSaveState, type SaveState } from './serialization/save-state';
+export { inspectWorld } from './inspection';
+export {
+  AudioScene,
+  type AudioBackend,
+  type AudioEmitter,
+  type AudioListenerPose,
+} from './audio/audio-scene';

@@ -16,6 +16,13 @@
       <button id="pause" disabled>Pause</button
       ><button id="companion" disabled>Despawn companion</button>
       <p id="status" role="status">Loading physics and renderer…</p>
+      <button id="save">Save game</button><button id="load">Load save</button
+      ><button id="audio">Enable audio</button>
+      <p id="save-status" role="status"></p>
+      <details id="inspector">
+        <summary>Inspect world and GPU</summary>
+        <pre id="inspection"></pre>
+      </details>
       <a href="/">Open glTF viewer</a>
     </aside>
     <script type="module" src="/src/game/main.ts"></script>

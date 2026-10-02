@@ -25,6 +25,8 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
         sampleCount: 1,
         shadows: false,
         cpuProfiling: true,
+        memoryProfiling: true,
+        gpuProfiling: true,
       });
       const device = testDevice(renderer);
       const allocations = trackAllocations(device);
@@ -50,6 +52,8 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
         renderer.camera.target = new Float32Array([15, 0, -count / 16]);
         renderer.camera.distance = Math.max(35, count / 8);
         const samples: Readonly<CpuTimings>[] = [];
+        const gpuSamples: number[] = [];
+        let gpuFrame = 0;
         const evaluationSamples: NonNullable<World['cpuTimings']>[] = [];
         for (let frame = 0; frame < 40; frame++) {
           // A deterministic moving root plus active clips exercises dirty uploads.
@@ -63,6 +67,11 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
           }
           // Avoid accumulating GPU backlog; this wait is outside CPU measurements.
           await device.queue.onSubmittedWorkDone();
+          const gpu = renderer.diagnostics.gpuTimings;
+          if (frame >= 10 && gpu && gpu.frame !== gpuFrame) {
+            gpuSamples.push(gpu.passTotalMs);
+            gpuFrame = gpu.frame;
+          }
         }
         const percentile = (values: number[], fraction: number) =>
           [...values].sort((a, b) => a - b)[Math.ceil(values.length * fraction) - 1];
@@ -80,6 +89,14 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
           }),
         );
         const allocated = allocations.snapshot();
+        const completeMemory = renderer.diagnostics.memory;
+        const gpuExecution = gpuSamples.length
+          ? {
+              p50: percentile(gpuSamples, 0.5),
+              p95: percentile(gpuSamples, 0.95),
+              samples: gpuSamples.length,
+            }
+          : null;
         renderer.destroy();
         rows.push({
           name,
@@ -92,6 +109,9 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
           scene: inspection.scene!.stats,
           frame: inspection.stats,
           allocations: allocated,
+          completeMemory,
+          gpuExecution,
+          completeLiveBytesAfterDestroy: renderer.diagnostics.memory?.liveBytes,
           liveBytesAfterDestroy: allocations.snapshot().liveBytes,
           device: {
             vendor: info.vendor,
@@ -109,7 +129,7 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
       }
     }
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       capturedAt: new Date().toISOString(),
       browser: navigator.userAgent,
       devicePixelRatio: window.devicePixelRatio,
@@ -123,10 +143,11 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
         animatedFraction: 0.25,
       },
       memoryScope:
-        'Resources requested after renderer creation; excludes startup and swapchain. Texture payload estimates, not physical VRAM.',
+        'allocations: after renderer creation, excludes startup; completeMemory: includes renderer startup. Both exclude swapchain/driver/query storage. Texture payload estimates, not physical VRAM.',
       cpuScope:
         'cpu: render-only uploads/visibility/command construction/submission; evaluationCpu: engine pose evaluation. Excludes GPU completion waits; legacy renderer pose fields are zero.',
-      gpuExecutionMs: null,
+      gpuScope:
+        'Optional sum of measured GPU pass durations; excludes between-pass gaps and presentation scanout. No CPU-derived GPU timing.',
       rows,
     };
   });
@@ -137,6 +158,7 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
   for (const row of report.rows) {
     expect(row.errors).toEqual([]);
     expect(row.liveBytesAfterDestroy).toBe(0);
+    expect(row.completeLiveBytesAfterDestroy).toBe(0);
     expect(row.preparationMs).toBeGreaterThan(0);
     expect(row.allocations.requestedBytes).toBeGreaterThan(0);
     expect(Number.isFinite(row.cpu.totalMs.p95)).toBe(true);

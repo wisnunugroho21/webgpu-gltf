@@ -26,6 +26,21 @@ export interface AnimationState {
   readonly transition?: AnimationTransition;
 }
 
+/** Durable controller state, including interrupted-fade snapshots. GPU resources,
+ * wall timestamps and callbacks never belong in a save file. */
+export interface AnimationCheckpoint {
+  version: 1;
+  layers: AnimationLayer[];
+  overlays: AnimationLayer[];
+  playing: boolean;
+  clock: 'presentation' | 'external';
+  elapsed: number;
+  rootMotion?: RootMotionSettings;
+  displacement: number[];
+  events: AnimationEvent[];
+  fade?: { duration: number; elapsed: number; source: AnimationLayer[]; snapshot?: LocalPose[] };
+}
+
 /** CPU playback policy. The renderer retains separate pose-upload, compute and render
  * phases and uploads only when the final mixed pose actually changes. */
 export class AnimationController {
@@ -50,6 +65,151 @@ export class AnimationController {
   private displacement = [0, 0, 0];
   private elapsed = 0;
   onChange?: () => void;
+
+  checkpoint(): AnimationCheckpoint {
+    return JSON.parse(
+      JSON.stringify({
+        version: 1,
+        layers: this.layers,
+        overlays: this.overlays,
+        playing: this.playing,
+        clock: this.clock,
+        elapsed: this.elapsed,
+        rootMotion: this.rootMotion,
+        displacement: this.displacement,
+        events: this.events,
+        fade: this.fade && {
+          duration: this.fade.duration,
+          elapsed: this.fade.elapsed,
+          source: this.fade.source,
+          snapshot: this.fade.snapshot,
+        },
+      }),
+    ) as AnimationCheckpoint;
+  }
+
+  /** Restore into a newly constructed instance before publishing its world.
+   * Evaluate at the next engine boundary; no events or root motion are replayed. */
+  restore(checkpoint: AnimationCheckpoint): void {
+    if (!this.pose) throw new Error('Animation has no pose.');
+    const state: AnimationCheckpoint = structuredClone(checkpoint);
+    if (
+      !state ||
+      state.version !== 1 ||
+      Object.keys(state).some(
+        (key) =>
+          ![
+            'version',
+            'layers',
+            'overlays',
+            'playing',
+            'clock',
+            'elapsed',
+            'rootMotion',
+            'displacement',
+            'events',
+            'fade',
+          ].includes(key),
+      ) ||
+      typeof state.playing !== 'boolean' ||
+      !['presentation', 'external'].includes(state.clock) ||
+      !Number.isFinite(state.elapsed) ||
+      state.elapsed < 0 ||
+      !Array.isArray(state.displacement) ||
+      state.displacement.length !== 3 ||
+      !state.displacement.every(Number.isFinite)
+    )
+      throw new Error('Invalid animation checkpoint.');
+    const validateLayers = (layers: readonly AnimationLayer[]) => {
+      if (!Array.isArray(layers)) throw new Error('Saved animation layers must be arrays.');
+      this.pose!.validateBlend(layers);
+      for (const layer of layers)
+        if (
+          layer.time < 0 ||
+          layer.time > (this.pose!.clips[layer.clip]?.duration ?? 0) ||
+          Object.keys(layer).some(
+            (key) =>
+              !['clip', 'time', 'weight', 'mask', 'additive', 'referenceTime', 'speed'].includes(
+                key,
+              ),
+          ) ||
+          (layer.additive !== undefined && typeof layer.additive !== 'boolean')
+        )
+          throw new Error('Invalid saved animation layer.');
+    };
+    validateLayers(state.layers);
+    validateLayers(state.overlays);
+    if (state.fade) {
+      const fade = state.fade;
+      if (
+        !(
+          Number.isFinite(fade.duration) &&
+          fade.duration > 0 &&
+          Number.isFinite(fade.elapsed) &&
+          fade.elapsed >= 0 &&
+          fade.elapsed < fade.duration
+        ) ||
+        state.layers.length !== 1
+      )
+        throw new Error('Invalid saved transition.');
+      validateLayers(fade.source);
+      if (
+        fade.snapshot &&
+        (fade.snapshot.length !== this.pose.nodes.length ||
+          fade.snapshot.some((node, i) =>
+            (['translation', 'rotation', 'scale', 'weights'] as const).some(
+              (key) =>
+                node[key].length !== this.pose!.nodes[i][key].length ||
+                !node[key].every(
+                  (value) => Number.isFinite(value) && Number.isFinite(Math.fround(value)),
+                ) ||
+                (key === 'rotation' && Math.hypot(...node[key]) < 1e-8),
+            ),
+          ))
+      )
+        throw new Error('Invalid saved pose snapshot.');
+    }
+    if (
+      !Array.isArray(state.events) ||
+      state.events.some(
+        (event) =>
+          !Number.isFinite(event.time) ||
+          !Number.isFinite(event.weight) ||
+          event.weight < 0 ||
+          event.time < 0 ||
+          !Number.isInteger(event.clip) ||
+          !this.pose!.clips[event.clip] ||
+          event.time > this.pose!.clips[event.clip].duration ||
+          !Number.isFinite(event.elapsedSeconds) ||
+          event.elapsedSeconds < 0 ||
+          typeof event.name !== 'string',
+      )
+    )
+      throw new Error('Invalid saved animation events.');
+    this.setRootMotion(state.rootMotion);
+    this.layers = state.layers;
+    this.overlays = state.overlays;
+    this.playing = state.playing;
+    this.clock = state.clock;
+    this.elapsed = state.elapsed;
+    this.displacement = state.displacement;
+    this.events = state.events;
+    const fade = state.fade;
+    this.fade = fade
+      ? {
+          ...fade,
+          samples: fade.snapshot
+            ? [
+                { pose: fade.snapshot, weight: 1 },
+                { ...this.layers[0], weight: 0 },
+              ]
+            : [...fade.source.map((layer) => ({ ...layer })), { ...this.layers[0], weight: 0 }],
+        }
+      : undefined;
+    this.dirty = true;
+    this.initialize = true;
+    this.lastTimestamp = undefined;
+  }
 
   get state(): AnimationState {
     const primary = this.layers[0];

@@ -27,6 +27,7 @@ export {
   type AnimationTransition,
   type AnimationEvent,
   type RootMotionSettings,
+  type AnimationCheckpoint,
 } from './animation/controller';
 export { loadFiles, loadUrl, parseGlb } from './gltf/loader';
 export type { LoadOptions } from './gltf/loader';
@@ -79,3 +80,22 @@ export {
 } from './engine/components/registry';
 export type { EngineSystem, SystemContext } from './engine/systems/scheduler';
 export type { LoadWorldOptions } from './engine/load-world';
+export {
+  migrateScene,
+  expandPrefab,
+  captureSaveState,
+  loadSaveState,
+  inspectWorld,
+  AudioScene,
+} from './engine';
+export type {
+  AuthoringScene,
+  PrefabDefinition,
+  PrefabInstance,
+  SaveState,
+  RuntimeCheckpoint,
+  AudioBackend,
+  AudioEmitter,
+  AudioListenerPose,
+} from './engine';
+export type { MemorySnapshot, GpuTimingSnapshot } from './renderer/core/diagnostics';

@@ -21,8 +21,27 @@ export class Viewer {
 
   async start(): Promise<void> {
     try {
-      const renderer = await Renderer.create(element<HTMLCanvasElement>('canvas'), (message) =>
-        this.fail(message),
+      const renderer = await Renderer.create(
+        element<HTMLCanvasElement>('canvas'),
+        (message) => this.fail(message),
+        {
+          onDeviceLost: (message) => {
+            this.renderLoop?.stop();
+            this.busy = true;
+            disableControls(true);
+            element('status').textContent = `${message} Reconnecting…`;
+            void renderer
+              .recover()
+              .then(() => {
+                this.busy = false;
+                disableControls(this.failed);
+                this.animationControls?.update();
+                element('status').textContent = 'GPU reconnected';
+                if (!this.failed) this.renderLoop?.start();
+              })
+              .catch((error) => this.fail(errorMessage(error)));
+          },
+        },
       );
       this.renderer = renderer;
       this.orbitInput = new OrbitInput(element<HTMLCanvasElement>('canvas'), renderer.camera);
