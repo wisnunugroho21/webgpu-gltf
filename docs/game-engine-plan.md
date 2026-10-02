@@ -6,7 +6,7 @@ Evolve the current renderer into a browser game engine through small, verified c
 
 This document combines implemented migration phases with the remaining plan. APIs, modules and systems in unfinished phases are proposals. The [current review](review-2026-10-02.md) records existing capabilities and verification.
 
-Phases 0–6 are implemented: safeguards, engine-owned updates/cameras, scalable hierarchy, retained membership, services, the playable slice, and gameplay animation/toon presentation. See [runtime](engine-runtime.md), [migration safeguards](migration-safeguards.md), [hierarchy](world-hierarchy.md), [membership](rendering-membership.md), [services](engine-services.md), [playable slice](playable-slice.md), [gameplay animation](gameplay-animation.md) and [anime presentation](anime-presentation.md) for APIs and limits. Phase 7 remains proposed work.
+Phases 0–7 foundations are implemented: safeguards, engine-owned updates/cameras, scalable hierarchy, retained membership, services, the playable slice, and gameplay animation/toon presentation. See [runtime](engine-runtime.md), [migration safeguards](migration-safeguards.md), [hierarchy](world-hierarchy.md), [membership](rendering-membership.md), [services](engine-services.md), [playable slice](playable-slice.md), [gameplay animation](gameplay-animation.md) and [anime presentation](anime-presentation.md) for APIs and limits. Phase 7 adds [authoring/saves](authoring-and-saves.md), [audio](audio.md) and [recovery/measurements](resilience-and-scale.md); an editor and larger rendering/streaming systems remain measurement-gated.
 
 ## Architecture and ownership contract
 
@@ -116,6 +116,8 @@ This phase is the first “game engine” release gate: a complete playable loop
 
 ## Phase 7 — Authoring, resilience and measured scale
 
+**Implemented:** version 1 to 2 scene migration, placement-wrapper prefabs, independent runtime saves/checkpoints, spatial emitter/listener contracts and a Web Audio backend, copy-only world/GPU inspection, deliberate device reconstruction with asset reupload and generation invalidation, optional pass timestamps, startup-inclusive requested memory and explicit allocation budgets. The playable example demonstrates save/reload, audio activation and inspection. CPU/GPU tests cover migration, restore, scene unload, budget rollback, retry and cancellation. Small/medium/large and actual playable-resolution baselines are checked in. Validation is confirmed on Edge/Intel; the alternate Chromium binary failed to launch in this environment, so cross-browser/GPU matrix completion remains external verification. See [contracts and measured boundaries](resilience-and-scale.md).
+
 **Changes:** add prefabs and scene-format migrations, runtime save state separate from authoring scenes, audio emitters/listeners, inspection tools and later an editor. Implement deliberate device-loss recovery and asset reupload. Expand GPU memory/timing diagnostics. Add resource budgets/streaming, LOD, clustered lighting, cascaded shadows or GPU visibility only against representative measured workloads.
 
 **Acceptance:** saved content survives documented format migrations; reload reproduces intended gameplay state; unloaded scenes release resources; device recovery reconstructs the current world without stale handles. Cross-browser/GPU validation and representative timing/memory baselines support rendering changes.
@@ -126,4 +128,4 @@ Implement each phase as small reviewable changes. Preserve the viewer, shared im
 
 Use CPU tests for hierarchy, clocks, ownership, serialization and systems. Use real GPU tests for resource lifetime, deformed output, bindings, bounds/visibility and rendered appearance. Repeat relevant checks after changes; broaden testing when new behavior or failures justify it. Establish performance acceptance from measured baselines rather than arbitrary FPS targets.
 
-The next planned phase is **Phase 7: authoring, resilience and measured scale**. Choose concrete gameplay/editor/recovery requirements and measurements before expanding streaming or rendering frameworks. Phase 6's translation-only extraction, conservative outline culling and transparent-shell policy remain explicit boundaries for subsequent work.
+All migration phases now have implemented runtime foundations. Next, choose actual game content and concrete editor/streaming requirements, then measure before expanding frameworks. A scene editor, automatic streaming, LOD, clustered lighting, cascades and GPU visibility remain gated follow-up work. Phase 6's translation-only extraction, conservative outline culling and transparent-shell policy remain explicit boundaries for subsequent work.

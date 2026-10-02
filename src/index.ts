@@ -87,6 +87,7 @@ export {
   loadSaveState,
   inspectWorld,
   AudioScene,
+  ActionInput,
 } from './engine';
 export type {
   AuthoringScene,

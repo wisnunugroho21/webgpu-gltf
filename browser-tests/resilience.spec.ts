@@ -182,7 +182,7 @@ test('device recovery reconstructs current world, compute outputs, handles and s
     await renderer.setWorld(world);
     renderer.setOutput({ exposureEV: 0.5 });
     renderer.setEnvironment({ intensity: 0.7 });
-    renderer.setEnvironmentMap({
+    await renderer.setEnvironmentMap({
       width: 2,
       height: 1,
       pixels: new Float32Array([4, 2, 1, 1, 1, 2, 4, 1]),

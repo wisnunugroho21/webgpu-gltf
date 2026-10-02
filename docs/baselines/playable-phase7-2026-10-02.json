@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-02T05:30:12.376Z",
+  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+  "devicePixelRatio": 1,
+  "workload": "Original playable slice, two shared toon characters, compute morphs, aim overlays, extracted walk root motion through Rapier, moving follow camera, authored level, default environment/shadows, 4x MSAA, 10 warmup/30 measured fixed 60Hz frames. No audio/inspector.",
+  "scope": "Requested buffer/texture payload including startup, excluding swapchain/driver/query storage. CPU times exclude completion waits; GPU pass sum excludes gaps/scanout. Synthetic content, not a production anime level.",
+  "rows": [
+    {
+      "width": 640,
+      "height": 360,
+      "preparationMs": 195.09999999403954,
+      "simulationCpuMs": {
+        "p50": 0.3999999985098839,
+        "p95": 1.2000000029802322,
+        "samples": 30
+      },
+      "cameraAndRenderCpuMs": {
+        "p50": 0.29999999701976776,
+        "p95": 0.8000000044703484,
+        "samples": 30
+      },
+      "gpuPassTotalMs": {
+        "p50": 0.7255159999999999,
+        "p95": 1.92879,
+        "samples": 15
+      },
+      "memory": {
+        "buffers": 43,
+        "textures": 15,
+        "liveBytes": 15326604,
+        "peakBytes": 15326604,
+        "requestedBytes": 15851036,
+        "overBudget": false
+      },
+      "shadows": {
+        "maps": 1,
+        "neutralBytes": 4,
+        "depthSamplesBytes": 1048576,
+        "depthAttachmentBytes": 1048576,
+        "matrixBytes": 256,
+        "totalBytes": 2097412
+      },
+      "frame": {
+        "draws": 51,
+        "instances": 31,
+        "culledInstances": 1
+      },
+      "passes": [
+        {
+          "label": "Scene deformation",
+          "milliseconds": 0.02526
+        },
+        {
+          "label": "Shadow map 0",
+          "milliseconds": 0.052135
+        },
+        {
+          "label": "Scene rendering",
+          "milliseconds": 0.534163
+        },
+        {
+          "label": "Exposure, tone mapping and presentation",
+          "milliseconds": 0.038802
+        }
+      ],
+      "truncated": false,
+      "liveBytesAfterDestroy": 0,
+      "errors": [],
+      "device": {
+        "vendor": "intel",
+        "architecture": "gen-12lp",
+        "description": "",
+        "features": ["core-features-and-limits", "texture-compression-bc", "timestamp-query"]
+      },
+      "footfalls": 1
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "preparationMs": 16.80000000447035,
+      "simulationCpuMs": {
+        "p50": 0.3999999985098839,
+        "p95": 0.8999999985098839,
+        "samples": 30
+      },
+      "cameraAndRenderCpuMs": {
+        "p50": 0.29999999701976776,
+        "p95": 0.3999999985098839,
+        "samples": 30
+      },
+      "gpuPassTotalMs": {
+        "p50": 2.05931,
+        "p95": 2.958575,
+        "samples": 15
+      },
+      "memory": {
+        "buffers": 43,
+        "textures": 15,
+        "liveBytes": 54033804,
+        "peakBytes": 54033804,
+        "requestedBytes": 54558236,
+        "overBudget": false
+      },
+      "shadows": {
+        "maps": 1,
+        "neutralBytes": 4,
+        "depthSamplesBytes": 1048576,
+        "depthAttachmentBytes": 1048576,
+        "matrixBytes": 256,
+        "totalBytes": 2097412
+      },
+      "frame": {
+        "draws": 51,
+        "instances": 31,
+        "culledInstances": 1
+      },
+      "passes": [
+        {
+          "label": "Scene deformation",
+          "milliseconds": 0.012552
+        },
+        {
+          "label": "Shadow map 0",
+          "milliseconds": 0.03099
+        },
+        {
+          "label": "Scene rendering",
+          "milliseconds": 1.977539
+        },
+        {
+          "label": "Exposure, tone mapping and presentation",
+          "milliseconds": 0.138437
+        }
+      ],
+      "truncated": false,
+      "liveBytesAfterDestroy": 0,
+      "errors": [],
+      "device": {
+        "vendor": "intel",
+        "architecture": "gen-12lp",
+        "description": "",
+        "features": ["core-features-and-limits", "texture-compression-bc", "timestamp-query"]
+      },
+      "footfalls": 1
+    }
+  ]
+}

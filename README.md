@@ -43,6 +43,22 @@ Authored directional, point and spot lights load automatically. **Shadows** togg
 
 Environment lighting starts with an original, generated HDR **Studio** panorama. **Open environment** accepts an equirectangular Radiance **HDR (.hdr/.pic)** or PNG/JPEG panorama (typically 2:1, longitude across X and north pole at the top). Adjust **Intensity** or rotate it around the vertical axis with **Rotation**. Studio restores the default map. Map and lighting settings persist across model loads; failed environment loads retain the current lighting. Environment intensity zero disables its contribution while retaining the existing directional light and small ambient term.
 
+## Authoring, resilience and diagnostics
+
+**Phase 7** adds [versioned prefabs and runtime saves](docs/authoring-and-saves.md), [spatial audio](docs/audio.md) and [device recovery with measured budgets](docs/resilience-and-scale.md). In `/game.html`, use **Save game**, **Load save**, **Enable audio** and **Inspect world and GPU**. Saves preserve independent animation transitions/overlays, entity state and the example's airborne physics state; loading reconstructs systems and resources. Authoring scenes remain separate from saves.
+
+```ts
+import { migrateScene, captureSaveState, loadSaveState, inspectWorld } from './src';
+
+const authoredV2 = migrateScene(authoredV1); // Compatible IDs, with prefab/instance tables.
+const saved = captureSaveState(world, runtime, { quest: 'started' });
+const restored = await loadSaveState(JSON.stringify(saved), { assets, components });
+// Recreate gameplay/physics systems from restored.gameplay, then restore the runtime clock.
+const snapshot = inspectWorld(restored.world); // Copies; edits use supported entity/model APIs.
+```
+
+`Renderer.recover()` rebuilds device resources from retained CPU assets/poses after loss. Viewer/game adapters pause owner loops during one automatic attempt; API owners can retry explicitly. GPU handles are reacquired after reconstruction. Material layouts, texture transfer functions and upload/compute/render phase order are preserved. `memoryProfiling`, `gpuProfiling` and `resourceBudgetBytes` are opt-in creation options; `renderer.diagnostics` exposes requested payloads and optional asynchronous pass timestamps, independently of CPU wall times. Run `pnpm bench:playable` for the original game's physics/toon/shadow/MSAA baseline and `pnpm bench:migration` for 16/128/512-entity measurements. Editor UI, automatic streaming and larger rendering systems remain measured follow-up work.
+
 ## Code map
 
 **Phase 6** adds [gameplay animation](docs/gameplay-animation.md) and [toon/outline presentation](docs/anime-presentation.md). In `/game.html`, hold **E** for additive upper-body aiming and enable **Use authored root motion** to feed extracted travel through collision. Footfalls demonstrate fixed-step event delivery. Character materials author toon ramps and pixel-width silhouettes through `extras.engine.toon`. Standard materials retain PBR; transparent toon surfaces omit hulls. Layout version 2 keeps all twelve texture slots/neutral defaults while migrating the shared uniform to 560 bytes.

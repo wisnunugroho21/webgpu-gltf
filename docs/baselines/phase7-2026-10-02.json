@@ -4,10 +4,7 @@
   "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
   "devicePixelRatio": 1,
   "workload": {
-    "viewport": [
-      320,
-      240
-    ],
+    "viewport": [320, 240],
     "sampleCount": 1,
     "shadows": false,
     "warmupFrames": 10,
@@ -15,7 +12,7 @@
     "stepMs": 16.666666666666668,
     "animatedFraction": 0.25
   },
-  "memoryScope": "Resources requested after renderer creation; excludes startup and swapchain. Texture payload estimates, not physical VRAM.",
+  "memoryScope": "allocations: after renderer creation, excludes startup; completeMemory: includes renderer startup. Both exclude swapchain/driver/query storage. Texture payload estimates, not physical VRAM.",
   "cpuScope": "cpu: render-only uploads/visibility/command construction/submission; evaluationCpu: engine pose evaluation. Excludes GPU completion waits; legacy renderer pose fields are zero.",
   "gpuScope": "Optional sum of measured GPU pass durations; excludes between-pass gaps and presentation scanout. No CPU-derived GPU timing.",
   "rows": [
@@ -130,11 +127,7 @@
         "architecture": "gen-12lp",
         "device": "",
         "description": "",
-        "features": [
-          "core-features-and-limits",
-          "texture-compression-bc",
-          "timestamp-query"
-        ]
+        "features": ["core-features-and-limits", "texture-compression-bc", "timestamp-query"]
       },
       "errors": []
     },
@@ -249,11 +242,7 @@
         "architecture": "gen-12lp",
         "device": "",
         "description": "",
-        "features": [
-          "core-features-and-limits",
-          "texture-compression-bc",
-          "timestamp-query"
-        ]
+        "features": ["core-features-and-limits", "texture-compression-bc", "timestamp-query"]
       },
       "errors": []
     },
@@ -368,11 +357,7 @@
         "architecture": "gen-12lp",
         "device": "",
         "description": "",
-        "features": [
-          "core-features-and-limits",
-          "texture-compression-bc",
-          "timestamp-query"
-        ]
+        "features": ["core-features-and-limits", "texture-compression-bc", "timestamp-query"]
       },
       "errors": []
     }

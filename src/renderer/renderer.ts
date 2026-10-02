@@ -699,5 +699,11 @@ export class Renderer {
     if (this.disposed) return;
     this.disposed = true;
     this.releaseDevice();
+    // A disposed facade must not keep an unloaded CPU world, local file blobs or
+    // HDR panorama alive. Recovery retains these only while the facade is live.
+    this.scene = undefined;
+    this.source = undefined;
+    this.retainedEnvironment = undefined;
+    this.assetAnimation = new AnimationController();
   }
 }

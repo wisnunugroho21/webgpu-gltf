@@ -118,6 +118,7 @@ export function trackGpuMemory(device: GPUDevice, budgetBytes?: number) {
 }
 
 export interface GpuTimingSnapshot {
+  truncated: boolean;
   frame: number;
   passes: { label: string; milliseconds: number }[];
   passTotalMs: number;
@@ -151,8 +152,12 @@ export class GpuTimer {
   instrument(encoder: GPUCommandEncoder): (() => void) | undefined {
     if (this.busy || this.disposed) return;
     const labels: string[] = [];
+    let truncated = false;
     const stamp = (label = 'Unnamed pass'): GPURenderPassTimestampWrites | undefined => {
-      if (labels.length >= 64) return;
+      if (labels.length >= 64) {
+        truncated = true;
+        return;
+      }
       const index = labels.length * 2;
       labels.push(label);
       return {
@@ -186,6 +191,7 @@ export class GpuTimer {
               milliseconds: Number(times[i * 2 + 1] - times[i * 2]) / 1e6,
             }));
             this.latest = {
+              truncated,
               frame,
               passes,
               passTotalMs: passes.reduce((sum, pass) => sum + pass.milliseconds, 0),

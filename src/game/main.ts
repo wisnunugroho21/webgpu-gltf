@@ -113,7 +113,7 @@ async function start(): Promise<void> {
         runtime?.pause();
         input.clear();
         tools?.setPaused(true);
-        status.textContent = `${message} Reconnecting�`;
+        status.textContent = `${message} Reconnecting...`;
         void renderer!
           .recover()
           .then(() => {

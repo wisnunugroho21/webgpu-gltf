@@ -28,6 +28,7 @@ jobs:
       - if: inputs.remote_models
         run: pnpm test:browser:remote --output=test-results/remote
       - run: pnpm bench:migration --output=test-results/benchmarks
+      - run: pnpm bench:playable --output=test-results/playable-benchmarks
       - run: pnpm bench:hierarchy --output=test-results/hierarchy-benchmarks
       - run: pnpm bench:membership --output=test-results/membership-benchmarks
       - uses: actions/upload-artifact@v4
