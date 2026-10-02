@@ -26,6 +26,8 @@ interface ModelOptions {
   pose?: Pose;
   mutableRoot?: boolean;
   movableNodes?: readonly number[];
+  /** World entities may contribute lights or hierarchy without any draws. */
+  allowEmpty?: boolean;
 }
 
 /** Load-time bridge: acquire shared model resources, then prepare independent pose/output state. */
@@ -57,14 +59,15 @@ export class SceneBuilder {
     options: ModelOptions = {},
   ): Promise<SceneData> {
     const movableNodes = new Set<number>();
-    const mark = (index: number) => {
+    const pending = [...(options.movableNodes ?? [])];
+    while (pending.length) {
+      const index = pending.pop()!;
       if (!Number.isInteger(index) || !asset.gltf.nodes?.[index])
         throw new Error('Unknown movable model node.');
-      if (movableNodes.has(index)) return;
+      if (movableNodes.has(index)) continue;
       movableNodes.add(index);
-      for (const child of asset.gltf.nodes[index].children ?? []) mark(child);
-    };
-    for (const index of options.movableNodes ?? []) mark(index);
+      for (const child of asset.gltf.nodes[index].children ?? []) pending.push(child);
+    }
     const model = await this.models.acquire(asset, resources, (shared) =>
       ModelResources.load(
         asset,
@@ -283,7 +286,12 @@ export class SceneBuilder {
         }
       }
     }
-    if (!draws) throw new Error('The selected scene contains no renderable mesh primitives.');
+    if (!draws) {
+      if (!options.allowEmpty)
+        throw new Error('The selected scene contains no renderable mesh primitives.');
+      vec3.set(min, -1, -1, -1);
+      vec3.set(max, 1, 1, 1);
+    }
     if (transforms.length * 4 > this.device.limits.maxStorageBufferBindingSize)
       throw new Error('Scene transforms exceed this device’s storage-buffer binding limit.');
     const transformData = new Float32Array(transforms);

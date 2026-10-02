@@ -23,15 +23,17 @@ function sceneRoots(gltf: Gltf): number[] {
 export function selectedSceneNodes(gltf: Gltf): number[] {
   const result: number[] = [],
     visited = new Set<number>();
-  const visit = (index: number) => {
+  const pending = sceneRoots(gltf).slice().reverse();
+  while (pending.length) {
+    const index = pending.pop()!;
     const node = gltf.nodes?.[index];
     if (!node || visited.has(index))
       throw new Error('Scene has an invalid node, cycle, or multiple parents.');
     visited.add(index);
     result.push(index);
-    node.children?.forEach(visit);
-  };
-  sceneRoots(gltf).forEach(visit);
+    const children = node.children ?? [];
+    for (let i = children.length - 1; i >= 0; i--) pending.push(children[i]);
+  }
   return result;
 }
 
@@ -42,7 +44,11 @@ export function collectInstances(gltf: Gltf): Map<Primitive, Instance[]> {
   const roots = sceneRoots(gltf);
   const result = new Map<Primitive, Instance[]>();
   const visited = new Set<number>();
-  const visit = (index: number, parent: mat4) => {
+  // Each stack entry retains the accumulated parent transform; no JS call-stack
+  // depth is consumed, and reverse pushes preserve authored traversal order.
+  const pending = roots.map((index) => ({ index, parent: mat4.create() })).reverse();
+  while (pending.length) {
+    const { index, parent } = pending.pop()!;
     const node = nodes[index];
     if (!node || visited.has(index))
       throw new Error('Scene has an invalid node, cycle, or multiple parents.');
@@ -72,8 +78,9 @@ export function collectInstances(gltf: Gltf): Map<Primitive, Instance[]> {
         result.set(primitive, list);
       }
     }
-    for (const child of node.children ?? []) visit(child, world);
-  };
-  for (const root of roots) visit(root, mat4.create());
+    const children = node.children ?? [];
+    for (let i = children.length - 1; i >= 0; i--)
+      pending.push({ index: children[i], parent: world });
+  }
   return result;
 }

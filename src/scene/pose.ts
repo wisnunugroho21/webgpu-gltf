@@ -100,15 +100,20 @@ export class Pose {
       }),
     );
     const visited = new Set<number>();
-    const visit = (index: number) => {
+    // Imported model hierarchies can be deep even when the entity hierarchy is
+    // shallow. Use an explicit stack and preserve authored parent-first order.
+    const pending = nodes
+      .map((_, i) => i)
+      .filter((i) => this.parents[i] === -1)
+      .reverse();
+    while (pending.length) {
+      const index = pending.pop()!;
       if (visited.has(index)) throw new Error('Cycle in node hierarchy.');
       visited.add(index);
       this.order.push(index);
-      for (const child of nodes[index].children ?? []) visit(child);
-    };
-    nodes.forEach((_, i) => {
-      if (this.parents[i] === -1) visit(i);
-    });
+      const children = nodes[index].children ?? [];
+      for (let i = children.length - 1; i >= 0; i--) pending.push(children[i]);
+    }
     if (visited.size !== nodes.length) throw new Error('Cycle in node hierarchy.');
     this.rank = nodes.map(() => 0);
     this.order.forEach((node, rank) => (this.rank[node] = rank));
@@ -175,7 +180,9 @@ export class Pose {
   }
   /** Inspect deliberate ownership exceptions; returned fields are detached copies. */
   getNodeOverride(index: number): Partial<TransformData> {
-    this.transformNode(index);
+    // Matrix nodes cannot receive TRS overrides, but read-only inspection must
+    // still work when snapshots enumerate every node in a valid model.
+    if (!Number.isInteger(index) || !this.nodes[index]) throw new Error('Unknown model node.');
     const result: Partial<TransformData> = {};
     const override = this.overrides.get(index);
     for (const field of ['translation', 'rotation', 'scale'] as const)
@@ -307,13 +314,14 @@ export class Pose {
       this.selected = [...new Set([...active, ...this.previousTargets])];
       const affected = new Set(this.selected);
       const expanded = new Set<number>();
-      const visit = (index: number) => {
-        if (expanded.has(index)) return;
+      const pending = [...new Set([...worldTargets, ...this.previousWorldTargets])];
+      while (pending.length) {
+        const index = pending.pop()!;
+        if (expanded.has(index)) continue;
         expanded.add(index);
         affected.add(index);
-        for (const child of this.asset.gltf.nodes![index].children ?? []) visit(child);
-      };
-      for (const index of new Set([...worldTargets, ...this.previousWorldTargets])) visit(index);
+        for (const child of this.asset.gltf.nodes![index].children ?? []) pending.push(child);
+      }
       this.candidates = this.initialized
         ? [...affected].sort((a, b) => this.rank[a] - this.rank[b])
         : this.order;

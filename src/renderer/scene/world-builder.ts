@@ -48,8 +48,11 @@ export async function prepareWorld(
     const data = await builder.prepareModel(model.asset, lifetime.resources, {
       pose: model.pose,
       mutableRoot: true,
+      allowEmpty: true,
     });
-    const handle = slots.allocate(data.transformData.length / instanceFloatCount);
+    // Lights-only and empty selected scenes still have model identity. Reserve a
+    // neutral slot without fabricating draws; the explicit binding stays valid.
+    const handle = slots.allocate(Math.max(1, data.transformData.length / instanceFloatCount));
     for (const draw of data.draws) draw.firstInstance += handle.firstInstance;
     for (const update of data.updates) update.pose = data.pose;
     const part = { handle, data, lifetime };

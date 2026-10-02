@@ -1,5 +1,7 @@
 # Code review — October 1, 2026
 
+The current post-migration findings and verification are in [the review after Phase 7](review-phase7-2026-10-02.md). The report below is historical.
+
 For the current engine/resource/transform audit, see the [October 2 follow-up](review-2026-10-02.md). This document preserves the earlier findings and verification results.
 
 The project has a sound foundation and useful regression coverage. Asset decoding, CPU animation/poses, GPU preparation, pass encoding and browser controls already have distinct responsibilities. A second wholesale restructuring would mostly move files and destabilize internal imports. Focused changes to lifecycle handling, validation and frame coordination deliver more practical value.

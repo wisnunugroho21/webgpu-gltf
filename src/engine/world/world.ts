@@ -272,12 +272,23 @@ export class World {
     }
   }
   toDocument(): SceneDocument {
-    const assets = this.models.references();
-    for (const entity of this.hierarchy.values())
-      if (entity.model && !Object.hasOwn(assets, entity.model.assetId))
+    const references = this.models.references();
+    // A registry can serve several worlds. Export only this world's dependencies,
+    // so restoring a level never loads unrelated catalog entries.
+    const assets: SceneDocument['assets'] = {};
+    for (const entity of this.hierarchy.values()) {
+      if (!entity.model) continue;
+      if (!Object.hasOwn(references, entity.model.assetId))
         throw new Error(
           `entities[${JSON.stringify(entity.id)}].model.asset: declaration ${entity.model.assetId} was forgotten; preserve it with cache eviction instead.`,
         );
+      Object.defineProperty(assets, entity.model.assetId, {
+        value: references[entity.model.assetId],
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
     return {
       version: 1,
       assets,

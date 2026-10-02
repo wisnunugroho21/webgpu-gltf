@@ -69,7 +69,7 @@ See [playable code and lifecycle](docs/playable-slice.md) and the separate [phys
 
 The project separates asset decoding (`gltf`), CPU pose/animation (`scene` and `animation`), gameplay worlds (`engine`), WebGPU rendering (`renderer`), and browser UI (`app`). See [Architecture and maintenance](docs/architecture.md) for dependency rules, resource ownership, frame phases, and extension points.
 
-See the [October 2026 code review](docs/review.md) for verified fixes, test results, remaining feature gaps, and a prioritized maintenance plan. Scene and environment GPU preparation now share a device-scoped transaction queue; overlapping public API calls validate and commit in order while failed candidates release their allocations. Core material factors are validated before texture preparation.
+See the [review after Phase 7](docs/review-phase7-2026-10-02.md) for verified fixes, test results, remaining feature gaps, and a prioritized maintenance plan. Scene and environment GPU preparation now share a device-scoped transaction queue; overlapping public API calls validate and commit in order while failed candidates release their allocations. Core material factors are validated before texture preparation.
 
 | Module or directory                                                 | Responsibility                                                                    |
 | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
@@ -640,6 +640,6 @@ Test your own textured and transparent assets before depending on broader featur
 
 `tests/projected-bounds.test.ts` checks perspective/orthographic size, viewport/distance scaling, flattened bounds, and near-plane/invalid fail-open behavior. `browser-tests/visibility-filters.spec.ts` verifies pixel-identical opaque occlusion in MSAA and single-sample modes, delayed stale-result rejection, camera/resize/replacement invalidation, size thresholds, transparent occluder exclusions, and continued skin/morph compute with upload-before-encoding ordering.
 
-The [October 2 project review](docs/review-2026-10-02.md) records current verification, fixes, engine feature gaps and the recommended incremental refactoring order.
+The [review after Phase 7](docs/review-phase7-2026-10-02.md) records current verification, reproduced defects, remaining game-engine features and a prioritized refactoring order. The latest review fixes matrix-node save inspection, scopes saved asset references to the world, validates detached animation checkpoints in a separate module, supports light-only/empty model entities in worlds, and uses explicit stacks for deep model hierarchies. Existing binding layouts, resource sharing, transform ownership and upload/compute/render phases remain intact.
 
 The [game engine migration plan](docs/game-engine-plan.md) defines ownership, phased restructuring, acceptance checks and the first playable milestone.

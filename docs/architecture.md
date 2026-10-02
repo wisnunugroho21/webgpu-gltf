@@ -7,7 +7,7 @@ The code separates asset preparation, CPU pose evaluation, GPU work, and browser
 | Directory        | Responsibility                                                                                  | Dependencies                                                                                |
 | ---------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `src/gltf/`      | File decoding, validation, compression, accessors, canonical geometry, selected-scene traversal | Web platform, gl-matrix, meshoptimizer and decoder artifacts; no renderer or viewer imports |
-| `src/animation/` | Track preparation/interpolation, local-pose mixing and playback policy                          | glTF data and CPU scene poses                                                               |
+| `src/animation/` | Track preparation/interpolation, local-pose mixing, playback policy and checkpoint validation   | glTF data and CPU scene poses                                                               |
 | `src/scene/`     | Mutable node poses, revisions, shared deformation inputs, CPU deformation oracle                | glTF data and animation sampling; no GPU allocations                                        |
 | `src/engine/`    | Gameplay entities/hierarchy, model library/instances, component data and scene documents        | CPU assets, poses and playback; no renderer/viewer imports                                  |
 | `src/renderer/`  | Resource preparation, bindings, compute/render passes, lighting and presentation                | CPU modules and WebGPU; no viewer imports                                                   |
@@ -151,3 +151,11 @@ Optional visibility filters live in `renderer/scene/visibility.ts`, `projected-b
 `engine/audio/audio-scene.ts` associates entity identities with backend voices after hierarchy evaluation. The optional Web Audio backend owns decoded buffers, gain/panner nodes and short-lived sources. Application gestures and pause policy own activation/suspension. `game/tools.ts` keeps storage, audio and the inspection DOM out of gameplay simulation and renderer passes.
 
 `Renderer.recover()` retains the facade/camera and evaluated CPU poses, replacing all device-specific subsystems/caches. Old-generation preparation cannot commit into a new device; old readback owners and handles are discarded. Application adapters suspend their clocks/submissions while rebuilding. Recovery does not evaluate animation or introduce a scheduling loop. `core/diagnostics.ts` optionally tracks requested buffer/texture payload and pass timestamps with one bounded asynchronous readback. See [resilience, resource capacity and measured limits](resilience-and-scale.md).
+
+## Review refinements after Phase 7
+
+`animation/checkpoint.ts` owns persistence types and detached validation; the controller retains playback policy and re-exports compatible types. Model hierarchy walks use explicit stacks so stack depth does not limit imported glTF hierarchies. Selected-scene traversal and all-node pose evaluation still have separate responsibilities.
+
+World model preparation permits lights-only and empty selected scenes, reserving one neutral transform slot per geometry-free model without a draw. Surviving model handles and lighting/material binding layouts retain their identity during membership changes. The standalone viewer still diagnoses assets without renderable primitives.
+
+See [the current review](review-phase7-2026-10-02.md) for verified behavior, remaining feature gaps and the proposed device-lifecycle ownership split.
