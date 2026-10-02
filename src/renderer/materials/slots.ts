@@ -125,22 +125,26 @@ export const materialTextureSlots: readonly MaterialTextureSlot[] = [
   },
 ];
 
-export const materialFactorFloats = 32;
+/** Version 2 adds three vec4s for toon/outline policy. All material and shadow
+ * variants migrate together; the twelve texture/sampler slots stay identical. */
+export const materialLayoutVersion = 2;
+export const materialFactorFloats = 44;
 /** Shared by color and alpha-tested shadow shaders; keep field order in sync with packing. */
 export const materialShaderStruct = /* wgsl */ `
 struct UVTransform { row0: vec4f, row1: vec4f }
-struct Material { baseColor: vec4f, emissive: vec4f, parameters: vec4f, textureParameters: vec4f, coat: vec4f, specular: vec4f, transmission: vec4f, attenuation: vec4f, uv: array<UVTransform, ${materialTextureSlots.length}> }
+struct Material { baseColor: vec4f, emissive: vec4f, parameters: vec4f, textureParameters: vec4f, coat: vec4f, specular: vec4f, transmission: vec4f, attenuation: vec4f, toon: vec4f, shadowTint: vec4f, outline: vec4f, uv: array<UVTransform, ${materialTextureSlots.length}> }
 `;
 export const materialUniformByteSize = (materialFactorFloats + materialTextureSlots.length * 8) * 4;
 
 /** Visibility is supplied by the renderer so the schema also works in CPU-only tests. */
 export function createMaterialLayoutEntries(
   visibility: GPUShaderStageFlags,
+  uniformVisibility: GPUShaderStageFlags = visibility,
 ): GPUBindGroupLayoutEntry[] {
   return [
     {
       binding: 0,
-      visibility,
+      visibility: uniformVisibility,
       buffer: { type: 'uniform', minBindingSize: materialUniformByteSize },
     },
     ...materialTextureSlots.flatMap((slot): GPUBindGroupLayoutEntry[] => [

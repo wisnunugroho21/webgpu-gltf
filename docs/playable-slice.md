@@ -4,6 +4,8 @@ Run `pnpm dev`, then open `http://127.0.0.1:5173/game.html`. `pnpm build` emits 
 
 Move with **WASD or arrows**, hold **Shift** to run and press **Space** to jump. Explore the low steps and jump over the center barrier. **Pause/Resume** freezes physics and clip time. **Despawn/Spawn companion** exercises retained membership with a second independently animated instance. Click the canvas to restore keyboard focus after other controls. Desktop keyboard/mouse and WebGPU are the current targets; touch/gamepad and anime art are later work.
 
+Phase 6 extends this slice: hold **E** for an additive arm pose and select **Use authored root motion** for collision-resolved clip travel. The footfall counter demonstrates authored events. Toon ramps and hull outlines style the original character; see [animation contracts](gameplay-animation.md) and [presentation limits](anime-presentation.md). Player animation now advances on fixed gameplay steps; the companion retains presentation playback. Retargeting/IK and production anime assets remain separate work.
+
 ## Code and ownership
 
 | Module                          | Responsibility                                                                      |
@@ -45,6 +47,6 @@ The app stops GPU submissions until `renderer.syncWorld(world)` commits companio
 
 `pnpm test` covers action edges/aliases, rate independence with real WASM physics, walls/stairs/jump, pause, parent conversion/ownership and independent animation state. `pnpm test:browser:offline game.spec.ts` checks keyboard movement, jumping, manual/hidden pause, viewport changes and companion actions. The GPU test reads compute output bytes and compares player pose revision, clip time, stable handle and output allocation across companion removal/recreation. The full offline viewer suite is the regression gate.
 
-See [backend evaluation and measured bundle cost](physics-backend.md). The slice provides the first playable character loop. Combat/objectives, audio, editor, device-loss recovery, touch/gamepad, runtime collider edits and physics interpolation remain unimplemented. Physics placement is displayed at the fixed-step position; animation and camera are independent presentation consumers.
+See [backend evaluation and measured bundle cost](physics-backend.md). The slice provides the first playable character loop. Combat/objectives, audio, editor, device-loss recovery, touch/gamepad, runtime collider edits and physics interpolation remain unimplemented. Physics placement is displayed at the fixed-step position; player animation advances with gameplay, while camera damping uses accepted presentation time.
 
 After building, `pnpm test:compressed-build` also smoke-tests the emitted game page, WASM initialization, movement, pause, companion membership and shipped license alongside the existing production decoder regressions.

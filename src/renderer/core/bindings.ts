@@ -7,7 +7,7 @@ import { lightingFloats, type PunctualLighting } from '../lighting/punctual';
 export const instanceFloatCount = 32;
 export const normalMatrixOffset = 16;
 export const instanceByteSize = instanceFloatCount * Float32Array.BYTES_PER_ELEMENT;
-const frameFloatCount = 20; // view-projection mat4 + padded camera position vec4
+const frameFloatCount = 24; // view-projection, eye, viewport pixel dimensions
 
 /** Renderer-wide binding contract. Material presence never changes these layouts. */
 export class SceneBindings {
@@ -105,9 +105,10 @@ export class SceneBindings {
     });
   }
 
-  uploadCamera(camera: CameraView): void {
+  uploadCamera(camera: CameraView, width: number, height: number): void {
     mat4.multiply(this.frameData.subarray(0, 16), camera.projection, camera.view);
     this.frameData.set(camera.eye, 16);
+    this.frameData.set([width, height, 0, 0], 20);
     this.device.queue.writeBuffer(this.frameBuffer, 0, this.frameData);
   }
 

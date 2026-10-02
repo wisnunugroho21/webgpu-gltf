@@ -158,6 +158,11 @@ export class SceneBuilder {
             : undefined;
         const geometry = deformation ? deformation.geometry(baseGeometry) : baseGeometry;
         const material = await materials.get(primitive.material);
+        if (
+          material.outline &&
+          (!geometry.features.normal || !geometry.topology.startsWith('triangle'))
+        )
+          throw new Error('Outline hulls require triangle geometry with NORMAL.');
         const materialDefinition = asset.gltf.materials?.[primitive.material!];
         for (const slot of materialTextureSlots) {
           const info = slot.read(materialDefinition ?? {});
@@ -204,6 +209,19 @@ export class SceneBuilder {
           );
           const draw: Draw = {
             pipeline,
+            outlinePipeline:
+              material.outline &&
+              geometry.features.normal &&
+              geometry.topology.startsWith('triangle')
+                ? await pipelines.get({
+                    ...pipelineArgs(
+                      geometry,
+                      material,
+                      deformation?.data.skinned ? pose.rootMirrored : batch[0].mirrored,
+                    ),
+                    outline: true,
+                  })
+                : undefined,
             shadowPipeline:
               material.alphaMode !== 'BLEND' &&
               !material.transmission &&
@@ -241,6 +259,12 @@ export class SceneBuilder {
               localBounds: { min: vec3.clone(localMin), max: vec3.clone(localMax) },
               front: alternatives[0],
               mirrored: alternatives[1],
+              outlineFront: draw.outlinePipeline
+                ? await pipelines.get({ ...pipelineArgs(geometry, material, false), outline: true })
+                : undefined,
+              outlineMirrored: draw.outlinePipeline
+                ? await pipelines.get({ ...pipelineArgs(geometry, material, true), outline: true })
+                : undefined,
               worldRevision: -1,
             });
           if (material.transmission) transmission.push(draw);

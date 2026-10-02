@@ -35,7 +35,7 @@ function authoredBasis(info?: TextureInfo): number {
 }
 
 /** Pure CPU packing is shared by all materials. Extensions add data, never binding variants.
- * Eight factor vec4s precede twelve UV transforms, matching the WGSL Material struct. */
+ * Version 2: eleven factor vec4s precede twelve UV transforms (560 bytes). */
 export function materialUniform(definition: Material): Float32Array {
   const alphaMode = definition.alphaMode ?? 'OPAQUE';
   if (!['OPAQUE', 'MASK', 'BLEND'].includes(alphaMode))
@@ -124,6 +124,32 @@ export function materialUniform(definition: Material): Float32Array {
       authoredBasis(coat.clearcoatNormalTexture),
     ],
     28,
+  );
+  const toon = definition.extras?.engine?.toon;
+  if (toon !== undefined && (!toon || typeof toon !== 'object' || Array.isArray(toon)))
+    throw new Error('Toon policy must be an object.');
+  values.set(
+    [
+      Number(!!toon),
+      number(toon?.threshold, 0.5, 'Toon threshold', 0, 1),
+      number(toon?.softness, 0.02, 'Toon softness', 0.0001, 0.5),
+      number(toon?.shadowLevel, 0.35, 'Toon shadow level', 0, 1),
+    ],
+    32,
+  );
+  values.set(
+    [
+      ...color(toon?.shadowColor, [0.6, 0.65, 0.8], 'Toon shadow color', 1),
+      number(toon?.indirectStrength, 0.25, 'Toon indirect strength', 0, 1),
+    ],
+    36,
+  );
+  values.set(
+    [
+      ...color(toon?.outlineColor, [0.015, 0.02, 0.04], 'Outline color'),
+      number(toon?.outlineWidth, 0, 'Outline width', 0, 16),
+    ],
+    40,
   );
   return values;
 }

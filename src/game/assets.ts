@@ -55,8 +55,71 @@ export function characterAsset(): Asset {
       channels.push({ sampler: samplers.length, target: { node: limb, path: 'rotation' } });
       samplers.push({ input, output });
     }
-    return { name, samplers, channels };
+    if (clip > 0) {
+      const rootTime = add([0, duration], 'SCALAR');
+      channels.push({ sampler: samplers.length, target: { node: 0, path: 'translation' } });
+      samplers.push({
+        input: rootTime,
+        output: add([0, 0, 0, 0, 0, duration * [0, 2.5, 5][clip]], 'VEC3'),
+      });
+    }
+    return {
+      name,
+      samplers,
+      channels,
+      extras: {
+        engine: {
+          events: clip
+            ? [
+                { time: duration * 0.25, name: 'foot-left' },
+                { time: duration * 0.75, name: 'foot-right' },
+              ]
+            : [],
+        },
+      },
+    };
   });
+  const aimTime = add([0, 0.5, 1], 'SCALAR');
+  asset.gltf.animations.push({
+    name: 'Aim',
+    samplers: [
+      {
+        input: aimTime,
+        output: add(
+          [0, 0, 0, 1, -Math.SQRT1_2, 0, 0, Math.SQRT1_2, -Math.SQRT1_2, 0, 0, Math.SQRT1_2],
+          'VEC4',
+        ),
+      },
+    ],
+    channels: [3, 4].map((node) => ({ sampler: 0, target: { node, path: 'rotation' } })),
+  });
+  for (const material of asset.gltf.materials!) {
+    material.pbrMetallicRoughness!.metallicFactor = 0;
+    material.extras = { engine: { toon: { outlineWidth: 2, threshold: 0.55, shadowLevel: 0.3 } } };
+  }
+  // Original stylized hair and eyes; shared box geometry, no downloaded artwork.
+  for (const color of [
+    [0.05, 0.06, 0.12, 1],
+    [0.95, 0.97, 1, 1],
+  ]) {
+    const material = asset.gltf.materials!.length;
+    asset.gltf.materials!.push({
+      pbrMetallicRoughness: { baseColorFactor: color, metallicFactor: 0, roughnessFactor: 1 },
+      extras: { engine: { toon: { outlineWidth: material === 2 ? 1 : 0 } } },
+    });
+    asset.gltf.meshes!.push({ primitives: [{ ...asset.gltf.meshes![0].primitives[0], material }] });
+  }
+  asset.gltf.nodes[2].children = [11, 12, 13, 14, 15, 16];
+  asset.gltf.nodes.push(
+    { mesh: 3, translation: [0, 0.85, -0.1], scale: [1.06, 0.3, 1.05] },
+    ...[-0.45, 0.45].map((x) => ({ mesh: 4, translation: [x, 0, 1.01], scale: [0.3, 0.42, 0.03] })),
+    ...[-0.45, 0.45].map((x) => ({
+      mesh: 3,
+      translation: [x, -0.05, 1.06],
+      scale: [0.12, 0.3, 0.025],
+    })),
+    { mesh: 3, translation: [0, -0.55, 1.02], scale: [0.2, 0.03, 0.02] },
+  );
   return asset;
 }
 

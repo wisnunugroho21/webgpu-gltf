@@ -12,6 +12,7 @@ const bindings: Record<string, string> = {
   ShiftLeft: 'run',
   ShiftRight: 'run',
   Space: 'jump',
+  KeyE: 'aim',
 };
 /** DOM lifetime stays in the application. Ignore controls while focus is in a
  * form, clear held keys on focus loss, and retain aliases independently. */

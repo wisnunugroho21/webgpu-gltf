@@ -20,15 +20,19 @@ export class SceneVisibility {
       draw.visibleRuns.length = 0;
       for (let i = 0; i < draw.bounds.length; i++) {
         const bounds = draw.bounds[i];
-        if (enabled && !this.frustum.intersects(bounds)) continue;
+        // Pixel-expanded shells extend beyond geometry AABBs. Conservatively keep
+        // outlined receivers until expanded screen bounds are implemented. Never
+        // apply an unexpanded occlusion/scale/frustum result to their silhouettes.
+        const outlined = !!draw.outlinePipeline;
+        if (!outlined && enabled && !this.frustum.intersects(bounds)) continue;
         const first = draw.firstInstance + i;
-        const occlusion = filters?.occlusion;
+        const occlusion = outlined ? undefined : filters?.occlusion;
         // Cached hidden results are valid only after dependency checks in beginFrame.
         // Skip repeated projections of stable instances and futile moving-depth queries.
         if (occlusion?.hasResult(first) && !occlusion.visible(first)) continue;
         const query = occlusion?.acceptingQueries && !occlusion.hasResult(first);
         const projected =
-          filters && (filters.minPixels > 0 || query)
+          !outlined && filters && (filters.minPixels > 0 || query)
             ? projectBounds(bounds, viewProjection, filters.width, filters.height)
             : undefined;
         if (projected && projected.pixels < filters!.minPixels) continue;
@@ -42,7 +46,7 @@ export class SceneVisibility {
           runs[runs.length - 1]++;
         else runs.push(first, 1);
       }
-      stats.draws += draw.visibleRuns.length / 2;
+      stats.draws += (draw.visibleRuns.length / 2) * (draw.outlinePipeline ? 2 : 1);
       for (let i = 1; i < draw.visibleRuns.length; i += 2) stats.instances += draw.visibleRuns[i];
     }
     stats.culledInstances = scene.stats.instances - stats.instances;

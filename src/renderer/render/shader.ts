@@ -6,13 +6,17 @@ import { punctualShader } from '../lighting/punctual-shader';
 
 /** Variants cover vertex inputs and scene/weighted-transparency outputs. Material values
  * remain uniforms, so changing a color or texture doesn't create another pipeline. */
-export function shaderSource(features: Geometry['features'], weighted = false): string {
+export function shaderSource(
+  features: Geometry['features'],
+  weighted = false,
+  outline = false,
+): string {
   const uvSets = features.uvSets ?? (features.uv ? [0] : []);
   const volumeLocation = 5 + uvSets.filter((set) => set !== 0).length;
   return /* wgsl */ `
-struct Frame { viewProjection: mat4x4f, eye: vec4f }
+struct Frame { viewProjection: mat4x4f, eye: vec4f, viewport: vec4f }
 struct Instance { world: mat4x4f, normal: mat4x4f }
-// Eight factor vec4s + twelve UV transforms = 512 bytes, matching CPU packing.
+// Material layout v2: eleven factor vec4s + twelve UV transforms = 560 bytes.
 // textureParameters = normal scale, occlusion strength, normal-map presence, authored basis.
 ${materialShaderStruct}
 @group(0) @binding(0) var<uniform> frame: Frame;
@@ -58,6 +62,19 @@ struct VertexOutput {
   output.clip = frame.viewProjection * world;
   output.world = world.xyz;
   output.normal = ${features.normal ? '(model.normal * vec4f(input.normal, 0.0)).xyz' : 'vec3f(0.0)'};
+  ${
+    outline
+      ? `
+  // Inverted hull consumes the same deformed vertices as color rendering. Use
+  // projected normal derivatives for a constant physical-pixel silhouette width.
+  let direction = frame.viewProjection * vec4f(output.normal * inverseSqrt(max(dot(output.normal, output.normal), 0.000001)), 0.0);
+  let projected = (direction.xy * output.clip.w - output.clip.xy * direction.w) * frame.viewport.xy;
+  let lengthSquared = dot(projected, projected);
+  if (lengthSquared > 0.000000000001 && output.clip.w > 0.0) {
+    output.clip = vec4f(output.clip.xy + projected * inverseSqrt(lengthSquared) * material.outline.w * 2.0 / frame.viewport.xy * output.clip.w, output.clip.zw);
+  }`
+      : ''
+  }
   ${uvSets.map((set) => `output.uv${set} = input.uv${set};`).join('\n  ')}
   output.color = ${features.color === 4 ? 'input.color' : features.color === 3 ? 'vec4f(input.color, 1.0)' : 'vec4f(1.0)'};
   ${
@@ -180,7 +197,12 @@ ${weighted ? 'struct TransparentOutput { @location(0) accumulation: vec4f, @loca
     let fresnel=f0+(f90-f0)*pow(1.0-vh,5.0);
     let radiance=sample.radiance*shadowVisibility(light,input.world,N);
     // Scalar energy reduction avoids complementary tint in colored dielectric diffuse.
-    directDiffuse+=(1.0-maxChannel(fresnel))*(1.0-metallic)*base.rgb/3.14159265*nl*radiance;
+    var diffuseResponse = vec3f(nl);
+    if (material.toon.x > 0.0) {
+      let band = smoothstep(material.toon.y-material.toon.z, material.toon.y+material.toon.z, nl);
+      diffuseResponse = mix(material.shadowTint.rgb * material.toon.w, vec3f(1.0), band);
+    }
+    directDiffuse+=(1.0-maxChannel(fresnel))*(1.0-metallic)*base.rgb/3.14159265*diffuseResponse*radiance;
     directSpecular+=specularLobe(N,L,V,roughness)*fresnel*nl*radiance;
     coatDirect+=specularLobe(coatN,L,V,coatRoughness)*coatFresnel*max(dot(coatN,L),0.0)*radiance;
   }
@@ -196,8 +218,9 @@ ${weighted ? 'struct TransparentOutput { @location(0) accumulation: vec4f, @loca
   let indirectDiffuse = (1.0 - maxChannel(environmentFresnel)) * (1.0 - metallic) * base.rgb * irradiance;
   let indirectSpecular = reflected * (f0 * brdf.x + f90 * brdf.y);
   let transmissionAmount = transmissionWeight * (1.0 - metallic);
-  let diffuseLighting = directDiffuse + (base.rgb * 0.12 + environment.x * indirectDiffuse) * occlusion;
-  var color = diffuseLighting * (1.0 - transmissionAmount) + directSpecular + environment.x * indirectSpecular * occlusion + emission;
+  let indirectPolicy = select(1.0, material.shadowTint.w, material.toon.x > 0.0);
+  let diffuseLighting = directDiffuse + indirectPolicy * (base.rgb * 0.12 + environment.x * indirectDiffuse) * occlusion;
+  var color = diffuseLighting * (1.0 - transmissionAmount) + directSpecular + indirectPolicy * environment.x * indirectSpecular * occlusion + emission;
   if (transmissionWeight > 0.0 && metallic < 1.0) {
     let transmitted = transmittedRadiance(input, N, V, thickness, roughness, ior);
     var attenuation = vec3f(1.0);
@@ -215,6 +238,7 @@ ${weighted ? 'struct TransparentOutput { @location(0) accumulation: vec4f, @loca
     color = color * (1.0 - coatWeight * coatFresnel) + coatWeight * coatLight;
   }
   if (material.parameters.w == 1.0) { color = base.rgb; } // KHR_materials_unlit
+  ${outline ? 'color = material.outline.rgb;' : ''}
   let alpha = select(1.0, base.a, alphaMode == 2.0);
   // Preserve HDR linear radiance for lighting and alpha blending. Display encoding and
   // tone mapping belong exclusively to the fullscreen presentation pass.

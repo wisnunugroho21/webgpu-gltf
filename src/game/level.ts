@@ -45,4 +45,5 @@ export function addCompanion(world: World): void {
     transform: { translation: [2, 0.02, 3], rotation: [0, 0.7071068, 0, 0.7071068] },
   });
   world.getEntity('companion').model!.animation.select(1);
+  world.getEntity('companion').model!.animation.setRootMotion({ node: 0, mode: 'in-place' });
 }

@@ -55,6 +55,20 @@ export interface TextureInfo {
   };
 }
 export interface Material {
+  /** Engine-authored presentation policy, independent of standard glTF PBR data. */
+  extras?: {
+    engine?: {
+      toon?: {
+        threshold?: number;
+        softness?: number;
+        shadowLevel?: number;
+        shadowColor?: number[];
+        indirectStrength?: number;
+        outlineColor?: number[];
+        outlineWidth?: number;
+      };
+    };
+  };
   name?: string;
   pbrMetallicRoughness?: {
     baseColorFactor?: number[];
@@ -143,6 +157,8 @@ export interface PunctualLight {
   spot?: { innerConeAngle?: number; outerConeAngle?: number };
 }
 export interface Animation {
+  /** Project metadata; glTF extras remain optional and do not change the format. */
+  extras?: { engine?: { events?: { time: number; name: string }[] } };
   name?: string;
   samplers: { input: number; output: number; interpolation?: 'LINEAR' | 'STEP' | 'CUBICSPLINE' }[];
   channels: {

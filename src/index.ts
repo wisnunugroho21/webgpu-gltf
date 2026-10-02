@@ -25,6 +25,8 @@ export {
   type AnimationState,
   type AnimationLayer,
   type AnimationTransition,
+  type AnimationEvent,
+  type RootMotionSettings,
 } from './animation/controller';
 export { loadFiles, loadUrl, parseGlb } from './gltf/loader';
 export type { LoadOptions } from './gltf/loader';

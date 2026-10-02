@@ -134,6 +134,12 @@ export async function prepareWorld(
           ...part.opaque.keys(),
           ...part.transparent.map((draw) => draw.pipeline),
           ...part.transmission.map((draw) => draw.pipeline),
+          ...part.draws.flatMap((draw) => (draw.outlinePipeline ? [draw.outlinePipeline] : [])),
+          ...part.updates.flatMap((update) =>
+            [update.outlineFront, update.outlineMirrored].filter(
+              (pipeline): pipeline is GPURenderPipeline => !!pipeline,
+            ),
+          ),
         ]),
       ).size,
       draws: parts.reduce((n, part) => n + part.stats.draws, 0),

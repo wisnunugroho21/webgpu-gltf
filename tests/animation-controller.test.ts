@@ -68,6 +68,8 @@ describe('animation playback controller', () => {
       playing: true,
       duration: 0,
       layers: [{ clip: -1, time: 0, weight: 1 }],
+      overlays: [],
+      clock: 'presentation',
       transition: undefined,
     });
     expect(animation.update(1000)).toBe(true);

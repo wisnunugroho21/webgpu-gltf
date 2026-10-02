@@ -75,6 +75,10 @@ async function start(): Promise<void> {
       world,
       {
         present(frame) {
+          // Only the player's footfalls drive gameplay; discard companion events
+          // instead of retaining an unused queue for the lifetime of the level.
+          for (const model of world.modelInstances)
+            if (model !== player.model) model.animation.drainEvents();
           const p = player.worldMatrix;
           const dt = Math.max(0, (frame.presentationTimeMs - lastPresentation) / 1000);
           lastPresentation = frame.presentationTimeMs;
@@ -84,6 +88,7 @@ async function start(): Promise<void> {
           status.textContent = frame.paused
             ? 'Paused'
             : `${simulation.locomotion.state} · ${simulation.body.grounded ? 'Grounded' : 'Airborne'}`;
+          if (!frame.paused) status.textContent += ` · ${simulation.footfalls} footfalls`;
         },
       },
       { systems: simulation.systems },
@@ -96,6 +101,15 @@ async function start(): Promise<void> {
     };
     unbind = bindKeyboard(input);
     const options = { signal: events.signal };
+    document.querySelector<HTMLInputElement>('#root-motion')!.addEventListener(
+      'change',
+      (event) => {
+        simulation.rootMotionEnabled = (event.target as HTMLInputElement).checked;
+        input.clear();
+        canvas.focus();
+      },
+      options,
+    );
     canvas.tabIndex = 0;
     canvas.addEventListener('pointerdown', () => canvas.focus(), options);
     pauseButton.addEventListener(

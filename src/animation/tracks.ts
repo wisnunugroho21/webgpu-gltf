@@ -13,6 +13,7 @@ export interface Clip {
   name: string;
   duration: number;
   tracks: Track[];
+  events?: readonly { readonly time: number; readonly name: string }[];
 }
 
 /** Sample into a caller-owned array. Key ranges clamp, LINEAR rotations use shortest-path
@@ -116,9 +117,24 @@ export function prepareClips(asset: Asset): Clip[] {
         throw new Error('Cubic animation requires two keys.');
       return { node, path, times, values, width, interpolation } as Track;
     });
+    const duration = Math.max(0, ...tracks.map((track) => track.times.at(-1)!));
+    const events = (animation.extras?.engine?.events ?? [])
+      .map((event) => {
+        if (
+          !Number.isFinite(event.time) ||
+          event.time < 0 ||
+          event.time > duration ||
+          typeof event.name !== 'string' ||
+          !event.name
+        )
+          throw new Error('Animation event must have a name and a time within its clip.');
+        return Object.freeze({ ...event });
+      })
+      .sort((a, b) => a.time - b.time);
     return {
       name: animation.name ?? `Animation ${index + 1}`,
-      duration: Math.max(0, ...tracks.map((track) => track.times.at(-1)!)),
+      duration,
+      events: Object.freeze(events),
       tracks,
     };
   });

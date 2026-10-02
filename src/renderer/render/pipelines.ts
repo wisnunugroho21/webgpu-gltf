@@ -13,6 +13,7 @@ export interface PipelineArgs {
   blend: boolean;
   transmission?: boolean;
   mirrored: boolean;
+  outline?: boolean;
 }
 
 export function pipelineArgs(
@@ -57,12 +58,12 @@ export class PipelineCache {
     let result = this.pipelines.get(key);
     if (!result) {
       const weighted = this.transparency === 'weighted' && args.blend && !args.transmission;
-      const shaderKey = JSON.stringify([args.features, weighted]);
+      const shaderKey = JSON.stringify([args.features, weighted, args.outline ?? false]);
       let module = this.shaders.get(shaderKey);
       if (!module) {
         module = this.device.createShaderModule({
           label: `glTF shader ${shaderKey}`,
-          code: shaderSource(args.features, weighted),
+          code: shaderSource(args.features, weighted, args.outline ?? false),
         });
         this.shaders.set(shaderKey, module);
       }
@@ -106,7 +107,7 @@ export class PipelineCache {
           topology: args.topology,
           stripIndexFormat: args.stripIndexFormat,
           frontFace: args.mirrored ? 'cw' : 'ccw',
-          cullMode: args.doubleSided ? 'none' : 'back',
+          cullMode: args.outline ? 'front' : args.doubleSided ? 'none' : 'back',
         },
         depthStencil: {
           format: 'depth24plus',

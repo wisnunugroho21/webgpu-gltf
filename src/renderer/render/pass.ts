@@ -63,6 +63,14 @@ export function encodeScene(
           if (draw.pipeline === pipeline && draw.visibleRuns.length) submitDraw(pass, draw);
       }
     }
+    // Shells use already uploaded/compute-deformed vertices, with front-face
+    // culling and mirrored winding. They never enter shadow or deformation work.
+    for (const draw of scene.draws) {
+      if (!draw.outlinePipeline || !draw.visibleRuns.length) continue;
+      pass.setPipeline(draw.outlinePipeline);
+      pass.setBindGroup(2, draw.material.bindGroup);
+      submitDraw(pass, draw);
+    }
     if (context.occlusion?.ready) {
       pass.end();
       // Opaque/MASK depth is the only occluder source. Glass and BLEND must never

@@ -27,7 +27,7 @@ test('core material factors reject malformed arrays, invalid ranges and float32 
   expect(valid[12]).toBe(-2);
 });
 
-test('extension defaults retain core shading and pack the shared 512-byte uniform', () => {
+test('extension defaults retain core shading and pack the shared version 2 uniform', () => {
   const base = materialUniform({});
   const defaults = materialUniform({
     extensions: {
@@ -40,7 +40,7 @@ test('extension defaults retain core shading and pack the shared 512-byte unifor
     },
   });
   expect(defaults).toEqual(base);
-  expect(base.byteLength).toBe(512);
+  expect(base.byteLength).toBe(560);
   expect([...base.slice(16, 32)]).toEqual([0, 0, 1, 0, 1, 1, 1, 1, 0, 0, 1.5, 0, 1, 1, 1, 1]);
   expect(supportedExtensions).toContain('KHR_materials_volume');
 });
@@ -89,7 +89,7 @@ test('extension slots share UV overrides and independently select authored norma
     expect(materialTextureSlots[slot].read(material)).toEqual(
       slot === 7 ? { ...info, scale: 0.5 } : info,
     );
-    expect([...values.slice(32 + slot * 8, 40 + slot * 8)]).toEqual([2, -0, 0.5, 1, 0, 3, 0, 0]);
+    expect([...values.slice(44 + slot * 8, 52 + slot * 8)]).toEqual([2, -0, 0.5, 1, 0, 3, 0, 0]);
   }
   expect(values[15]).toBe(1); // Base normal basis unchanged.
   expect(values[31]).toBe(0); // Coat requires derivatives of transformed UV1.

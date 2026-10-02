@@ -6,7 +6,7 @@ Evolve the current renderer into a browser game engine through small, verified c
 
 This document combines implemented migration phases with the remaining plan. APIs, modules and systems in unfinished phases are proposals. The [current review](review-2026-10-02.md) records existing capabilities and verification.
 
-Phases 0–5 are implemented: safeguards, engine-owned updates/cameras, scalable hierarchy, retained membership, asset/component/system services, and the playable character slice. See [runtime](engine-runtime.md), [migration safeguards](migration-safeguards.md), [hierarchy](world-hierarchy.md), [retained membership](rendering-membership.md), [services](engine-services.md), and [playable slice](playable-slice.md) for APIs and verification. Phases 6 onward remain proposed work.
+Phases 0–6 are implemented: safeguards, engine-owned updates/cameras, scalable hierarchy, retained membership, services, the playable slice, and gameplay animation/toon presentation. See [runtime](engine-runtime.md), [migration safeguards](migration-safeguards.md), [hierarchy](world-hierarchy.md), [membership](rendering-membership.md), [services](engine-services.md), [playable slice](playable-slice.md), [gameplay animation](gameplay-animation.md) and [anime presentation](anime-presentation.md) for APIs and limits. Phase 7 remains proposed work.
 
 ## Architecture and ownership contract
 
@@ -108,6 +108,8 @@ This phase is the first “game engine” release gate: a complete playable loop
 
 ## Phase 6 — Add gameplay animation and anime presentation
 
+**Implemented:** fixed-step animation advancement, authored events, per-node masks, additive overlays, translation root-motion extraction/one-time consumption and in-place physics playback. The slice demonstrates aim overlays, footfall events, optional authored travel, toon ramps and original stylized hair/eyes. Material/frame layout migrations are explicit and all texture slots remain fixed. GPU fixtures cover skin/morph output, mirrored hulls, HDR, MSAA and transparent toon shading; hulls intentionally exclude transparent/transmitting surfaces and conservatively bypass unexpanded culling. See [animation contracts](gameplay-animation.md) and [presentation/limits](anime-presentation.md). Retargeting and IK remain separate additions through per-instance overrides.
+
 **Changes:** add animation events, per-node masks and additive layers where the game needs them. Add explicit root-motion extraction/consumption, including in-place playback when physics owns movement. Retargeting and IK are separate additions, integrated through shared clips and per-instance overrides. Add toon material parameters, controlled lighting ramps and outlines as renderer features backed by authored scene/material data.
 
 **Acceptance:** events are stable during looping, fading and catch-up simulation; root motion is applied once and does not fight physics. Upper-body overrides do not contaminate shared clips or animation interruption snapshots. Toon/outline features have visual fixtures for skinned meshes, mirrored roots, transparency, HDR and MSAA. Keep the explicit material binding contract consistent across variants; incompatible additions require deliberate layout versioning and migration.
@@ -124,4 +126,4 @@ Implement each phase as small reviewable changes. Preserve the viewer, shared im
 
 Use CPU tests for hierarchy, clocks, ownership, serialization and systems. Use real GPU tests for resource lifetime, deformed output, bindings, bounds/visibility and rendered appearance. Repeat relevant checks after changes; broaden testing when new behavior or failures justify it. Establish performance acceptance from measured baselines rather than arbitrary FPS targets.
 
-The next planned implementation is **Phase 6: gameplay animation and anime presentation**. The playable character loop provides a setting for evaluating those additions. Keep services driven by gameplay requirements before introducing complex streaming or editor frameworks.
+The next planned phase is **Phase 7: authoring, resilience and measured scale**. Choose concrete gameplay/editor/recovery requirements and measurements before expanding streaming or rendering frameworks. Phase 6's translation-only extraction, conservative outline culling and transparent-shell policy remain explicit boundaries for subsequent work.

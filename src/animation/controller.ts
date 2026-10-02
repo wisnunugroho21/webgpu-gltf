@@ -1,12 +1,18 @@
 import type { Pose } from '../scene/pose';
 import type { AnimationLayer, BlendSample, LocalPose } from './blending';
+import { crossedEvents, translationDelta, type AnimationEvent } from './motion';
+export type { AnimationEvent } from './motion';
 export type { AnimationLayer } from './blending';
 
-type Layer = { clip: number; time: number; weight: number };
+type Layer = Omit<AnimationLayer, 'time'> & { time: number };
 export interface AnimationTransition {
   readonly duration: number;
   readonly elapsed: number;
   readonly progress: number;
+}
+export interface RootMotionSettings {
+  readonly node: number;
+  readonly mode: 'in-place' | 'extract';
 }
 export interface AnimationState {
   readonly clips: readonly string[];
@@ -15,6 +21,8 @@ export interface AnimationState {
   readonly playing: boolean;
   readonly duration: number;
   readonly layers: readonly AnimationLayer[];
+  readonly overlays: readonly AnimationLayer[];
+  readonly clock: 'presentation' | 'external';
   readonly transition?: AnimationTransition;
 }
 
@@ -35,6 +43,12 @@ export class AnimationController {
   private lastTimestamp?: number;
   private dirty = false;
   private initialize = false;
+  private overlays: Layer[] = [];
+  private clock: 'presentation' | 'external' = 'presentation';
+  private events: AnimationEvent[] = [];
+  private rootMotion?: RootMotionSettings;
+  private displacement = [0, 0, 0];
+  private elapsed = 0;
   onChange?: () => void;
 
   get state(): AnimationState {
@@ -45,7 +59,15 @@ export class AnimationController {
       time: primary?.time ?? 0,
       playing: this.playing,
       duration: this.pose?.clips[primary?.clip ?? -1]?.duration ?? 0,
-      layers: this.layers.map((layer) => ({ ...layer })),
+      layers: this.layers.map((layer) => ({
+        ...layer,
+        mask: layer.mask ? [...layer.mask] : undefined,
+      })),
+      overlays: this.overlays.map((layer) => ({
+        ...layer,
+        mask: layer.mask ? [...layer.mask] : undefined,
+      })),
+      clock: this.clock,
       transition: this.fade
         ? {
             duration: this.fade.duration,
@@ -62,6 +84,11 @@ export class AnimationController {
     this.initialize = true;
     this.clips = pose.clips.map((clip) => clip.name);
     this.playing = true;
+    this.elapsed = 0;
+    this.overlays = [];
+    this.events = [];
+    this.rootMotion = undefined;
+    this.displacement.fill(0);
     this.select(pose.clips.length ? 0 : -1);
   }
 
@@ -75,6 +102,8 @@ export class AnimationController {
     this.validateClip(index);
     this.layers = [{ clip: index, time: 0, weight: 1 }];
     this.fade = undefined;
+    this.events = [];
+    this.displacement.fill(0);
     this.invalidate();
   }
 
@@ -90,12 +119,16 @@ export class AnimationController {
       total += layer.weight;
       return {
         ...layer,
+        mask: layer.mask ? [...layer.mask] : undefined,
         time: Math.max(0, Math.min(this.pose?.clips[layer.clip]?.duration ?? 0, layer.time)),
       };
     });
     if (!Number.isFinite(total)) throw new Error('Animation weight total must be finite.');
+    this.pose?.validateBlend(next);
     this.layers = next;
     this.fade = undefined;
+    this.events = [];
+    this.displacement.fill(0);
     this.invalidate();
   }
 
@@ -109,7 +142,12 @@ export class AnimationController {
       this.select(index);
       return;
     }
-    const snapshot = this.fade ? this.pose?.capture() : undefined;
+    // A masked base can have different normalization totals at each node. Capture
+    // that base when transitioning rather than globally rescaling its weights.
+    const snapshot =
+      this.fade || this.layers.some((layer) => layer.mask || layer.additive)
+        ? this.pose?.captureBlend(this.samples())
+        : undefined;
     const total = this.layers.reduce((sum, layer) => sum + layer.weight, 0);
     const source = this.layers.map((layer) => ({
       ...layer,
@@ -137,12 +175,58 @@ export class AnimationController {
     this.onChange?.();
   }
 
+  /** Gameplay advances this clock at fixed steps; presentation only evaluates
+   * pending policy changes. This avoids event/root-motion delivery at render rate. */
+  setClock(clock: 'presentation' | 'external'): void {
+    if (!['presentation', 'external'].includes(clock)) throw new Error('Unknown animation clock.');
+    this.clock = clock;
+    this.lastTimestamp = undefined;
+  }
+  setOverlays(layers: readonly AnimationLayer[]): void {
+    const next = layers.map((layer) => ({
+      ...layer,
+      mask: layer.mask ? [...layer.mask] : undefined,
+      time: Math.max(0, Math.min(this.pose?.clips[layer.clip]?.duration ?? 0, layer.time)),
+    }));
+    for (const layer of next) this.validateClip(layer.clip);
+    this.pose?.validateBlend(next);
+    this.overlays = next;
+    this.dirty = true;
+  }
+  setRootMotion(settings?: RootMotionSettings): void {
+    if (settings && !['in-place', 'extract'].includes(settings.mode))
+      throw new Error('Unknown root-motion mode.');
+    this.pose?.setInPlaceRoot(settings?.node);
+    this.rootMotion = settings ? { ...settings } : undefined;
+    this.displacement.fill(0);
+    this.dirty = true;
+  }
+  consumeRootMotion(): readonly number[] {
+    const result = [...this.displacement];
+    this.displacement.fill(0);
+    return result;
+  }
+  drainEvents(): readonly AnimationEvent[] {
+    const result = this.events.sort(
+      (a, b) => a.elapsedSeconds - b.elapsedSeconds || a.clip - b.clip,
+    );
+    this.events = [];
+    return result;
+  }
+  advance(deltaSeconds: number): boolean {
+    if (!Number.isFinite(deltaSeconds) || deltaSeconds < 0)
+      throw new Error('Animation delta must be finite and nonnegative.');
+    return this.tick(deltaSeconds);
+  }
+
   /** Scrubbing ends a transition at its destination; manual layers seek only their
    * primary clock and retain the others. Restart follows the same policy. */
   seek(seconds: number): void {
     if (!Number.isFinite(seconds)) throw new Error('Animation time must be finite.');
     if (this.layers[0]) this.layers[0].time = Math.max(0, Math.min(this.state.duration, seconds));
     this.fade = undefined;
+    this.events = [];
+    this.displacement.fill(0);
     this.invalidate();
   }
 
@@ -166,29 +250,94 @@ export class AnimationController {
   }
 
   update(timestamp: number): boolean {
+    if (!Number.isFinite(timestamp)) throw new Error('Animation timestamp must be finite.');
     if (!this.pose) return false;
     const delta =
       this.lastTimestamp === undefined ? 0 : Math.max(0, (timestamp - this.lastTimestamp) / 1000);
     this.lastTimestamp = timestamp;
+    return this.tick(this.clock === 'external' ? 0 : delta);
+  }
+  private tick(delta: number): boolean {
+    if (!this.pose) return false;
     if (this.playing) {
-      const advance = (layers: Layer[]) =>
+      const fade = this.fade;
+      const progress = fade ? fade.elapsed / fade.duration : 1;
+      const fadeDelta = fade ? Math.min(delta, fade.duration - fade.elapsed) : 0;
+      const mean = fade ? (progress + (fade.elapsed + fadeDelta) / fade.duration) / 2 : 1;
+      const destinationWeight =
+        delta > 0 ? (mean * fadeDelta + delta - fadeDelta) / delta : progress;
+      const advance = (
+        layers: Layer[],
+        seconds: number,
+        factor = 1,
+        eventFactor: (offset: number) => number = () => factor,
+      ) =>
         layers.forEach((layer) => {
           const duration = this.pose!.clips[layer.clip]?.duration ?? 0;
           if (duration > 0) {
-            layer.time = (layer.time + delta) % duration;
-            this.dirty = true;
+            const speed = layer.speed ?? 1;
+            const travel = seconds * speed;
+            const clip = this.pose!.clips[layer.clip];
+            if (layer.weight > 0)
+              this.events.push(
+                ...crossedEvents(
+                  clip,
+                  layer.clip,
+                  layer.time,
+                  travel,
+                  (offset) => layer.weight * eventFactor(offset / speed),
+                ).map((event) => ({
+                  ...event,
+                  elapsedSeconds: this.elapsed + event.elapsedSeconds / speed,
+                })),
+              );
+            if (
+              this.rootMotion?.mode === 'extract' &&
+              !layer.additive &&
+              (!layer.mask || layer.mask.includes(this.rootMotion.node))
+            ) {
+              const value = translationDelta(clip, this.rootMotion.node, layer.time, travel);
+              const total = Math.max(
+                1,
+                layers.reduce(
+                  (sum, sample) =>
+                    sum +
+                    (sample.additive ||
+                    (sample.mask && !sample.mask.includes(this.rootMotion!.node))
+                      ? 0
+                      : sample.weight),
+                  0,
+                ),
+              );
+              value.forEach(
+                (v, c) => (this.displacement[c] += ((v * layer.weight) / total) * factor),
+              );
+            }
+            layer.time = (layer.time + travel) % duration;
+            this.dirty ||= travel > 0;
           }
         });
-      advance(this.layers);
+      advance(
+        this.layers,
+        delta,
+        destinationWeight,
+        fade ? (offset) => Math.min(1, (fade.elapsed + offset) / fade.duration) : () => 1,
+      );
+      advance(this.overlays, delta);
       if (this.fade) {
-        advance(this.fade.source);
+        if (!this.fade.snapshot)
+          advance(this.fade.source, fadeDelta, 1 - mean, (offset) =>
+            Math.max(0, 1 - (fade!.elapsed + offset) / fade!.duration),
+          );
         this.fade.elapsed = Math.min(this.fade.duration, this.fade.elapsed + delta);
-        this.dirty = true;
+        this.dirty ||= delta > 0;
         if (this.fade.elapsed === this.fade.duration) this.fade = undefined;
       }
+      this.elapsed += delta;
     }
     if (!this.dirty) return false;
-    const changed = this.pose.evaluateBlend(this.samples()) || this.initialize;
+    const changed =
+      this.pose.evaluateBlend([...this.samples(), ...this.overlays]) || this.initialize;
     this.initialize = false;
     this.dirty = false;
     this.onChange?.();

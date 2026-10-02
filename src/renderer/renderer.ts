@@ -419,7 +419,7 @@ export class Renderer {
       this.transmission.resize(this.viewport.width, this.viewport.height);
     if (scene?.transparent.length)
       this.transparency?.resize(this.viewport.width, this.viewport.height);
-    this.bindings.uploadCamera(view);
+    this.bindings.uploadCamera(view, this.viewport.width, this.viewport.height);
     if (scene) this.lighting.update(scene);
     if (this.bindings.refreshLighting()) this.transmission.refreshLighting();
     // Visibility consumes updated bounds. Query input uploads also finish before

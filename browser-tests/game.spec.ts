@@ -9,10 +9,14 @@ test('playable game boots offline, moves, pauses, resumes and changes companion 
   await page.goto('/game.html');
   await expect(page.locator('#status')).toContainText('Grounded');
   await page.locator('#game').click({ position: { x: 900, y: 600 } });
+  await page.locator('#root-motion').check();
+  await page.keyboard.down('KeyE');
   await page.keyboard.down('KeyW');
   await expect(page.locator('#status')).toContainText('Walk');
   await page.keyboard.down('ShiftLeft');
   await expect(page.locator('#status')).toContainText('Run');
+  await expect(page.locator('#status')).toContainText(/[1-9]\d* footfalls/);
+  await page.keyboard.up('KeyE');
   await page.keyboard.up('KeyW');
   await page.keyboard.up('ShiftLeft');
   await expect(page.locator('#status')).toContainText('Idle');

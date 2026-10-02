@@ -12,9 +12,13 @@ export interface GpuMaterial {
   alphaMode: 'OPAQUE' | 'MASK' | 'BLEND';
   doubleSided: boolean;
   transmission?: boolean;
+  outline?: boolean;
 }
 
-export const materialLayoutEntries = createMaterialLayoutEntries(GPUShaderStage.FRAGMENT);
+export const materialLayoutEntries = createMaterialLayoutEntries(
+  GPUShaderStage.FRAGMENT,
+  GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX,
+);
 
 /** Separate image/sampler caches mirror glTF's image + sampler = texture model. */
 export class MaterialFactory {
@@ -236,6 +240,9 @@ export class MaterialFactory {
           ? false
           : (definition.doubleSided ?? false),
       transmission: values[24] > 0 && values[11] === 0,
+      // Transparent shells would darken their interiors under OVER/OIT. Keep
+      // transparent toon shading, but reserve hulls for opaque/cutout surfaces.
+      outline: values[32] === 1 && values[43] > 0 && alphaMode !== 'BLEND' && values[24] === 0,
     };
   }
 }

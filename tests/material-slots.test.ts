@@ -7,7 +7,7 @@ describe('material texture interface', () => {
     const bindings = Array.from({ length: 25 }, (_, binding) => binding);
     const entries = createMaterialLayoutEntries(2); // fragment-stage bit; no browser globals
     expect(entries.map((entry) => entry.binding)).toEqual(bindings);
-    expect(entries[0].buffer).toEqual({ type: 'uniform', minBindingSize: 512 });
+    expect(entries[0].buffer).toEqual({ type: 'uniform', minBindingSize: 560 });
     for (const normal of [false, true])
       for (const uvSets of [[], [0], [1], [0, 1], [0, 7]])
         for (const color of [0, 3, 4])

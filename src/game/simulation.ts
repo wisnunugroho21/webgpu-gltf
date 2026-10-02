@@ -12,6 +12,8 @@ export class CharacterSimulation {
   readonly body: CharacterBody;
   readonly locomotion: Locomotion;
   readonly systems: readonly EngineSystem[];
+  rootMotionEnabled = false;
+  footfalls = 0;
   constructor(world: World, physics: PhysicsAdapter, input: ActionInput) {
     const player = world.getEntity('player');
     if (player.transformOwner !== 'physics' || !player.model)
@@ -20,14 +22,49 @@ export class CharacterSimulation {
     const position = player.worldMatrix;
     this.body = physics.createCharacter([position[12], position[13], position[14]]);
     this.locomotion = new Locomotion(player.model!.animation);
+    const animation = player.model!.animation;
+    animation.setClock('external');
+    animation.setRootMotion({ node: 0, mode: 'in-place' });
+    let aim = false,
+      extracting = false;
     let intent = { x: 0, z: 0, jump: false };
     this.systems = [
       {
         id: 'character-intent',
         phase: 'gameplay',
-        fixedUpdate: () => {
-          intent = movement(input.consume());
+        fixedUpdate: (_, step) => {
+          const actions = input.consume();
+          intent = movement(actions);
           this.locomotion.update(Math.hypot(intent.x, intent.z));
+          if (extracting !== this.rootMotionEnabled) {
+            extracting = this.rootMotionEnabled;
+            animation.setRootMotion({ node: 0, mode: extracting ? 'extract' : 'in-place' });
+          }
+          const nextAim = actions.get('aim')?.held ?? false;
+          if (aim !== nextAim) {
+            aim = nextAim;
+            animation.setOverlays(
+              aim
+                ? [{ clip: 3, time: 0.5, speed: 0, weight: 1, additive: true, mask: [3, 4] }]
+                : [],
+            );
+          }
+          animation.advance(step.deltaSeconds);
+          this.footfalls += animation
+            .drainEvents()
+            .filter((event) => event.name.startsWith('foot-')).length;
+          const displacement = animation.consumeRootMotion();
+          if (extracting) {
+            const length = Math.hypot(intent.x, intent.z);
+            const speed = Math.hypot(displacement[0], displacement[2]) / step.deltaSeconds;
+            if (length > 0) {
+              intent.x *= speed / length;
+              intent.z *= speed / length;
+            } else {
+              intent.x = 0;
+              intent.z = 0;
+            }
+          }
           if (intent.x || intent.z) {
             const yaw = Math.atan2(intent.x, intent.z);
             // Animation controls limbs; this explicit override claims root facing.

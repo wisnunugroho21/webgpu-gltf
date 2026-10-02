@@ -44,6 +44,7 @@ export class Pose {
   private candidates: number[] = [];
   private overrides = new Map<number, Partial<TransformData>>();
   private currentSamples: readonly BlendSample[] = [];
+  private inPlaceRoot?: number;
   private version = 0;
   /** Persistent dirty token, including gameplay edits made before frame evaluation. */
   get revision(): number {
@@ -138,6 +139,22 @@ export class Pose {
    * overrides stay outside animation snapshots so clearing them resumes playback. */
   capture() {
     return clonePose(this.sampled);
+  }
+  /** Interruptions capture base animation alone; overlays are added exactly once. */
+  captureBlend(samples: readonly BlendSample[]) {
+    const result = clonePose(this.defaults);
+    this.mixer.evaluate(samples, result);
+    return result;
+  }
+  setInPlaceRoot(node?: number): void {
+    if (
+      node !== undefined &&
+      (!this.nodes[node] || this.parents[node] !== -1 || this.asset.gltf.nodes![node].matrix)
+    )
+      throw new Error('Root motion requires a root TRS node.');
+    this.inPlaceRoot = node;
+    this.selectionKey = '\u0000';
+    this.evaluateBlend(this.currentSamples);
   }
   private transformNode(index: number) {
     if (!Number.isInteger(index) || !this.nodes[index]) throw new Error('Unknown model node.');
@@ -250,6 +267,9 @@ export class Pose {
     return changed;
   }
 
+  validateBlend(samples: readonly BlendSample[]): void {
+    this.mixer.validate(samples);
+  }
   evaluateBlend(samples: readonly BlendSample[]): boolean {
     const start = this.profiling ? performance.now() : 0;
     this.mixer.validate(samples);
@@ -259,11 +279,17 @@ export class Pose {
     // Interrupted fades contain arbitrary snapshots and conservatively visit all nodes.
     const key = samples
       .filter((s) => s.weight > 0)
-      .map((s) => ('pose' in s ? 'snapshot' : s.clip))
+      .map((s) =>
+        'pose' in s ? 'snapshot' : `${s.clip}/${s.mask?.join(':') ?? '*'}/${s.additive ?? false}`,
+      )
       .join(',');
     if (!this.initialized || key !== this.selectionKey) {
       const active = new Set<number>();
       const worldTargets = new Set<number>();
+      if (this.inPlaceRoot !== undefined) {
+        active.add(this.inPlaceRoot);
+        worldTargets.add(this.inPlaceRoot);
+      }
       for (const index of this.overrides.keys()) {
         active.add(index);
         worldTargets.add(index);
@@ -273,6 +299,7 @@ export class Pose {
         if ('pose' in sample) for (const index of this.order) active.add(index);
         else
           for (const track of this.clips[sample.clip]?.tracks ?? []) {
+            if (sample.mask && !sample.mask.includes(track.node)) continue;
             active.add(track.node);
             if (track.path !== 'weights') worldTargets.add(track.node);
           }
@@ -309,7 +336,12 @@ export class Pose {
       let localChanged = !this.initialized;
       for (const path of ['translation', 'rotation', 'scale', 'weights'] as const) {
         const values =
-          path === 'weights' ? sampled[path] : (this.overrides.get(index)?.[path] ?? sampled[path]);
+          path === 'weights'
+            ? sampled[path]
+            : (this.overrides.get(index)?.[path] ??
+              (path === 'translation' && index === this.inPlaceRoot
+                ? this.defaults[index].translation
+                : sampled[path]));
         if (values.some((value, c) => value !== node[path][c])) {
           for (let c = 0; c < values.length; c++) node[path][c] = values[c];
           if (path === 'weights') {

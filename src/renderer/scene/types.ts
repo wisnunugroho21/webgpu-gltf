@@ -12,6 +12,7 @@ import type { InstanceSlots, RenderInstanceHandle } from '../../engine/rendering
 export interface Draw {
   pipeline: GPURenderPipeline;
   shadowPipeline?: GPURenderPipeline;
+  outlinePipeline?: GPURenderPipeline;
   material: GpuMaterial;
   vertices: { buffer: GPUBuffer; offset: number }[];
   index?: GPUBuffer;
@@ -79,6 +80,8 @@ export interface PoseDraw {
   localBounds: Bounds;
   front: GPURenderPipeline;
   mirrored: GPURenderPipeline;
+  outlineFront?: GPURenderPipeline;
+  outlineMirrored?: GPURenderPipeline;
   worldRevision: number;
 }
 export interface WorldRenderPart {
