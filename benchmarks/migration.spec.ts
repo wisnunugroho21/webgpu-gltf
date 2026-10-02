@@ -7,7 +7,7 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
   await page.goto('/browser-tests/fixtures/harness.html');
   const report = await page.evaluate(async () => {
     const { Renderer, World, ModelLibrary } = await import('/src/index.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const { inspectRenderer, testDevice } = await import('/browser-tests/helpers/inspect.ts');
     const { trackAllocations } = await import('/browser-tests/helpers/allocations.ts');

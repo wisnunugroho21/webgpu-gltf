@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { OrbitCamera } from '../src/engine';
-import { OrbitInput } from '../src/app/orbit-input';
+import { OrbitInput } from '../browser-tests/fixtures/viewer/app/orbit-input';
 
 test('viewer input changes orbit state and removes every listener on teardown', () => {
   // EventTarget lets this lifecycle regression run without a browser or GPU.

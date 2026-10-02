@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('compute output matches CPU reference across morph, skin and combined cases', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     // Vite serves the actual production modules and the shared original fixture. Numeric
     // readback is confined to this test; the viewer consumes output directly as vertices.
@@ -158,7 +158,7 @@ test('compute output matches CPU reference across morph, skin and combined cases
 test('shared deformation inputs feed independently weighted nodes with different skins without duplicate uploads', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const { Pose } = await import('/src/scene/pose.ts');

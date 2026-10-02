@@ -3,11 +3,11 @@ import { expect, test } from '@playwright/test';
 test('culls individual instances without changing pixels, and follows camera and viewport changes', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:320px;height:200px';
     document.body.append(canvas);
@@ -77,10 +77,10 @@ test('culls individual instances without changing pixels, and follows camera and
 test('updates skinned and morphed bounds while offscreen, including blended nonindexed draws', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:240px;height:200px';

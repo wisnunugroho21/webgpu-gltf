@@ -3,10 +3,10 @@ import { expect, test } from '@playwright/test';
 test('renderer blends skin and morph poses before compute, preserves phase order, and skips unchanged deformation', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const canvas = document.createElement('canvas');
     canvas.style.width = '200px';
@@ -159,7 +159,7 @@ test('viewer clip selection exposes crossfades, pause freezes progress, and scru
   await page.route('**/blending.gltf', (route) =>
     route.fulfill({ contentType: 'model/gltf+json', body: JSON.stringify(asset.gltf) }),
   );
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   await page.locator('#url').fill('http://127.0.0.1:5173/blending.gltf');
   await page.locator('#url-form button').click();

@@ -3,10 +3,10 @@ import { expect, test } from '@playwright/test';
 test('extension maps decode their channels and UV transforms like equivalent factors on the GPU', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:160px;height:160px';
@@ -218,10 +218,10 @@ test('extension maps decode their channels and UV transforms like equivalent fac
 test('glass preserves opaque HDR radiance, applies volume absorption and survives MSAA resize and replacement', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer, loadFiles } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { supportedExtensions } = await import('/src/gltf/extensions.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const canvas = document.createElement('canvas');

@@ -21,24 +21,24 @@ function resolve(from: string, specifier: string): string | undefined {
   return [base, `${base}.ts`, `${base}/index.ts`].find((path) => path in sources);
 }
 
-test('CPU asset, animation and scene modules do not depend on the renderer or viewer', () => {
+test('CPU asset, animation and scene modules do not depend on rendering or game policies', () => {
   for (const [path, source] of Object.entries(sources)) {
     if (!/^\.\.\/src\/(gltf|animation|scene|engine)\//.test(path)) continue;
     for (const specifier of imports(source)) {
       const dependency = resolve(path, specifier);
       expect(dependency ?? specifier, `${path} imports ${specifier}`).not.toMatch(
-        /\/src\/(renderer|app)\//,
+        /\/src\/(renderer|game)\//,
       );
     }
   }
 });
 
-test('renderer modules do not depend on viewer controls or fixtures', () => {
+test('renderer modules do not depend on game policies or fixtures', () => {
   for (const [path, source] of Object.entries(sources)) {
     if (!path.includes('/src/renderer/')) continue;
     for (const specifier of imports(source)) {
       const dependency = resolve(path, specifier);
-      expect(dependency ?? specifier, `${path} imports ${specifier}`).not.toMatch(/\/src\/app\//);
+      expect(dependency ?? specifier, `${path} imports ${specifier}`).not.toMatch(/\/src\/game\//);
       expect(specifier, path).not.toMatch(/\/(tests|browser-tests)\//);
     }
   }

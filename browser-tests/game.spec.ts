@@ -13,7 +13,7 @@ test('blocked session storage reports locally while the playable game starts fre
       },
     });
   });
-  await page.goto('/game.html');
+  await page.goto('/');
   await expect(page.locator('#status')).toContainText('Grounded');
   await expect(page.locator('#save-status')).toContainText('Restore unavailable');
   await page.locator('#game').click({ position: { x: 900, y: 600 } });
@@ -34,7 +34,7 @@ test('playable game boots offline, moves, pauses, resumes and changes companion 
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/game.html');
+  await page.goto('/');
   await expect(page.locator('#status')).toContainText('Grounded');
   await page.locator('#game').click({ position: { x: 900, y: 600 } });
   await page.locator('#root-motion').check();

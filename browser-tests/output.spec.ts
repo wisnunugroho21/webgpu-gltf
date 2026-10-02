@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('large HDR highlights remain bright after half-float storage and presentation', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { OutputPass } = await import('/src/renderer/presentation/output.ts');
     const adapter = await navigator.gpu.requestAdapter();
@@ -56,7 +56,7 @@ test('large HDR highlights remain bright after half-float storage and presentati
 test('HDR retains highlights and blends in linear space before exposure and presentation', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { OutputPass, hdrFormat } = await import('/src/renderer/presentation/output.ts');
     const adapter = await navigator.gpu.requestAdapter();
@@ -189,7 +189,7 @@ test('exposure and tone controls change presentation without changing scene pipe
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());
   });
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   const stats = await page.locator('#stats').innerText();
   const before = await page.locator('canvas').screenshot();

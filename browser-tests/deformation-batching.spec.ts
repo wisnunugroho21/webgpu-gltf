@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('batched dispatches preserve independent outputs, dirty subsets and device-limit splitting', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const { Pose } = await import('/src/scene/pose.ts');

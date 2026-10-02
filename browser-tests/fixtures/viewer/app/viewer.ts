@@ -1,6 +1,6 @@
-import { Renderer } from '../renderer/renderer';
-import { loadFiles, loadUrl } from '../gltf/loader';
-import type { Asset } from '../gltf/types';
+import { Renderer } from '../../../../src/renderer/renderer';
+import { loadFiles, loadUrl } from '../../../../src/gltf/loader';
+import type { Asset } from '../../../../src/gltf/types';
 import { demoAsset } from './demo';
 import { element, disableControls, errorMessage } from './dom';
 import { AnimationControls } from './controls/animation';

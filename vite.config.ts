@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite';
 
-export default defineConfig({
-  build: { rollupOptions: { input: { viewer: 'index.html', game: 'game.html' } } },
-});
+// Only the playable game is shipped. GPU fixture pages are development/test hosts.
+export default defineConfig({});

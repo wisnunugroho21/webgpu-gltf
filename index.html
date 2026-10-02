@@ -3,150 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#111821" />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%2367d5b6' d='M16 2 29 9v14l-13 7L3 23V9z'/%3E%3C/svg%3E"
-    />
-    <title>WebGPU · glTF viewer</title>
+    <title>Playable WebGPU slice</title>
   </head>
   <body>
-    <main>
-      <header>
-        <div>
-          <span class="eyebrow">WEBGPU / glTF 2.0</span>
-          <h1>A small renderer.<br />A clear view.</h1>
-        </div>
-        <span class="badge">Native WebGPU</span>
-      </header>
-      <section class="toolbar" aria-label="Model controls">
-        <button id="demo">Built-in scene</button>
-        <label class="button"
-          >Open model<input
-            id="files"
-            type="file"
-            multiple
-            accept=".gltf,.glb,.bin,.png,.jpg,.jpeg,.webp,.ktx2"
-        /></label>
-        <form id="url-form">
-          <input
-            id="url"
-            type="url"
-            placeholder="https://…/model.glb"
-            aria-label="Model URL"
-            required
-          /><button>Load URL</button>
-        </form>
-        <button id="reset">Reset camera</button>
-      </section>
-      <section id="output-controls" class="toolbar" aria-label="Display controls">
-        <label
-          >Tone mapping
-          <select id="tone-mapping" aria-label="Tone mapping">
-            <option value="reinhard">Reinhard</option>
-            <option value="none">None (clip highlights)</option>
-          </select></label
-        >
-        <label for="exposure">Exposure</label>
-        <input
-          id="exposure"
-          type="range"
-          min="-6"
-          max="6"
-          step="0.1"
-          value="0"
-          aria-label="Exposure in EV"
-        />
-        <output id="exposure-value" for="exposure">0.0 EV</output>
-        <label><input id="shadows" type="checkbox" checked /> Shadows</label>
-        <label><input id="occlusion-culling" type="checkbox" /> Occlusion culling</label>
-        <label
-          >Minimum mesh size
-          <input
-            id="scale-culling"
-            type="number"
-            min="0"
-            max="100"
-            step="1"
-            value="0"
-            aria-label="Minimum mesh size in pixels"
-          />
-          px
-        </label>
-      </section>
-      <section id="environment-controls" class="toolbar" aria-label="Environment lighting controls">
-        <label class="button"
-          >Open environment<input
-            id="environment-file"
-            type="file"
-            accept=".hdr,.pic,.png,.jpg,.jpeg"
-        /></label>
-        <button id="environment-studio">Studio</button>
-        <span id="environment-name" role="status">Studio environment</span>
-        <label for="environment-intensity">Intensity</label>
-        <input id="environment-intensity" type="range" min="0" max="3" step="0.1" value="1" />
-        <output id="environment-intensity-value" for="environment-intensity">1.0</output>
-        <label for="environment-rotation">Rotation</label>
-        <input id="environment-rotation" type="range" min="0" max="360" step="1" value="0" />
-        <output id="environment-rotation-value" for="environment-rotation">0°</output>
-      </section>
-      <section id="animation-controls" class="toolbar" aria-label="Animation controls" hidden>
-        <label
-          >Animation
-          <select id="animation-clip" aria-label="Animation clip"></select
-        ></label>
-        <button id="animation-play">Pause</button>
-        <button id="animation-restart">Restart</button>
-        <label
-          >Fade (s)
-          <input
-            id="animation-fade"
-            type="number"
-            min="0"
-            max="5"
-            step="0.1"
-            value="0.3"
-            aria-label="Crossfade duration"
-        /></label>
-        <output id="animation-blend" aria-live="off"></output>
-        <input
-          id="animation-time"
-          type="range"
-          min="0"
-          max="1"
-          step="0.001"
-          value="0"
-          aria-label="Animation time"
-        />
-        <output id="animation-clock">0.00 / 0.00 s</output>
-      </section>
-      <section class="viewport" aria-label="3D model viewer">
-        <canvas id="canvas" aria-label="Rendered glTF scene"></canvas>
-        <div class="hint">Drag to orbit · Scroll to zoom</div>
-      </section>
-      <footer>
-        <p id="status" role="status">Starting WebGPU…</p>
-        <span id="stats"></span>
-      </footer>
-      <p class="note">
-        For .gltf files, select the model and its .bin / image files together. URLs must allow
-        cross-origin access. Animation clips loop automatically; use the playback controls to pause
-        or scrub.
-      </p>
-      <details>
-        <summary>Renderer notes</summary>
-        <p>
-          Geometry is prepared once, pipelines are cached, and repeated meshes share instanced
-          draws. All five core glTF material textures are supported: base color, metallic/roughness,
-          normal, occlusion, and emissive. Lighting uses a directional light with a small ambient
-          term, plus environment diffuse light and roughness-dependent reflections. Open an
-          equirectangular HDR or PNG/JPEG panorama or use the built-in studio environment.
-          Animation, linear blend skinning, and morph targets are supported. Four-sample MSAA
-          smooths geometry edges before tone mapping.
-        </p>
-        <p id="warnings"></p>
+    <canvas id="game" aria-label="Playable level"></canvas>
+    <aside>
+      <h1>Character playground</h1>
+      <p>WASD / arrows · Shift to run · Space to jump</p>
+      <p>Hold E for an additive upper-body aim pose.</p>
+      <label><input id="root-motion" type="checkbox" /> Use authored root motion</label>
+      <p>Explore the steps and jump over the center barrier.</p>
+      <button id="pause" disabled>Pause</button
+      ><button id="companion" disabled>Despawn companion</button>
+      <p id="status" role="status">Loading physics and renderer…</p>
+      <button id="save">Save game</button><button id="load">Load save</button
+      ><button id="audio">Enable audio</button>
+      <p id="save-status" role="status"></p>
+      <details id="inspector">
+        <summary>Inspect world and GPU</summary>
+        <pre id="inspection"></pre>
       </details>
-    </main>
-    <script type="module" src="/src/main.ts"></script>
+    </aside>
+    <script type="module" src="/src/game/main.ts"></script>
   </body>
 </html>

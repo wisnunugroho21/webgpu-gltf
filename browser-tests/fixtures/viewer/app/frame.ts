@@ -1,4 +1,4 @@
-import type { Renderer } from '../renderer/renderer';
+import type { Renderer } from '../../../../src/renderer/renderer';
 
 /** Legacy viewer policy lives outside core rendering. Engine applications instead
  * evaluate their world/runtime and then call renderer.render with their own view. */

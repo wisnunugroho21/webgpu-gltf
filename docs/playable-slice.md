@@ -1,6 +1,6 @@
 # Phase 5 playable slice
 
-Run `pnpm dev`, then open `http://127.0.0.1:5173/game.html`. `pnpm build` emits both `game.html` and the existing viewer `index.html`; `pnpm preview` serves both. The game generates its glTF character and level locally, without remote model downloads.
+Run `pnpm dev`, then open `http://127.0.0.1:5173/`. `pnpm build` emits the playable game as `index.html`; `pnpm preview` serves it at `/`. The former viewer is retained only as a GPU regression fixture and is excluded from production builds. The game generates its glTF character and level locally, without remote model downloads.
 
 Move with **WASD or arrows**, hold **Shift** to run and press **Space** to jump. Explore the low steps and jump over the center barrier. **Pause/Resume** freezes physics and clip time. **Despawn/Spawn companion** exercises retained membership with a second independently animated instance. Click the canvas to restore keyboard focus after other controls. Desktop keyboard/mouse and WebGPU are the current targets; touch/gamepad and anime art are later work.
 

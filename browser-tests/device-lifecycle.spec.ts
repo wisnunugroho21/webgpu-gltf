@@ -292,7 +292,7 @@ test('one cleanup failure still releases the other subsystems and CPU retention'
   await page.goto('/browser-tests/fixtures/harness.html');
   const result = await page.evaluate(async () => {
     const { Renderer, World, AssetRegistry } = await import('/src/index.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const { DeviceResources } = await import('/src/renderer/core/device-resources.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:200px;height:150px';

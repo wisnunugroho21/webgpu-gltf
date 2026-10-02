@@ -136,7 +136,7 @@ function linear(byte: number): number {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   // These tests measure channel math before a nonlinear display curve. The scene still
   // renders through HDR; presentation uses identity tone mapping at zero exposure.

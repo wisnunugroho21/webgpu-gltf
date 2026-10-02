@@ -96,7 +96,7 @@ Create directories when implementing their responsibilities. Preserve public exp
 
 ## Phase 5 — Deliver the playable vertical slice
 
-**Implemented:** `/game.html` runs original local glTF characters/level through action input, registered gameplay/physics systems, the Rapier adapter and explicit follow-camera rendering. Parent-local position conversion, pause/suspension and retained companion membership have CPU/GPU coverage. See [implementation and limitations](playable-slice.md) and [backend evaluation](physics-backend.md), including measured bundle cost. The character uses rigid limb animation and compute morph breathing; anime assets/retargeting remain Phase 6 scope.
+**Implemented:** `/` runs original local glTF characters/level through action input, registered gameplay/physics systems, the Rapier adapter and explicit follow-camera rendering. Parent-local position conversion, pause/suspension and retained companion membership have CPU/GPU coverage. See [implementation and limitations](playable-slice.md) and [backend evaluation](physics-backend.md), including measured bundle cost. The character uses rigid limb animation and compute morph breathing; anime assets/retargeting remain Phase 6 scope.
 
 **Changes:** add action-based input, a physics integration adapter, collision shapes and a character movement/controller system. Define conversion between physics world poses and entity-local roots under parents. Add an idle/walk/run animation state machine and a follow camera. Create `game/` with one level and two instances of a character model.
 

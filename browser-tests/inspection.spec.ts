@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 
 test('typed renderer inspection snapshots cannot mutate live scene state', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const { inspectRenderer, testDevice } = await import('/browser-tests/helpers/inspect.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:160px;height:120px';

@@ -1,6 +1,6 @@
 # WebGPU glTF renderer
 
-A small, commented TypeScript renderer for glTF 2.0 scenes, built directly on WebGPU. It supports static scenes, animation clips, linear blend skinning, and morph targets. It includes a browser viewer, an offline demo, and tests for the parts where glTF's data layout does not map directly to WebGPU.
+A small, commented TypeScript renderer for glTF 2.0 scenes, built directly on WebGPU. It supports static scenes, animation clips, linear blend skinning, and morph targets. It starts directly in a playable game with generated offline assets, and includes tests for the parts where glTF's data layout does not map directly to WebGPU.
 
 The architecture follows [Toji's “Efficiently rendering glTF models” case study](https://toji.dev/webgpu-gltf-case-study/). It is an independent implementation, not a copy of the sample renderer. As in the article, the focus is efficient data preparation and draw submission rather than full glTF feature coverage.
 
@@ -13,14 +13,14 @@ pnpm install --frozen-lockfile
 npm run dev
 ```
 
-Open the localhost URL printed by Vite. WebGPU needs a secure context: localhost works for development; deployment needs HTTPS. If no GPU adapter is available, the viewer displays an error instead of silently falling back to another renderer.
+Open the localhost URL printed by Vite. WebGPU needs a secure context: localhost works for development; deployment needs HTTPS. If no GPU adapter is available, the game displays an error instead of silently falling back to another renderer.
 
 ```sh
 npm test          # CPU-side glTF and layout regression tests
 npm run build    # Strict TypeScript check and production bundle
 npm run preview  # Serve the production bundle locally
 npm run test:browser # Real WebGPU integration tests in installed Microsoft Edge
-npm run test:compressed-build # After build: verify emitted Draco/Basis WASM and worker URLs
+npm run test:compressed-build # Verify an isolated production fixture build and game WASM startup
 npm run check:browser # Strict checking of browser tests, benchmarks and Playwright configs
 npm run test:browser:offline # Local fixtures only, excludes all @remote tests
 npm run test:browser:remote # Explicit opt-in to four live Khronos regressions
@@ -29,23 +29,15 @@ npm run bench:hierarchy # Wide/deep gameplay hierarchy comparison
 npm run bench:membership # Incremental spawn versus full attachment allocations
 ```
 
-The first scene is generated locally and makes no network requests for models. Three green cubes share one primitive, so they render in one instanced draw; the orange cube shares the pipeline but uses a different material. The demo reports **1 pipeline, 2 draws, and 4 primitive instances**. These counts describe scene geometry; the fixed fullscreen presentation pipeline and draw are additional.
+The default entry at `/` is the playable character playground, in both development and production. Move with **WASD/arrows**, hold **Shift** to run, **Space** to jump, and **E** for an additive aiming pose. The level and characters are generated locally without remote model downloads. Pause/resume, companion spawn/despawn, root motion, saves, audio and diagnostics are available in the game panel.
 
-Use **Open model** to select one `.glb`, or one `.gltf` together with its binary and image dependencies. Local dependencies are matched by decoded URI or filename; assets with different dependencies sharing the same filename should be served by URL instead. **Load URL** accepts a model URL and resolves dependencies relative to it. Cross-origin servers must enable CORS. Drag to orbit, scroll to zoom, and use **Reset camera** to return to the fitted view.
+Adapt `src/game/level.ts` for content, `simulation.ts` for gameplay, `locomotion.ts` for animation policy, and `presentation.ts` for camera/rendering. `session.ts` owns startup and cleanup. See [the playable guide](docs/playable-slice.md).
 
-Models with animation clips show a clip selector, Play/Pause, Restart, and a timeline. The first clip plays automatically and loops over its duration. Scrubbing pauses playback; selecting **Authored pose** restores the original TRS and morph weights. While playing, selecting a clip crossfades over the **Fade (s)** duration (default 0.3 seconds); set it to zero for immediate switching. Paused selection and **Authored pose** switch immediately. Pause also freezes an active fade, and scrubbing or Restart ends it at the destination clip. Models with skinning or morph weights also render correctly without an animation clip.
-
-Display controls select **Reinhard** tone mapping (default) or **None**, and adjust exposure from −6 to +6 EV. One extra EV doubles linear brightness; negative exposure reveals highlight detail. None retains the HDR rendering path but clips display values above one after exposure. Display settings persist across model replacements and do not rebuild scene pipelines.
-
-The viewer enables **4× MSAA** by default to smooth geometry silhouettes and intersections. Color and depth use four samples per pixel; the scene resolves into linear HDR before exposure and tone mapping. Antialiasing persists across model and environment replacements.
-
-Authored directional, point and spot lights load automatically. **Shadows** toggles filtered shadow maps and persists across model replacements. Models without selected-scene light instances retain the viewer's directional light, which also casts shadows.
-
-Environment lighting starts with an original, generated HDR **Studio** panorama. **Open environment** accepts an equirectangular Radiance **HDR (.hdr/.pic)** or PNG/JPEG panorama (typically 2:1, longitude across X and north pole at the top). Adjust **Intensity** or rotate it around the vertical axis with **Rotation**. Studio restores the default map. Map and lighting settings persist across model loads; failed environment loads retain the current lighting. Environment intensity zero disables its contribution while retaining the existing directional light and small ambient term.
+The standalone glTF viewer has been removed from the application. Its controls live only in `browser-tests/fixtures/viewer/` to preserve asset-loading and GPU regression coverage; that fixture is excluded from the normal production build. The reusable glTF loading and rendering APIs remain available to games.
 
 ## Authoring, resilience and diagnostics
 
-**Phase 7** adds [versioned prefabs and runtime saves](docs/authoring-and-saves.md), [spatial audio](docs/audio.md) and [device recovery with measured budgets](docs/resilience-and-scale.md). In `/game.html`, use **Save game**, **Load save**, **Enable audio** and **Inspect world and GPU**. Saves preserve independent animation transitions/overlays, entity state and the example's airborne physics state; loading reconstructs systems and resources. Authoring scenes remain separate from saves.
+**Phase 7** adds [versioned prefabs and runtime saves](docs/authoring-and-saves.md), [spatial audio](docs/audio.md) and [device recovery with measured budgets](docs/resilience-and-scale.md). In `/`, use **Save game**, **Load save**, **Enable audio** and **Inspect world and GPU**. Saves preserve independent animation transitions/overlays, entity state and the example's airborne physics state; loading reconstructs systems and resources. Authoring scenes remain separate from saves.
 
 ```ts
 import { migrateScene, captureSaveState, loadSaveState, inspectWorld } from './src';
@@ -61,24 +53,22 @@ const snapshot = inspectWorld(restored.world); // Copies; edits use supported en
 
 ## Code map
 
-**Phase 6** adds [gameplay animation](docs/gameplay-animation.md) and [toon/outline presentation](docs/anime-presentation.md). In `/game.html`, hold **E** for additive upper-body aiming and enable **Use authored root motion** to feed extracted travel through collision. Footfalls demonstrate fixed-step event delivery. Character materials author toon ramps and pixel-width silhouettes through `extras.engine.toon`. Standard materials retain PBR; transparent toon surfaces omit hulls. Layout version 2 keeps all twelve texture slots/neutral defaults while migrating the shared uniform to 560 bytes.
+**Phase 6** adds [gameplay animation](docs/gameplay-animation.md) and [toon/outline presentation](docs/anime-presentation.md). In `/`, hold **E** for additive upper-body aiming and enable **Use authored root motion** to feed extracted travel through collision. Footfalls demonstrate fixed-step event delivery. Character materials author toon ramps and pixel-width silhouettes through `extras.engine.toon`. Standard materials retain PBR; transparent toon surfaces omit hulls. Layout version 2 keeps all twelve texture slots/neutral defaults while migrating the shared uniform to 560 bytes.
 
-The **Phase 5 playable slice** is available at `/game.html` after `pnpm dev` (and in the production build). Move with WASD/arrows, hold Shift to run, and press Space to jump. It includes collision/steps, a follow camera, Idle/Walk/Run blending, pause/resume and companion spawn/despawn with shared assets and independent GPU deformation output. Generated glTF assets need no remote downloads. The viewer remains at `/`.
+The **Phase 5 playable slice** is available at `/` after `pnpm dev` (and in the production build). Move with WASD/arrows, hold Shift to run, and press Space to jump. It includes collision/steps, a follow camera, Idle/Walk/Run blending, pause/resume and companion spawn/despawn with shared assets and independent GPU deformation output. Generated glTF assets need no remote downloads. The game is the only production entry.
 
 See [playable code and lifecycle](docs/playable-slice.md) and the separate [physics backend evaluation](docs/physics-backend.md). Rapier 0.21.0 supplies WASM collision through an adapter; its game-only compatibility entry is approximately 1.66 MB gzip. Comments explain input consumption, root ownership, gameplay/physics order and retained membership. Run `pnpm test:browser:offline game.spec.ts` for playable integration checks.
 
-The project separates asset decoding (`gltf`), CPU pose/animation (`scene` and `animation`), gameplay worlds (`engine`), WebGPU rendering (`renderer`), and browser UI (`app`). See [Architecture and maintenance](docs/architecture.md) for dependency rules, resource ownership, frame phases, and extension points.
+The project separates asset decoding (`gltf`), CPU pose/animation (`scene` and `animation`), gameplay worlds (`engine`), WebGPU rendering (`renderer`), and game application (`game`). See [Architecture and maintenance](docs/architecture.md) for dependency rules, resource ownership, frame phases, and extension points.
 
 See the [review after Phase 7](docs/review-phase7-2026-10-02.md) for verified fixes, test results, remaining feature gaps, and a prioritized maintenance plan. Scene and environment GPU preparation now share a device-scoped transaction queue; overlapping public API calls validate and commit in order while failed candidates release their allocations. Core material factors are validated before texture preparation.
 
 | Module or directory                                                 | Responsibility                                                                    |
 | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `src/index.ts`, `src/renderer/index.ts`                             | Public rendering, settings, statistics, animation and loading exports             |
-| `src/main.ts`                                                       | Viewer bootstrap                                                                  |
-| `src/app/viewer.ts`, `src/app/dom.ts`                               | Application state, serialized loading, status and shared DOM helpers              |
-| `src/app/render-loop.ts`                                            | Viewer-owned browser scheduling adapter, cancellation and frame failure handling  |
-| `src/app/controls/`                                                 | Separate animation, environment and display widgets                               |
-| `src/app/demo.ts`, `src/app/style.css`                              | Offline demo and viewer presentation                                              |
+| `src/game/main.ts`, `src/game/session.ts`                           | Game bootstrap and application lifetime                                           |
+| `src/game/controls.ts`, `presentation.ts`, `simulation.ts`          | Input, presentation and gameplay policies                                         |
+| `browser-tests/fixtures/viewer/`                                    | Test-only asset loading UI and GPU regression host                                |
 | `src/gltf/types.ts`, `src/gltf/loader.ts`                           | Typed glTF subset, JSON/GLB parsing, URI resolution and image loading             |
 | `src/gltf/compression/`, `src/gltf/quantization.ts`                 | meshopt/Draco decoding, Basis KTX2 transcoding, quantized attribute support       |
 | `src/gltf/accessors.ts`, `src/gltf/geometry.ts`                     | Accessor decoding, canonical layouts, repacking and topology conversion           |
@@ -101,7 +91,7 @@ See the [review after Phase 7](docs/review-phase7-2026-10-02.md) for verified fi
 | `src/renderer/presentation/output.ts`                               | HDR/MSAA targets, linear resolve, exposure, tone mapping and presentation         |
 | `src/renderer/camera/orbit-camera.ts`                               | Orbit controls, framing and WebGPU depth projection                               |
 
-The existing settings and playback APIs remain available. `Renderer.create()` now prepares an idle renderer; callers explicitly submit frames with `render(timestampMs)`. The viewer retains continuous rendering through its scheduling adapter. Internal feature modules live in the directories above; imports of those implementation files should use their new paths.
+The existing settings and playback APIs remain available. `Renderer.create()` now prepares an idle renderer; callers explicitly submit frames with `render(timestampMs)`. The game owns continuous rendering through its session and engine runtime. Internal feature modules live in the directories above; imports of those implementation files should use their new paths.
 
 ## Explicit frames and engine integration
 
@@ -130,9 +120,9 @@ function frame(timestampMs: number) {
 
 `render()` synchronously prepares/uploads the current pose and camera, records compute, shadows, scene and presentation, and submits once. It returns `true` after submission, without waiting for GPU completion. Evaluate single-asset animation with `renderer.animation.update(timestampMs)` or a world with `world.update(timestampMs)` before rendering. `render()` consumes pose revisions and never advances animation/gameplay. A nonfinite timestamp throws without disabling the renderer. Frame/GPU/device failures invoke `showError` once and disable further frames; `render()` then returns `false`. Calls after `destroy()` also return `false`. Cancel the owner's loop before destroying the renderer; destruction is idempotent.
 
-The browser viewer uses `ViewerRenderLoop` in `src/app/render-loop.ts`. Its `start()` schedules one RAF chain, `stop()` cancels pending work, and `destroy()` permanently disables scheduling. Generation checks ignore cancelled callbacks arriving after stop/restart. The loop adapter owns scheduling only; `renderViewerFrame` evaluates animation outside rendering and `OrbitInput` owns DOM camera listeners. `Viewer` stops it on fatal errors and destroys it before the renderer on page exit. Playback controls, camera movement, resize, model/environment loading and rendering while animation is paused retain their existing viewer behavior. Engines can call the public frame method directly without importing viewer code.
+The test-only loading fixture uses `ViewerRenderLoop` in `browser-tests/fixtures/viewer/app/render-loop.ts`. Its `start()` schedules one RAF chain, `stop()` cancels pending work, and `destroy()` permanently disables scheduling. Generation checks ignore cancelled callbacks arriving after stop/restart. The loop adapter owns scheduling only; `renderViewerFrame` evaluates animation outside rendering and `OrbitInput` owns DOM camera listeners. `Viewer` stops it on fatal errors and destroys it before the renderer on page exit. Playback controls, camera movement, resize, model/environment loading and rendering while animation is paused retain their existing viewer behavior. Engines can call the public frame method directly without importing viewer code.
 
-**Migration:** embedding applications that previously relied on automatic frames from `Renderer.create()` must call `render()` from their own loop. Callers that relied on animation advancing inside `render()` must now evaluate it explicitly. The viewer adapter preserves continuous playback.
+**Migration:** embedding applications that previously relied on automatic frames from `Renderer.create()` must call `render()` from their own loop. Callers that relied on animation advancing inside `render()` must now evaluate it explicitly. The fixture adapter preserves single-asset regression coverage; the game uses EngineRuntime.
 
 Use `EngineRuntime` for input, bounded fixed gameplay/physics steps, presentation evaluation and explicit render callbacks; `FollowCamera` supplies a CPU view without DOM listeners. See [engine runtime and cameras](docs/engine-runtime.md) and [frame scheduling and lifecycle](docs/frame-scheduling.md) for ownership rules and regression coverage.
 
@@ -183,7 +173,7 @@ Engine scene JSON has `version: 1`, an `assets` dictionary mapping stable IDs to
 
 Use `world.applyChanges(changes)` to create, reparent and destroy entities at one atomic CPU topology boundary, including child-before-parent scene creation. Failed batches preserve the live graph. See [scalable world hierarchy](docs/world-hierarchy.md) for examples, revision diagnostics and wide/deep measurements.
 
-`setTransform()` and `world.setParent()` become visible after the next engine world evaluation and render, without rebuilding GPU membership. Creating or destroying entities changes membership: pause submission, mutate the world, evaluate roots, await `renderer.syncWorld(world)`, then resume. Same-world `setWorld()` calls use the same incremental path. Survivors retain draw records, private deformation outputs and transform addresses; additions prepare only their own private state. See [retained rendering membership](docs/rendering-membership.md) for handles, atomic failure recovery and allocation measurements. Rendering an uncommitted membership change throws a recoverable error instead of drawing stale entities. A failed replacement releases candidate resources and retains the previously attached scene. Empty worlds render the background. The original viewer and `setAsset()` remain available.
+`setTransform()` and `world.setParent()` become visible after the next engine world evaluation and render, without rebuilding GPU membership. Creating or destroying entities changes membership: pause submission, mutate the world, evaluate roots, await `renderer.syncWorld(world)`, then resume. Same-world `setWorld()` calls use the same incremental path. Survivors retain draw records, private deformation outputs and transform addresses; additions prepare only their own private state. See [retained rendering membership](docs/rendering-membership.md) for handles, atomic failure recovery and allocation measurements. Rendering an uncommitted membership change throws a recoverable error instead of drawing stale entities. A failed replacement releases candidate resources and retains the previously attached scene. Empty worlds render the background. The reusable single-asset `setAsset()` path remains available.
 
 Loaded resources are separate from instances: `ModelLibrary.getModel(id)` returns a CPU `LoadedModel` shared through `ModelInstance.resources`, including lazily prepared, frozen animation clips. Entities using the same `Asset` share GPU geometry, textures, material bindings, pipelines and immutable deformation inputs. Poses, animation, joint palettes, morph weights and deformation outputs remain independent. Shared allocations survive overlapping scene replacement and release after their final scene lease. See [shared model resources](docs/model-resources.md). All world model nodes are treated as movable so entity placement reaches transforms, joint palettes, bounds, winding, lights, shadows and occlusion dependencies. See [entity ownership and the scene format](docs/game-world.md) for loading, hierarchy, lifecycle and test coverage.
 
@@ -357,7 +347,7 @@ Authored KTX2 mip chains are uploaded unchanged and continue sharing one allocat
 - All five core material textures: base color, emissive, metallic/roughness, normal (with scale), and occlusion (with strength). Material factors, vertex colors, OPAQUE/MASK/BLEND, double-sided materials, and KHR_materials_unlit are supported.
 - JPEG/PNG browser-decoded images, KHR_texture_transform, wrap/filter sampler translation, GPU mipmap generation, and linear-light shading with sRGB decoding for color maps and linear sampling for data maps.
 
-This is **not a complete glTF conformance implementation or a full PBR viewer**. Lighting uses GGX-style punctual lights, a small ambient term, and diffuse/specular environment lighting. Filtered shadow maps cover directional, point and spot lights. Four-sample MSAA smooths geometric edges. Weighted transparency avoids sorting artifacts but approximates overlapping colors; sorted mode and screen-space refraction retain their respective limitations.
+This is **not a complete glTF conformance implementation or a production-complete game engine**. Lighting uses GGX-style punctual lights, a small ambient term, and diffuse/specular environment lighting. Filtered shadow maps cover directional, point and spot lights. Four-sample MSAA smooths geometric edges. Weighted transparency avoids sorting artifacts but approximates overlapping colors; sorted mode and screen-space refraction retain their respective limitations.
 
 Authored glTF cameras are ignored in favor of orbit controls. KHR_lights_punctual supplies authored lights; the viewer light is a fallback for scenes without light instances. Unsupported required extensions are rejected. The lighting, compression and material extensions below and KHR_texture_transform work whether optional or required. Other optional extensions are ignored. The parser performs targeted integrity checks but is not a substitute for the Khronos glTF Validator. Normal mapping is intended for triangles; supply unlit materials for points/lines without meaningful surface normals.
 
@@ -409,7 +399,7 @@ Renderer creation requests only advertised optional `texture-compression-bc`, `t
 
 Texture interpretation still comes from the material slot: color maps select the format's sRGB variant and data maps select its linear variant. The same source used for both creates two GPU textures, while compatible data slots share an allocation. Material bind group layouts, neutral defaults and sampler/anisotropy policy are unchanged. Authored mip chains are transcoded at their original dimensions and uploaded as blocks, including complete physical blocks for small mip tails. Compressed textures are sampled/copy destinations, never render attachments; no decompression or transcode work happens in frame phases. See [GPU texture compression](docs/texture-compression.md) for measured payloads, fallback rules and verification limits.
 
-The viewer passes enabled capabilities into loaders to transcode once. Embedding applications can do the same:
+Callers can pass enabled capabilities into loaders to transcode once. Embedding applications can do the same:
 
 ```ts
 const renderer = await Renderer.create(canvas, showError);
@@ -551,7 +541,7 @@ Use `renderer.setFrustumCulling(false)` to disable the frustum filter for compar
 
 ### Occlusion and scale culling
 
-The viewer provides an **Occlusion culling** toggle and **Minimum mesh size** control. Both optional filters start disabled: occlusion queries add GPU/readback overhead, and size culling intentionally discards small visible geometry. Frustum culling stays enabled by default. Each filter operates on primitive instances, retaining their original transform-buffer indices and merging adjacent survivors into draw runs.
+The renderer exposes occlusion culling and minimum mesh size settings. Both optional filters start disabled: occlusion queries add GPU/readback overhead, and size culling intentionally discards small visible geometry. Frustum culling stays enabled by default. Each filter operates on primitive instances, retaining their original transform-buffer indices and merging adjacent survivors into draw runs.
 
 ```ts
 const renderer = await Renderer.create(canvas, reportError, {
@@ -590,7 +580,7 @@ The [migration safeguards guide](docs/migration-safeguards.md) documents Phase 0
 
 `tests/gltf.test.ts` checks interleaved grouping, large attribute offsets, deterministic pipeline keys, byte indices, fan conversion, bounds failures, sparse normalized data, scene selection, parent transforms, mirrored winding, singular/cyclic scenes, and GLB chunk validation. These are CPU tests; they do not prove shader compilation or visible rendering.
 
-`browser-tests/viewer.spec.ts` runs the real viewer in installed Microsoft Edge with WebGPU enabled. It checks the offline instancing demo, resizing and camera controls, a generated textured scene with normalized integer UV/colors and missing normals, MASK/BLEND materials, mirrored transforms, local GLB loading, and recovery from an unsupported model. The emissive regression examines rendered pixels to catch color washout, rather than only asserting that the asset loaded. Screenshots are saved under `test-results/` for visual inspection. The browser must have a usable GPU adapter; this suite intentionally fails if WebGPU is unavailable. Change `channel` in `playwright.config.ts` to use another installed Chromium browser.
+`browser-tests/viewer.spec.ts` runs the test-only loading fixture in installed Microsoft Edge with WebGPU enabled. It checks the offline instancing demo, resizing and camera controls, a generated textured scene with normalized integer UV/colors and missing normals, MASK/BLEND materials, mirrored transforms, local GLB loading, and recovery from an unsupported model. The emissive regression examines rendered pixels to catch color washout, rather than only asserting that the asset loaded. Screenshots are saved under `test-results/` for visual inspection. The browser must have a usable GPU adapter; this suite intentionally fails if WebGPU is unavailable. Change `channel` in `playwright.config.ts` to use another installed Chromium browser.
 
 `browser-tests/textures.spec.ts` compares presented pixels against equivalent factor-only materials to check metallic/roughness G/B channels and linear decoding, including an image reused for both color and data. It checks that occlusion strength changes only the expected ambient contribution and that normal scale zero preserves surface normals. It also compares authored and derivative tangent bases under nonuniform and mirrored transforms. These fixtures run offline.
 

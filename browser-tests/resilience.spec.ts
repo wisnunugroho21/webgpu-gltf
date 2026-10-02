@@ -7,7 +7,7 @@ test('failed recovery is retryable and disposal cancels an in-flight reconstruct
   await page.goto('/browser-tests/fixtures/harness.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const { testDevice } = await import('/browser-tests/helpers/inspect.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:320px;height:240px';
@@ -337,7 +337,7 @@ test('playable saves reload membership and gameplay while audio and inspection r
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/game.html');
+  await page.goto('/');
   await expect(page.locator('#status')).toContainText('Grounded');
   await page.locator('#audio').click();
   await expect(page.locator('#audio')).toHaveText('Audio enabled');

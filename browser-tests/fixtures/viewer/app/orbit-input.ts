@@ -1,4 +1,4 @@
-import type { OrbitCamera } from '../engine/camera/orbit-camera';
+import type { OrbitCamera } from '../../../../src/engine/camera/orbit-camera';
 
 /** Viewer-owned DOM input; engine cameras remain usable without a browser. */
 export class OrbitInput {

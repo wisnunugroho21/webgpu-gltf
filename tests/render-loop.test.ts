@@ -1,5 +1,8 @@
 import { expect, test, vi } from 'vitest';
-import { ViewerRenderLoop, type FrameScheduler } from '../src/app/render-loop';
+import {
+  ViewerRenderLoop,
+  type FrameScheduler,
+} from '../browser-tests/fixtures/viewer/app/render-loop';
 
 function scheduler() {
   let next = 0;

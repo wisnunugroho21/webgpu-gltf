@@ -3,11 +3,11 @@ import { expect, test } from '@playwright/test';
 test('opaque occlusion removes hidden instances without changing pixels, and invalidates on camera/resize/scene changes', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const scenarios = [];
     for (const sampleCount of [1, 4] as const) {
       const canvas = document.createElement('canvas');
@@ -125,11 +125,11 @@ test('opaque occlusion removes hidden instances without changing pixels, and inv
 test('scale threshold culls tiny projected instances and reacts to zoom and viewport size', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:200px;height:200px';
     document.body.append(canvas);
@@ -189,11 +189,11 @@ test('scale threshold culls tiny projected instances and reacts to zoom and view
 test('BLEND, discarded MASK and transmission cannot hide opaque background geometry', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const scenarios = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const scenarios = [];
     for (const transparency of ['weighted', 'sorted'] as const) {
       const canvas = document.createElement('canvas');
@@ -273,10 +273,10 @@ test('BLEND, discarded MASK and transmission cannot hide opaque background geome
 test('hidden animated meshes keep computing and updating shadows, pose changes invalidate visibility, and uploads precede all encoding', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:200px;height:200px';

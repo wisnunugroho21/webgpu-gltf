@@ -1,4 +1,4 @@
-import type { Renderer } from '../../renderer/renderer';
+import type { Renderer } from '../../../../../src/renderer/renderer';
 import { element } from '../dom';
 
 /** Animation widgets only; playback policy remains in AnimationController. */

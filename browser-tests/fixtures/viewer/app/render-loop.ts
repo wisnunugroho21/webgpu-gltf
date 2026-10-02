@@ -1,4 +1,4 @@
-import type { Renderer } from '../renderer/renderer';
+import type { Renderer } from '../../../../src/renderer/renderer';
 
 /** Browser scheduling is a viewer concern. Injection permits lifecycle tests without
  * a browser or GPU; engines can instead call Renderer.render from their own loop. */

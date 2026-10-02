@@ -3,11 +3,11 @@ import { expect, test } from '@playwright/test';
 test('caller owns frames and clock, gameplay precedes GPU phases, and failures stop submissions', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
-    const { ViewerRenderLoop } = await import('/src/app/render-loop.ts');
+    const { ViewerRenderLoop } = await import('/browser-tests/fixtures/viewer/app/render-loop.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:200px;height:150px';
     document.body.append(canvas);
@@ -150,10 +150,10 @@ test('caller owns frames and clock, gameplay precedes GPU phases, and failures s
 test('device loss disables explicit frames and rejects later scene preparation', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const canvas = document.createElement('canvas');
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));

@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('area mip filtering retains odd edge impulses and checkerboard energy in every dimension', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { MipmapGenerator, mipLevelCount } = await import('/src/renderer/textures/mipmaps.ts');
     const device = await (await navigator.gpu.requestAdapter())!.requestDevice();
@@ -106,7 +106,7 @@ test('area mip filtering retains odd edge impulses and checkerboard energy in ev
 test('material image caches separate translucent color mips from opaque/emissive/data and preserve authored levels', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { MaterialFactory, materialLayoutEntries } =
       await import('/src/renderer/materials/factory.ts');

@@ -2,11 +2,11 @@ import { test, expect } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 
 test('measure query cost and history reuse in moving scenes', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const report = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const original = GPUAdapter.prototype.requestDevice;
     // Timing is opt-in in this benchmark, never an application requirement.
     GPUAdapter.prototype.requestDevice = function (descriptor = {}) {

@@ -2,24 +2,45 @@
 // The normal browser suite imports TypeScript through Vite and cannot catch these failures.
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { build } from 'vite';
 import assert from 'node:assert/strict';
 
-const server = spawn(
-  process.execPath,
-  [
-    'node_modules/vite/bin/vite.js',
-    'preview',
-    '--host',
-    '127.0.0.1',
-    '--port',
-    '5174',
-    '--strictPort',
-  ],
-  { stdio: 'pipe', windowsHide: true },
-);
+// Build the loading fixture into an isolated test directory. Normal dist contains
+// only the game; neither its test UI nor fixture code is published there.
+const output = await mkdtemp(join(tmpdir(), 'webgpu-game-smoke-'));
+let server;
 let browser;
 try {
+  await build({
+    build: {
+      outDir: output,
+      emptyOutDir: true,
+      rollupOptions: {
+        input: {
+          game: 'index.html',
+          fixture: 'browser-tests/fixtures/viewer/index.html',
+        },
+      },
+    },
+  });
+  server = spawn(
+    process.execPath,
+    [
+      'node_modules/vite/bin/vite.js',
+      'preview',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      '5174',
+      '--strictPort',
+      '--outDir',
+      output,
+    ],
+    { stdio: 'pipe', windowsHide: true },
+  );
   let ready = false;
   for (let i = 0; i < 40; i++) {
     try {
@@ -28,7 +49,7 @@ try {
     if (ready) break;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  assert(ready, 'Production preview did not start. Run the build first.');
+  assert(ready, 'Production preview did not start.');
   browser = await chromium.launch({
     channel: 'msedge',
     headless: true,
@@ -37,7 +58,7 @@ try {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('http://127.0.0.1:5174');
+  await page.goto('http://127.0.0.1:5174/browser-tests/fixtures/viewer/index.html');
   await page.locator('#stats').filter({ hasText: '4 primitive instances' }).waitFor();
   const gltf = JSON.parse(
     await readFile(
@@ -75,9 +96,9 @@ try {
   gltf.extensionsRequired.push('KHR_texture_basisu');
   gltf.extensionsUsed.push('KHR_texture_basisu');
   await load('draco-basis.gltf', gltf);
-  // The dev suite cannot verify the emitted multipage entry and embedded physics
+  // The dev suite cannot verify the emitted default game entry and embedded physics
   // WASM. Exercise the actual production game before ending the preview session.
-  await page.goto('http://127.0.0.1:5174/game.html');
+  await page.goto('http://127.0.0.1:5174/');
   await page.locator('#status').filter({ hasText: 'Grounded' }).waitFor();
   await page.locator('#game').click({ position: { x: 900, y: 600 } });
   await page.keyboard.down('KeyW');
@@ -93,5 +114,9 @@ try {
   console.log('Production Draco/Basis loads and playable game WASM startup passed.');
 } finally {
   await browser?.close();
-  server.kill();
+  server?.kill();
+  // mkdtemp created this directory directly under the OS temporary directory.
+  assert.equal(resolve(output, '..'), resolve(tmpdir()));
+  assert(output.includes('webgpu-game-smoke-'));
+  await rm(output, { recursive: true, force: true });
 }

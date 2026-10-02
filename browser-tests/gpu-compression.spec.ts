@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('Basis targets retain RGBA blocks for both encodings and fall back when unsupported', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { CompressionRuntime } = await import('/src/gltf/compression/runtime.ts');
     const runtime = new CompressionRuntime();
@@ -73,10 +73,10 @@ test('Basis targets retain RGBA blocks for both encodings and fall back when uns
 test('device-backed compressed uploads keep sRGB/data slots and mip tails valid; assets remain portable', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer, loadFiles } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const { prepareTextureCompression, compressionSupport } =
       await import('/src/renderer/textures/compression.ts');

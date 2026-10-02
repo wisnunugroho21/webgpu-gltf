@@ -15,7 +15,7 @@ All selected targets preserve RGBA channels. The bundled WASM API uses format ID
 
 Compressed base dimensions must be multiples of four. Other dimensions remain RGBA8 rather than padding the image and changing normalized UV behavior. Single-level KTX2 sources remain RGBA8 so the existing GPU mip generator can create lower levels; compressed render attachments are unavailable. Authored partial/full multi-level chains remain intact. Malformed containers and inconsistent level payload sizes still reject the candidate; fallback does not hide decoding errors.
 
-`loadUrl(url)` and `loadFiles(files)` preserve the default portable RGBA8 output. Pass `{ textureCompression: renderer.textureCompression }` to transcode directly to a device-compatible target. The viewer uses this option. Scene preparation automatically adapts assets loaded without options or for another device using original KTX2 image blobs, leaving the caller's decoded images untouched. Deliberate RGBA fallbacks record the capabilities used to avoid immediately redoing the same transcode. One short-lived worker serves the preparation operation and terminates on success or failure.
+`loadUrl(url)` and `loadFiles(files)` preserve the default portable RGBA8 output. Pass `{ textureCompression: renderer.textureCompression }` to transcode directly to a device-compatible target. The test-only loading fixture uses this option. Scene preparation automatically adapts assets loaded without options or for another device using original KTX2 image blobs, leaving the caller's decoded images untouched. Deliberate RGBA fallbacks record the capabilities used to avoid immediately redoing the same transcode. One short-lived worker serves the preparation operation and terminates on success or failure.
 
 ## GPU upload and color contract
 
@@ -45,4 +45,4 @@ npx playwright test browser-tests/gpu-compression.spec.ts browser-tests/compress
 npm run test:compressed-build
 ```
 
-The production test exercises emitted decoder/WASM URLs and the serialized worker through the viewer. Remaining format limits are unchanged: only 2D ETC1S/UASTC Basis KTX2, without arrays, cubemaps, HDR Basis payloads, raw `.basis`, or arbitrary native-compressed KTX2 containers.
+The production test exercises emitted decoder/WASM URLs and the serialized worker through an isolated production build of the test-only loading fixture. Remaining format limits are unchanged: only 2D ETC1S/UASTC Basis KTX2, without arrays, cubemaps, HDR Basis payloads, raw `.basis`, or arbitrary native-compressed KTX2 containers.

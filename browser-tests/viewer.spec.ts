@@ -26,10 +26,10 @@ async function colorfulPixels(page: Page, screenshot: Buffer): Promise<number> {
 test('a black emissive map masks a white emissive factor without washing out base color', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   const json = await page.evaluate(async () => {
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const asset = demoAsset();
     const gltf = asset.gltf;
     const dataUri = (bytes: Uint8Array) =>
@@ -89,7 +89,7 @@ test(
       'Opt-in network test against the user-reported asset.',
     );
     test.setTimeout(90_000);
-    await page.goto('/');
+    await page.goto('/browser-tests/fixtures/viewer/index.html');
     await expect(page.locator('#stats')).toContainText('4 primitive instances');
     await page
       .locator('#url')
@@ -114,7 +114,7 @@ test('offline demo compiles, instances, resizes, and responds to orbit controls'
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());
   });
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toHaveText('1 pipelines · 2 draws · 4 primitive instances');
   await expect(page.locator('#status')).toHaveText('Built-in instancing scene');
   const canvas = page.locator('canvas');
@@ -139,11 +139,11 @@ test('textured glTF exercises missing attributes, mask/blend, colors, mirroring 
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());
   });
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   const json = await page.evaluate(async () => {
     // Vite serves the real preparation input; no renderer internals are mocked.
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const asset = demoAsset();
     const gltf = asset.gltf;
     const dataUri = (bytes: Uint8Array) =>
@@ -218,7 +218,7 @@ test('invalid and relative model URLs use the recoverable viewer loading path', 
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   const original = await page.locator('#stats').textContent();
   await page.locator('#url').fill('http://[');
@@ -253,10 +253,10 @@ test('invalid and relative model URLs use the recoverable viewer loading path', 
 });
 
 test('local GLB loads and a rejected replacement keeps the current scene', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   const bytes = await page.evaluate(async () => {
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const asset = demoAsset();
     const encoded = new TextEncoder().encode(JSON.stringify(asset.gltf));
     const length = Math.ceil(encoded.length / 4) * 4;
@@ -299,7 +299,7 @@ test('CPU validation rejects oversized replacements before dependency fetch and 
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   const original = await page.locator('#stats').textContent();
   let dependencies = 0;

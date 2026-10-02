@@ -4,12 +4,12 @@ import type { Scene } from '../src/renderer/scene/types';
 test('entities render independent multi-node models with root transforms, shadows and safe world replacement', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer, World, ModelLibrary } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:320px;height:240px';
     document.body.append(canvas);

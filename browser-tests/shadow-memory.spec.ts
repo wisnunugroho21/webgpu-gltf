@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('shadow allocation accounting on the real device', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { PunctualLighting } = await import('/src/renderer/lighting/punctual.ts');
     const adapter = await navigator.gpu.requestAdapter();
@@ -30,10 +30,10 @@ test('shadow allocation accounting on the real device', async ({ page }) => {
 test('shadow capacity follows light faces, shrinks, releases, and refreshes both frame groups without new layouts', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:100px;height:100px';

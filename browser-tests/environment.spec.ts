@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('GPU environment filtering preserves constant HDR radiance across faces and roughness; BRDF stays finite', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { EnvironmentLighting } = await import('/src/renderer/lighting/environment.ts');
     const adapter = await navigator.gpu.requestAdapter();
@@ -153,7 +153,7 @@ test('viewer environment intensity, rotation, replacement and studio reset chang
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());
   });
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   const stats = await page.locator('#stats').innerText();
   const before = await page.locator('canvas').screenshot();
@@ -205,7 +205,7 @@ test('viewer environment intensity, rotation, replacement and studio reset chang
 });
 
 test('PNG environment decoding converts sRGB into linear radiance', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const values = await page.evaluate(async () => {
     const { loadEnvironmentImage } = await import('/src/renderer/lighting/source.ts');
     const canvas = document.createElement('canvas');
@@ -224,11 +224,11 @@ test('PNG environment decoding converts sRGB into linear radiance', async ({ pag
 test('environment reflects on metals while unlit materials retain their colors', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   for (const kind of ['metal', 'unlit']) {
     const json = await page.evaluate(async (kind) => {
-      const { demoAsset } = await import('/src/app/demo.ts');
+      const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
       const asset = demoAsset();
       asset.gltf.buffers![0].uri =
         'data:application/octet-stream;base64,' +
@@ -267,7 +267,7 @@ test('HDR file picker preserves HDR radiance and rejects broken replacements wit
   const { constantHdr, hdrBytes } = await import('../tests/fixtures/hdr');
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   const stats = await page.locator('#stats').textContent();
   await expect(page.locator('#environment-file')).toHaveAttribute('accept', /\.hdr/);

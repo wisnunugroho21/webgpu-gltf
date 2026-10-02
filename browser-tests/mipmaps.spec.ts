@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('anisotropic sampler policy passes real WebGPU validation for all glTF filter modes', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { samplerDescriptor } = await import('/src/renderer/textures/samplers.ts');
     const adapter = await navigator.gpu.requestAdapter();
@@ -30,7 +30,7 @@ test('anisotropic sampler policy passes real WebGPU validation for all glTF filt
 test('GPU mipmaps filter color in linear light, preserve data values and handle NPOT/thin images', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { MipmapGenerator, mipLevelCount } = await import('/src/renderer/textures/mipmaps.ts');
     const adapter = await navigator.gpu.requestAdapter();
@@ -110,7 +110,7 @@ test(
     page.on('console', (message) => {
       if (message.type() === 'error') errors.push(message.text());
     });
-    await page.goto('/');
+    await page.goto('/browser-tests/fixtures/viewer/index.html');
     await expect(page.locator('#stats')).toContainText('4 primitive instances');
     await page
       .locator('#url')

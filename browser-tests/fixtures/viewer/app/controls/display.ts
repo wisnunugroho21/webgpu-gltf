@@ -1,5 +1,5 @@
-import type { Renderer } from '../../renderer/renderer';
-import type { ToneMapping } from '../../renderer/presentation/output';
+import type { Renderer } from '../../../../../src/renderer/renderer';
+import type { ToneMapping } from '../../../../../src/renderer/presentation/output';
 import { element } from '../dom';
 
 export function bindDisplayControls(renderer: Renderer): void {

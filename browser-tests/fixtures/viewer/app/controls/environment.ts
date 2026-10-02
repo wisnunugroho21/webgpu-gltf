@@ -1,9 +1,9 @@
-import type { Renderer } from '../../renderer/renderer';
+import type { Renderer } from '../../../../../src/renderer/renderer';
 import {
   loadEnvironmentImage,
   studioEnvironment,
   type EnvironmentImage,
-} from '../../renderer/lighting/source';
+} from '../../../../../src/renderer/lighting/source';
 import { element } from '../dom';
 
 export type EnvironmentSource = () => Promise<EnvironmentImage> | EnvironmentImage;

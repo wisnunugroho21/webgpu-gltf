@@ -32,7 +32,7 @@ test('clip controls render node motion, skinning and morphing, and restore the a
   await page.route('**/animated.gltf', (route) =>
     route.fulfill({ contentType: 'model/gltf+json', body: JSON.stringify(asset.gltf) }),
   );
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   await expect(page.locator('#stats')).toContainText('4 primitive instances');
   await page.locator('#url').fill('http://127.0.0.1:5173/animated.gltf');
   await page.locator('#url-form button').click();
@@ -77,10 +77,10 @@ test('clip controls render node motion, skinning and morphing, and restore the a
 test('scene preparation shares immutable deformation buffers and releases them once on failure, replacement and disposal', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const canvas = document.createElement('canvas');
     canvas.style.width = '200px';
@@ -195,7 +195,7 @@ for (const model of ['SimpleSkin', 'AnimatedMorphCube']) {
     page.on('console', (message) => {
       if (message.type() === 'error') errors.push(message.text());
     });
-    await page.goto('/');
+    await page.goto('/browser-tests/fixtures/viewer/index.html');
     await expect(page.locator('#stats')).toContainText('4 primitive instances');
     await page
       .locator('#url')

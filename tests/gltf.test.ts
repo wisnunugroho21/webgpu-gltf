@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { demoAsset } from '../src/app/demo';
+import { demoAsset } from '../browser-tests/fixtures/viewer/app/demo';
 import { decodeAccessor } from '../src/gltf/accessors';
 import { prepareGeometry } from '../src/gltf/geometry';
 import { parseGlb, loadFiles } from '../src/gltf/loader';

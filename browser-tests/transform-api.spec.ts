@@ -3,11 +3,11 @@ import { expect, test } from '@playwright/test';
 test('declared gameplay nodes leave static groups and update uploads, bounds, winding, shadows and occlusion', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
-    const { demoAsset } = await import('/src/app/demo.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
+    const { demoAsset } = await import('/browser-tests/fixtures/viewer/app/demo.ts');
     const asset = demoAsset();
     asset.gltf.nodes!.push({ children: [0] });
     asset.gltf.scenes![0].nodes = [1, 2, 3, 4];

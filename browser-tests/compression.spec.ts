@@ -3,12 +3,12 @@ import { expect, test } from '@playwright/test';
 test('meshopt placeholder buffers decode skins, morphs and animation before GPU preparation', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { MeshoptEncoder } = await import('/node_modules/meshoptimizer/meshopt_encoder.js');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const { loadFiles, Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { decodeAccessor } = await import('/src/gltf/accessors.ts');
     await MeshoptEncoder.ready;
     const template = animatedAsset();
@@ -88,10 +88,10 @@ test('meshopt placeholder buffers decode skins, morphs and animation before GPU 
 test('Draco required assets decode in the worker and render normalized integer colors', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { loadUrl, Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { decodeAccessor } = await import('/src/gltf/accessors.ts');
     const asset = await loadUrl('/tests/fixtures/compression/quad-draco.gltf');
     const primitive = asset.gltf.meshes![0].primitives[0];
@@ -137,10 +137,10 @@ test('Draco required assets decode in the worker and render normalized integer c
 test('ETC1S and UASTC KTX2 retain mipmaps and match PNG in color and data slots', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/browser-tests/fixtures/viewer/index.html');
   const result = await page.evaluate(async () => {
     const { loadFiles, Renderer } = await import('/src/index.ts');
-    const { renderViewerFrame } = await import('/src/app/frame.ts');
+    const { renderViewerFrame } = await import('/browser-tests/fixtures/viewer/app/frame.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:160px;height:160px';
