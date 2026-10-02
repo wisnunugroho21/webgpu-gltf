@@ -1,11 +1,14 @@
 import type { Asset } from '../../gltf/types';
-import { loadUrl } from '../../gltf/loader';
+import { loadUrl, type LoadOptions } from '../../gltf/loader';
 import { LoadedModel } from '../loaded-model';
 import { identifier } from '../serialization/json';
 
 export type AssetResolver = (uri: string, id: string, signal: AbortSignal) => Promise<Asset>;
 export interface AssetRegistryOptions {
   resolve?: AssetResolver;
+  /** Shared default transport/decoding policy for this registry. Custom resolvers
+   * must apply their own decoding policy before returning an Asset. */
+  limits?: LoadOptions['limits'];
 }
 export interface AssetLoadOptions {
   signal?: AbortSignal;
@@ -55,7 +58,8 @@ export class AssetRegistry {
   private disposed = false;
   private resolve: AssetResolver;
   constructor(options: AssetRegistryOptions = {}) {
-    this.resolve = options.resolve ?? ((uri, _id, signal) => loadUrl(uri, { signal }));
+    this.resolve =
+      options.resolve ?? ((uri, _id, signal) => loadUrl(uri, { signal, limits: options.limits }));
   }
   private live(): void {
     if (this.disposed) throw new Error('Asset registry is disposed.');

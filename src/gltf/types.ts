@@ -167,6 +167,8 @@ export interface Animation {
   }[];
 }
 export interface Asset {
+  /** Resolved CPU policy travels with decoded data to later accessor consumers. */
+  limits?: Readonly<import('./limits').AssetLimits>;
   gltf: Gltf;
   buffers: ArrayBuffer[];
   images: Blob[];

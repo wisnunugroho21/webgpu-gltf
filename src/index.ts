@@ -31,6 +31,8 @@ export {
 } from './animation/controller';
 export { loadFiles, loadUrl, parseGlb } from './gltf/loader';
 export type { LoadOptions } from './gltf/loader';
+export { AssetValidationError, defaultAssetLimits } from './gltf/limits';
+export type { AssetLimits } from './gltf/limits';
 export type { TextureCompression } from './gltf/compression/textures';
 export { loadEnvironmentImage, decodeRadiance } from './renderer';
 export type { Asset, Gltf } from './gltf/types';

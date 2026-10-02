@@ -113,11 +113,23 @@ export function prepareClips(asset: Asset): Clip[] {
         values.length !== times.length * width * (interpolation === 'CUBICSPLINE' ? 3 : 1)
       )
         throw new Error('Animation output does not match its target or key count.');
+      if (path === 'rotation')
+        for (let key = 0; key < times.length; key++) {
+          const offset =
+            (key * (interpolation === 'CUBICSPLINE' ? 3 : 1) +
+              (interpolation === 'CUBICSPLINE' ? 1 : 0)) *
+            4;
+          if (
+            Math.hypot(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]) <
+            1e-8
+          )
+            throw new Error('Animation rotation key has zero length.');
+        }
       if (interpolation === 'CUBICSPLINE' && times.length < 2)
         throw new Error('Cubic animation requires two keys.');
       return { node, path, times, values, width, interpolation } as Track;
     });
-    const duration = Math.max(0, ...tracks.map((track) => track.times.at(-1)!));
+    const duration = tracks.reduce((maximum, track) => Math.max(maximum, track.times.at(-1)!), 0);
     const events = (animation.extras?.engine?.events ?? [])
       .map((event) => {
         if (

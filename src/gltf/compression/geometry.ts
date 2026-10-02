@@ -1,6 +1,7 @@
 import { components } from '../accessors';
 import type { Accessor, Gltf } from '../types';
 import type { CompressionRuntime, DracoAttribute } from './runtime';
+import { AssetBudget, assetLimits, checkLimit } from '../limits';
 
 /** Copy the exact compressed range before transferring it to a worker. Other views may
  * share its backing buffer, so transferring the asset's original buffer is unsafe. */
@@ -25,13 +26,19 @@ export function bufferRange(
 
 /** Decode bufferViews first: meshopt can contain animation, sparse data and morph deltas
  * as well as geometry. Replacing the view preserves every accessor's offset/stride. */
-export async function decodeMeshopt(gltf: Gltf, buffers: ArrayBuffer[]) {
+export async function decodeMeshopt(
+  gltf: Gltf,
+  buffers: ArrayBuffer[],
+  budget = new AssetBudget(assetLimits(), '<meshopt>'),
+  signal?: AbortSignal,
+) {
   const views = (gltf.bufferViews ?? []).filter((view) => view.extensions?.EXT_meshopt_compression);
   if (!views.length) return;
   const { MeshoptDecoder } = await import('meshoptimizer/decoder');
   if (!MeshoptDecoder.supported) throw new Error('Meshopt requires WebAssembly support.');
   await MeshoptDecoder.ready;
   for (const view of views) {
+    signal?.throwIfAborted();
     const ext = view.extensions!.EXT_meshopt_compression!;
     const mode = ext.mode,
       filter = ext.filter ?? 'NONE';
@@ -52,6 +59,10 @@ export async function decodeMeshopt(gltf: Gltf, buffers: ArrayBuffer[]) {
     )
       throw new Error('Invalid EXT_meshopt_compression metadata.');
     const source = bufferRange(buffers, ext.buffer, ext.byteOffset ?? 0, ext.byteLength);
+    budget.decodedBytes(
+      view.byteLength,
+      `bufferViews[${gltf.bufferViews!.indexOf(view)}].extensions.EXT_meshopt_compression`,
+    );
     const decoded = new Uint8Array(view.byteLength);
     MeshoptDecoder.decodeGltfBuffer(
       decoded,
@@ -85,9 +96,16 @@ function appendAccessor(
   return gltf.accessors!.push(copy) - 1;
 }
 
-export async function decodeDraco(gltf: Gltf, buffers: ArrayBuffer[], runtime: CompressionRuntime) {
+export async function decodeDraco(
+  gltf: Gltf,
+  buffers: ArrayBuffer[],
+  runtime: CompressionRuntime,
+  budget = new AssetBudget(assetLimits(), '<draco>'),
+  signal?: AbortSignal,
+) {
   for (const mesh of gltf.meshes ?? [])
     for (const primitive of mesh.primitives) {
+      signal?.throwIfAborted();
       const ext = primitive.extensions?.KHR_draco_mesh_compression;
       if (!ext) continue;
       const mode = primitive.mode ?? 4;
@@ -107,10 +125,52 @@ export async function decodeDraco(gltf: Gltf, buffers: ArrayBuffer[], runtime: C
         };
       }
       if (!Object.keys(attributes).length) throw new Error('Draco has no compressed attributes.');
-      const result = await runtime.draco(
-        bufferRange(buffers, view.buffer, view.byteOffset ?? 0, view.byteLength),
-        attributes,
-      );
+      const path = `meshes[${gltf.meshes!.indexOf(mesh)}].primitives[${mesh.primitives.indexOf(primitive)}].extensions.KHR_draco_mesh_compression`;
+      const bytesPerComponent: Record<number, number> = {
+        5120: 1,
+        5121: 1,
+        5122: 2,
+        5123: 2,
+        5125: 4,
+        5126: 4,
+      };
+      for (const config of Object.values(attributes))
+        budget.decodedBytes(
+          config.count * config.width * bytesPerComponent[config.componentType],
+          path,
+        );
+      const declaredIndices =
+        primitive.indices === undefined ? undefined : gltf.accessors?.[primitive.indices];
+      const maxIndices = declaredIndices
+        ? mode === 5
+          ? Math.max(0, declaredIndices.count - 2) * 3
+          : declaredIndices.count
+        : budget.limits.maxAccessorValues;
+      budget.at(path, () => {
+        checkLimit(
+          (gltf.accessors?.length ?? 0) + Object.keys(attributes).length + 1,
+          budget.limits.maxDefinitions,
+          'decoded accessors',
+        );
+        checkLimit(
+          (gltf.bufferViews?.length ?? 0) + Object.keys(attributes).length + 1,
+          budget.limits.maxDefinitions,
+          'decoded bufferViews',
+        );
+      });
+      const result = await runtime
+        .draco(
+          bufferRange(buffers, view.buffer, view.byteOffset ?? 0, view.byteLength),
+          attributes,
+          Math.min(maxIndices, Math.floor(budget.remainingDecodedBytes / 4)),
+        )
+        .catch((error) => {
+          return budget.at(path, () => {
+            throw error;
+          });
+        });
+      signal?.throwIfAborted();
+      budget.decodedBytes(result.indices.byteLength, path);
       for (const [name, data] of Object.entries(result.attributes))
         primitive.attributes[name] = appendAccessor(
           gltf,

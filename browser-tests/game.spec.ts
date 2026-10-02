@@ -1,6 +1,34 @@
 import { expect, test } from '@playwright/test';
 import type { Scene } from '../src/renderer/scene/types';
 
+test('blocked session storage reports locally while the playable game starts fresh', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'sessionStorage', {
+      get() {
+        throw new Error('Storage blocked');
+      },
+    });
+  });
+  await page.goto('/game.html');
+  await expect(page.locator('#status')).toContainText('Grounded');
+  await expect(page.locator('#save-status')).toContainText('Restore unavailable');
+  await page.locator('#game').click({ position: { x: 900, y: 600 } });
+  await page.keyboard.down('KeyW');
+  await expect(page.locator('#status')).toContainText('Walk');
+  await page.keyboard.up('KeyW');
+  await page.locator('#save').click();
+  await expect(page.locator('#save-status')).toHaveText('Saved');
+  await page.locator('#load').click();
+  await expect(page.locator('#save-status')).toContainText('Load failed');
+  await expect(page.locator('#pause')).toBeEnabled();
+  await expect(page.locator('#status')).toContainText('Grounded');
+  expect(errors).toEqual([]);
+});
+
 test('playable game boots offline, moves, pauses, resumes and changes companion membership', async ({
   page,
 }) => {

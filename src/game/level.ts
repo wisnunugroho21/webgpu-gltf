@@ -5,8 +5,7 @@ import { boxAsset, characterAsset } from './assets';
 
 /** Level definitions drive both rendering and collision, preventing mismatched
  * invisible walls. Generated assets use the same registry as loaded glTF models. */
-export function createLevel(physics: PhysicsAdapter): World {
-  const assets = new AssetRegistry();
+export function createLevel(physics: PhysicsAdapter, assets = new AssetRegistry()): World {
   assets.register('character', characterAsset(), 'generated:character');
   assets.register('box', boxAsset(), 'generated:box');
   const world = new World(assets);

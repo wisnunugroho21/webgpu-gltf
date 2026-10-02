@@ -647,3 +647,9 @@ The [game engine migration plan](docs/game-engine-plan.md) defines ownership, ph
 ### Device lifecycle refactoring
 
 The first post-migration refactoring step is implemented in `src/renderer/core/device-resources.ts`. One owner handles device/context creation, GPU subsystems, attached scene transactions, startup rollback and teardown. `Renderer` retains the camera, CPU playback/world references and recovery inputs; recovery prepares a new owner privately and swaps it once, preserving facade identity. Failed recovery remains retryable, disposed candidates cannot commit, and old device notifications cannot affect a replacement. The pose-upload → compute → shadows → render → presentation phases and fixed binding layouts stay intact. See [architecture](docs/architecture.md) and [recovery contracts](docs/resilience-and-scale.md).
+
+### Game session refactoring
+
+The second refactoring step leaves `src/game/main.ts` as a small mounting/HMR entry point. `GameSession` owns startup, resource cleanup and frame scheduling; `restore.ts`, `presentation.ts` and `controls.ts` separate saved game reconstruction, camera/audio/render wiring and browser bindings. Startup/restore failures share one cleanup path, late resources are released after cancellation, and blocked storage permits a fresh launch. Membership/recovery pauses and same-canvas remounts keep GPU preparation safe. See [the playable lifecycle](docs/playable-slice.md) and [ownership boundaries](docs/architecture.md).
+
+CPU asset loads now accept configurable `limits` through `loadUrl()`, `loadFiles()` and `AssetRegistry`. Metadata and decoded payloads are checked before publication, with source/path diagnostics and bounded transport/decode work. See [CPU asset validation and limits](docs/asset-validation.md) for defaults, configuration and boundary details.

@@ -95,3 +95,17 @@ test('renderer facade delegates device lifetime to one owner', () => {
     /\bprivate\s+(?:device|context|scene|bindings|builder|viewport|memory|gpuTimer)\s*[:?]/,
   );
 });
+
+test('game entry point and simulation preserve application boundaries', () => {
+  const entry = sources['../src/game/main.ts'];
+  expect(entry).not.toMatch(
+    /\b(?:EngineRuntime|Renderer|RapierPhysics|FollowCamera|loadSaveState|requestAnimationFrame)\b/,
+  );
+  for (const path of ['simulation', 'locomotion']) {
+    const policy = sources[`../src/game/${path}.ts`];
+    expect(policy).not.toMatch(/\b(?:document|window|sessionStorage|localStorage)\s*\./);
+    expect(imports(policy)).not.toContain('./session');
+    expect(imports(policy)).not.toContain('./presentation');
+    expect(imports(policy)).not.toContain('./controls');
+  }
+});

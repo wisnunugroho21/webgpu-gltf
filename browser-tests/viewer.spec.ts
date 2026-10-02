@@ -293,3 +293,41 @@ test('local GLB loads and a rejected replacement keeps the current scene', async
   await page.locator('#demo').click();
   await expect(page.locator('#status')).toHaveText('Built-in instancing scene');
 });
+
+test('CPU validation rejects oversized replacements before dependency fetch and retains the rendered scene', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/');
+  await expect(page.locator('#stats')).toContainText('4 primitive instances');
+  const original = await page.locator('#stats').textContent();
+  let dependencies = 0;
+  await page.route('**/oversized.bin', (route) => {
+    dependencies++;
+    return route.abort();
+  });
+  await page.route('**/oversized.gltf', (route) =>
+    route.fulfill({
+      contentType: 'model/gltf+json',
+      body: JSON.stringify({
+        asset: { version: '2.0' },
+        buffers: [{ uri: 'oversized.bin', byteLength: 12 }],
+        bufferViews: [{ buffer: 0, byteLength: 12 }],
+        accessors: [{ bufferView: 0, type: 'VEC3', componentType: 5126, count: 2 ** 40 }],
+        meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+        nodes: [{ mesh: 0 }],
+        scenes: [{ nodes: [0] }],
+      }),
+    }),
+  );
+  await page.locator('#url').fill('http://127.0.0.1:5173/oversized.gltf');
+  await page.locator('#url-form button').click();
+  await expect(page.locator('#status')).toContainText('oversized.gltf: accessors[0]');
+  await expect(page.locator('#stats')).toHaveText(original!);
+  await expect(page.locator('#url-form button')).toBeEnabled();
+  expect(dependencies).toBe(0);
+  await page.locator('#demo').click();
+  await expect(page.locator('#status')).toHaveText('Built-in instancing scene');
+  expect(errors).toEqual([]);
+});

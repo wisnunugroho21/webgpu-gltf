@@ -4,6 +4,7 @@ import basisScript from '../../../node_modules/three/examples/jsm/libs/basis/bas
 import basisWasm from '../../../node_modules/three/examples/jsm/libs/basis/basis_transcoder.wasm?url';
 import type { DecodedImage } from '../types';
 import { basisTargets, type TextureCompression } from './textures';
+import { assetLimits, type AssetLimits } from '../limits';
 
 export interface DracoAttribute {
   id: number;
@@ -39,7 +40,8 @@ function decoderWorker() {
     return result;
   }
   scope.onmessage = async (event: MessageEvent) => {
-    const { id, kind, script, wasm, bytes, attributes, targets, support } = event.data;
+    const { id, kind, script, wasm, bytes, attributes, targets, support, limits, maxIndices } =
+      event.data;
     try {
       const lib = await module(kind, script, wasm);
       if (kind === 'basis') {
@@ -49,10 +51,25 @@ function decoderWorker() {
             !file.isValid() ||
             (!file.isETC1S() && !file.isUASTC()) ||
             file.getFaces() !== 1 ||
-            file.getLayers() > 1 ||
-            !file.startTranscoding()
+            file.getLayers() > 1
           )
             throw new Error('Only 2D ETC1S/UASTC Basis KTX2 textures are supported.');
+          const baseWidth = file.getWidth(),
+            baseHeight = file.getHeight(),
+            levelCount = file.getLevels();
+          if (
+            !Number.isSafeInteger(baseWidth) ||
+            !Number.isSafeInteger(baseHeight) ||
+            baseWidth < 1 ||
+            baseHeight < 1 ||
+            baseWidth > limits.maxImageDimension ||
+            baseHeight > limits.maxImageDimension ||
+            baseWidth * baseHeight > limits.maxImagePixels ||
+            levelCount < 1 ||
+            levelCount > 1 + Math.floor(Math.log2(Math.max(baseWidth, baseHeight)))
+          )
+            throw new Error('KTX2 image exceeds CPU limits.');
+          if (!file.startTranscoding()) throw new Error('Could not start Basis transcode.');
           const levels = [];
           // WebGPU compressed base sizes must be block-aligned. A single-level
           // image uses RGBA so the existing render-based mip generator still works.
@@ -67,16 +84,21 @@ function decoderWorker() {
             const info = file.getImageLevelInfo(mip, 0, 0);
             const width = info.origWidth,
               height = info.origHeight;
-            if (width < 1 || height < 1) throw new Error('Invalid KTX2 image dimensions.');
+            if (
+              width !== Math.max(1, baseWidth >> mip) ||
+              height !== Math.max(1, baseHeight >> mip)
+            )
+              throw new Error('Invalid KTX2 image dimensions.');
             // Transcode directly into retained GPU blocks. Slot formats decide sRGB
             // versus linear interpretation; container transfer metadata never does.
-            const data = new Uint8Array(
-              file.getImageTranscodedSizeInBytes(mip, 0, 0, target.transcoder),
-            );
             const expected =
               target.format === 'rgba8'
                 ? width * height * 4
                 : Math.ceil(width / 4) * Math.ceil(height / 4) * 16;
+            const size = file.getImageTranscodedSizeInBytes(mip, 0, 0, target.transcoder);
+            if (!Number.isSafeInteger(size) || size !== expected)
+              throw new Error('Invalid KTX2 transcode size.');
+            const data = new Uint8Array(size);
             if (
               !file.transcodeImage(data, mip, 0, 0, target.transcoder, 0, -1, -1) ||
               data.byteLength !== expected
@@ -103,6 +125,14 @@ function decoderWorker() {
           const status = decoder.DecodeArrayToMesh(input, input.byteLength, mesh);
           if (!status.ok() || !mesh.ptr)
             throw new Error(`Draco decode failed: ${status.error_msg()}`);
+          const indexCount = mesh.num_faces() * 3;
+          if (
+            !Number.isSafeInteger(indexCount) ||
+            indexCount < 1 ||
+            indexCount > maxIndices ||
+            indexCount > limits.maxAccessorValues
+          )
+            throw new Error('Draco index count exceeds declared CPU limit.');
           const output: Record<string, ArrayBuffer> = {};
           const types: Record<number, [any, string]> = {
             5120: [Int8Array, 'DT_INT8'],
@@ -125,6 +155,8 @@ function decoderWorker() {
             )
               throw new Error(`Draco ${name} does not match its accessor.`);
             const length = config.count * config.width;
+            if (!Number.isSafeInteger(length) || length > limits.maxAccessorValues)
+              throw new Error('Draco attribute exceeds CPU limits.');
             const size = length * type[0].BYTES_PER_ELEMENT;
             const pointer = lib._malloc(size);
             try {
@@ -173,6 +205,15 @@ function decoderWorker() {
 export class CompressionRuntime {
   private worker?: Worker;
   private nextId = 0;
+  private disposed = false;
+  private onAbort = () =>
+    this.dispose(this.signal?.reason ?? new DOMException('Load canceled.', 'AbortError'));
+  constructor(
+    private limits: Readonly<AssetLimits> = assetLimits(),
+    private signal?: AbortSignal,
+  ) {
+    signal?.addEventListener('abort', this.onAbort, { once: true });
+  }
   private pending = new Map<
     number,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
@@ -182,7 +223,10 @@ export class CompressionRuntime {
     bytes: ArrayBuffer,
     attributes?: Record<string, DracoAttribute>,
     support: readonly TextureCompression[] = [],
+    maxIndices = this.limits.maxAccessorValues,
   ): Promise<T> {
+    this.signal?.throwIfAborted();
+    if (this.disposed) return Promise.reject(new Error('Compression runtime is disposed.'));
     if (!this.worker) {
       const url = URL.createObjectURL(
         new Blob([`(${decoderWorker.toString()})()`], { type: 'text/javascript' }),
@@ -206,28 +250,42 @@ export class CompressionRuntime {
     const promise = new Promise<T>((resolve, reject) =>
       this.pending.set(id, { resolve: (value) => resolve(value as T), reject }),
     );
-    this.worker.postMessage(
-      {
-        id,
-        kind,
-        bytes,
-        attributes,
-        targets: basisTargets(support),
-        support,
-        script: new URL(kind === 'draco' ? dracoScript : basisScript, location.href).href,
-        wasm: new URL(kind === 'draco' ? dracoWasm : basisWasm, location.href).href,
-      },
-      [bytes],
-    );
+    try {
+      this.worker.postMessage(
+        {
+          id,
+          kind,
+          bytes,
+          attributes,
+          targets: basisTargets(support),
+          support,
+          limits: this.limits,
+          maxIndices,
+          script: new URL(kind === 'draco' ? dracoScript : basisScript, location.href).href,
+          wasm: new URL(kind === 'draco' ? dracoWasm : basisWasm, location.href).href,
+        },
+        [bytes],
+      );
+    } catch (error) {
+      const task = this.pending.get(id);
+      this.pending.delete(id);
+      task?.reject(error instanceof Error ? error : new Error(String(error)));
+    }
     return promise;
   }
-  draco(bytes: ArrayBuffer, attributes: Record<string, DracoAttribute>) {
-    return this.request<DracoResult>('draco', bytes, attributes);
+  draco(
+    bytes: ArrayBuffer,
+    attributes: Record<string, DracoAttribute>,
+    maxIndices = this.limits.maxAccessorValues,
+  ) {
+    return this.request<DracoResult>('draco', bytes, attributes, [], maxIndices);
   }
   basis(bytes: ArrayBuffer, support: readonly TextureCompression[] = []) {
     return this.request<DecodedImage>('basis', bytes, undefined, support);
   }
   dispose(error = new Error('Compression load ended.')) {
+    this.disposed = true;
+    this.signal?.removeEventListener('abort', this.onAbort);
     this.worker?.terminate();
     this.worker = undefined;
     for (const task of this.pending.values()) task.reject(error);

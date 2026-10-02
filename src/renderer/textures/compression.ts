@@ -48,7 +48,7 @@ export async function prepareTextureCompression(
   );
   if (!sources.size) return asset;
   const decodedImages = new Map(asset.decodedImages);
-  const runtime = new CompressionRuntime();
+  const runtime = new CompressionRuntime(asset.limits);
   try {
     for (const source of sources) {
       const decoded = decodedImages.get(source);

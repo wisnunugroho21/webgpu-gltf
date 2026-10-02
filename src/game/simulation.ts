@@ -16,6 +16,7 @@ export class CharacterSimulation {
   footfalls = 0;
   private aim = false;
   private extracting = false;
+  private disposed = false;
   /** Reconnect game policy to a restored controller before the next input step. */
   restorePolicy(): void {
     const animation = this.locomotionAnimation;
@@ -96,6 +97,8 @@ export class CharacterSimulation {
     ];
   }
   destroy(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.body.destroy();
   }
 }

@@ -1,4 +1,5 @@
 import type { Accessor, Asset } from './types';
+import { checkLimit, defaultAssetLimits } from './limits';
 
 export const components: Record<string, number> = {
   SCALAR: 1,
@@ -7,7 +8,14 @@ export const components: Record<string, number> = {
   VEC4: 4,
   MAT4: 16,
 };
-const sizes: Record<number, number> = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
+export const componentSizes: Record<number, number> = {
+  5120: 1,
+  5121: 1,
+  5122: 2,
+  5123: 2,
+  5125: 4,
+  5126: 4,
+};
 
 function read(view: DataView, offset: number, type: number, normalized = false): number {
   switch (type) {
@@ -55,24 +63,54 @@ function source(
     offset + (count ? (count - 1) * stride + elementSize : 0) > view.byteLength
   )
     throw new Error('Accessor exceeds its bufferView.');
-  return new DataView(
-    asset.buffers[view.buffer],
-    (view.byteOffset ?? 0) + offset,
-    view.byteLength - offset,
-  );
+  const buffer = asset.buffers[view.buffer];
+  if (!buffer || (view.byteOffset ?? 0) + view.byteLength > buffer.byteLength)
+    throw new Error('Accessor bufferView exceeds its buffer.');
+  return new DataView(buffer, (view.byteOffset ?? 0) + offset, view.byteLength - offset);
 }
 
 /** Decode only for bounds, unsupported GPU formats, sparse overlays, and index conversion.
  * Ordinary float attributes still use the original bufferView on the GPU. */
 export function decodeAccessor(asset: Asset, accessor: Accessor): number[] {
+  // Validate every range and sparse index before allocating a JS number array.
+  // The same visitor validates loaded payloads without materializing another copy.
+  walkAccessor(asset, accessor, undefined, true);
+  const width = components[accessor.type];
+  const result = new Array<number>(accessor.count * width).fill(0);
+  inspectAccessor(asset, accessor, (value, index) => {
+    result[index] = value;
+  });
+  return result;
+}
+export function inspectAccessor(
+  asset: Asset,
+  accessor: Accessor,
+  visit?: (value: number, index: number) => void,
+): void {
+  walkAccessor(asset, accessor, visit, false);
+}
+function walkAccessor(
+  asset: Asset,
+  accessor: Accessor,
+  visit: ((value: number, index: number) => void) | undefined,
+  preflight: boolean,
+): void {
   const width = components[accessor.type];
   // MAT4 inverse-bind matrices are float-only; integer matrix column padding is not used.
   if (accessor.type === 'MAT4' && accessor.componentType !== 5126)
     throw new Error('MAT4 accessors must use float32 components.');
-  const size = sizes[accessor.componentType];
-  if (!width || !size || !Number.isInteger(accessor.count) || accessor.count < 1)
+  const size = componentSizes[accessor.componentType];
+  if (!width || !size || !Number.isSafeInteger(accessor.count) || accessor.count < 1)
     throw new Error('Invalid accessor shape.');
-  const result = new Array<number>(accessor.count * width).fill(0);
+  checkLimit(
+    accessor.count * width,
+    asset.limits?.maxAccessorValues ?? defaultAssetLimits.maxAccessorValues,
+    'accessor values',
+  );
+  const emit = (value: number, index: number) => {
+    if (!Number.isFinite(value)) throw new Error('Accessor contains a non-finite value.');
+    visit?.(value, index);
+  };
   if (accessor.bufferView !== undefined) {
     const stride = asset.gltf.bufferViews?.[accessor.bufferView]?.byteStride ?? width * size;
     if (!Number.isSafeInteger(stride) || stride < width * size || stride % size)
@@ -85,14 +123,13 @@ export function decodeAccessor(asset: Asset, accessor: Accessor): number[] {
       stride,
       width * size,
     );
-    for (let i = 0; i < accessor.count; i++)
-      for (let c = 0; c < width; c++)
-        result[i * width + c] = read(
-          view,
-          i * stride + c * size,
-          accessor.componentType,
-          accessor.normalized,
-        );
+    if (!preflight)
+      for (let i = 0; i < accessor.count; i++)
+        for (let c = 0; c < width; c++)
+          emit(
+            read(view, i * stride + c * size, accessor.componentType, accessor.normalized),
+            i * width + c,
+          );
   } else if (!accessor.sparse)
     throw new Error('Accessor has neither a bufferView nor sparse data.');
   const sparse = accessor.sparse;
@@ -104,7 +141,7 @@ export function decodeAccessor(asset: Asset, accessor: Accessor): number[] {
       ![5121, 5123, 5125].includes(sparse.indices.componentType)
     )
       throw new Error('Invalid sparse accessor.');
-    const indexSize = sizes[sparse.indices.componentType];
+    const indexSize = componentSizes[sparse.indices.componentType];
     const indices = source(
       asset,
       sparse.indices.bufferView,
@@ -127,16 +164,12 @@ export function decodeAccessor(asset: Asset, accessor: Accessor): number[] {
       if (index <= previous || index >= accessor.count)
         throw new Error('Sparse indices must increase and fit the accessor.');
       previous = index;
-      for (let c = 0; c < width; c++)
-        result[index * width + c] = read(
-          values,
-          (i * width + c) * size,
-          accessor.componentType,
-          accessor.normalized,
-        );
+      if (!preflight)
+        for (let c = 0; c < width; c++)
+          emit(
+            read(values, (i * width + c) * size, accessor.componentType, accessor.normalized),
+            index * width + c,
+          );
     }
   }
-  if (result.some((value) => !Number.isFinite(value)))
-    throw new Error('Accessor contains a non-finite value.');
-  return result;
 }
