@@ -6,6 +6,7 @@ test('declared gameplay nodes leave static groups and update uploads, bounds, wi
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
     const asset = demoAsset();
     asset.gltf.nodes!.push({ children: [0] });
@@ -26,7 +27,7 @@ test('declared gameplay nodes leave static groups and update uploads, bounds, wi
     const create = device.createCommandEncoder.bind(device);
     const frame = async () => {
       writes.length = phases.length = 0;
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await device.queue.onSubmittedWorkDone();
       return { writes: [...writes], phases: [...phases], instances: renderer.frameStats.instances };
     };

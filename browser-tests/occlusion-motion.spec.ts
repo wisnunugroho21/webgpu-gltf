@@ -6,6 +6,7 @@ test('unrelated animation reuses history and in-flight transparent results inval
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:240px;height:200px';
@@ -52,7 +53,7 @@ test('unrelated animation reuses history and in-flight transparent results inval
     }));
     const device: GPUDevice = internal.device;
     const frame = async (wait = true) => {
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await device.queue.onSubmittedWorkDone();
       if (wait)
         for (let i = 0; internal.occlusion.pending && i < 200; i++)

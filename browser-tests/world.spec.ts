@@ -6,6 +6,7 @@ test('entities render independent multi-node models with root transforms, shadow
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer, World, ModelLibrary } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
     const canvas = document.createElement('canvas');
@@ -69,7 +70,7 @@ test('entities render independent multi-node models with root transforms, shadow
     const frame = async (timestamp = 0) => {
       phases.length = 0;
       dispatched.length = 0;
-      if (!renderer.render(timestamp)) throw new Error('World frame failed');
+      if (!renderViewerFrame(renderer, timestamp)) throw new Error('World frame failed');
       await device.queue.onSubmittedWorkDone();
       return { phases: [...phases], dispatched: [...dispatched].sort() };
     };
@@ -113,6 +114,7 @@ test('entities render independent multi-node models with root transforms, shadow
           instanceAllocations.push({ label: descriptor.label!, size: descriptor.size });
         return createBuffer(descriptor);
       };
+      world.updateTransforms();
       const stats = await renderer.setWorld(world);
       device.createBuffer = createBuffer;
       const sharedClips =
@@ -248,10 +250,11 @@ test('entities render independent multi-node models with root transforms, shadow
       world.createEntity({ id: 'spawned', model: { asset: 'hero' } });
       let membershipRejected = false;
       try {
-        renderer.render(0);
+        renderViewerFrame(renderer, 0);
       } catch {
         membershipRejected = true;
       }
+      world.updateTransforms();
       const spawned = await renderer.setWorld(world);
       await frame();
       const releasedOnce = [...destroys.values()].every((count) => count === 1);
@@ -265,6 +268,7 @@ test('entities render independent multi-node models with root transforms, shadow
         [...internal.scene.opaque.values()].flatMap((group: any) => [...group.values()].flat()),
       ).size;
       world.destroyEntity('party');
+      world.updateTransforms();
       await renderer.setWorld(world);
       await frame();
       const remaining = world.entities.map((entity) => entity.id);

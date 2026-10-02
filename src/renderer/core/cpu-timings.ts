@@ -1,5 +1,5 @@
-/** Opt-in CPU wall times in milliseconds. Encoding measures command construction,
- * never GPU execution or presentation latency. Nested pose times belong to animationMs. */
+/** Render-only CPU wall times; never GPU execution. Legacy pose fields stay zero
+ * for compatibility; engine callers obtain evaluation costs from World.cpuTimings. */
 export interface CpuTimings {
   animationMs: number;
   mixingMs: number;

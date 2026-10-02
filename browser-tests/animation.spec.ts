@@ -80,6 +80,7 @@ test('scene preparation shares immutable deformation buffers and releases them o
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const canvas = document.createElement('canvas');
     canvas.style.width = '200px';
@@ -156,7 +157,7 @@ test('scene preparation shares immutable deformation buffers and releases them o
         (r): r is GPUBuffer => r instanceof GPUBuffer,
       );
       replacementBuffers.forEach(track);
-      if (!renderer.render(0)) throw new Error('Replacement frame failed.');
+      if (!renderViewerFrame(renderer, 0)) throw new Error('Replacement frame failed.');
       await internal.device.queue.onSubmittedWorkDone();
     } finally {
       renderer.destroy();

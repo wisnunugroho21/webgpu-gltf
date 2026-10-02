@@ -1,4 +1,14 @@
 export { World } from './world';
+export {
+  EngineRuntime,
+  type RuntimeHooks,
+  type RuntimeOptions,
+  type SimulationStep,
+  type EngineFrame,
+} from './runtime/runtime';
+export { OrbitCamera } from './camera/orbit-camera';
+export { FollowCamera } from './camera/follow-camera';
+export { perspectiveView, type CameraView } from './camera/view';
 export { Entity } from './entity';
 export { ModelInstance, ModelLibrary } from './model';
 export { LoadedModel } from './loaded-model';

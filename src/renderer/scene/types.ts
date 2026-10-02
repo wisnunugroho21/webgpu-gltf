@@ -58,7 +58,7 @@ export interface Scene {
     source: World;
     models: readonly ModelInstance[];
     structureRevision: number;
-    poseRevision: number;
+    uploadedPoseRevisions?: number[];
   };
   min: vec3;
   max: vec3;

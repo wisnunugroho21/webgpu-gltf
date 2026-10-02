@@ -6,6 +6,7 @@ test('renderer blends skin and morph poses before compute, preserves phase order
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const canvas = document.createElement('canvas');
     canvas.style.width = '200px';
@@ -73,7 +74,7 @@ test('renderer blends skin and morph poses before compute, preserves phase order
       const frame = async (timestamp: number) => {
         phases.length = 0;
         dispatchCount = 0;
-        renderer.render(timestamp);
+        renderViewerFrame(renderer, timestamp);
         await device.queue.onSubmittedWorkDone();
         frames.push([...phases]);
         dispatchCounts.push(dispatchCount);

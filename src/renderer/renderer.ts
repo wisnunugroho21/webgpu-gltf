@@ -1,6 +1,7 @@
 import type { Asset } from '../gltf/types';
 import type { TransformData, TransformField } from '../scene/transform';
-import { OrbitCamera } from './camera/orbit-camera';
+import { OrbitCamera } from '../engine/camera/orbit-camera';
+import { validateCameraView, type CameraView } from '../engine/camera/view';
 import { SceneBindings } from './core/bindings';
 import { Resources } from './core/resources';
 import { prepareGpu } from './core/preparation';
@@ -70,7 +71,15 @@ export class Renderer {
   get textureCompression(): readonly TextureCompression[] {
     return compressionSupport(this.device.features);
   }
+  /** Default CPU orbit state; input belongs to the viewer adapter. */
   readonly camera: OrbitCamera;
+  get world(): World | undefined {
+    return this.scene?.world?.source;
+  }
+  get aspectRatio(): number {
+    const { width, height } = this.viewport.size;
+    return width / height;
+  }
   private readonly assetAnimation = new AnimationController();
   /** Single-asset compatibility; world gameplay normally uses entity.model.animation. */
   get animation(): AnimationController {
@@ -277,8 +286,7 @@ export class Renderer {
       this.sampleCount,
       transparencyMode,
     );
-    // Attach input listeners only once all fallible GPU initialization has succeeded.
-    this.camera = new OrbitCamera(canvas);
+    this.camera = new OrbitCamera();
   }
 
   /** Prepare a replacement fully before swapping. A failed load leaves the current model usable. */
@@ -343,9 +351,6 @@ export class Renderer {
           )
             throw new Error('World structure changed during preparation.');
           const previous = this.scene;
-          candidate.pose.profiling = this.cpuProfiling;
-          for (const model of candidate.world?.models ?? [])
-            model.pose.profiling = this.cpuProfiling;
           this.scene = candidate;
           committed = true;
           if (candidate.stats.instances) this.camera.frame(candidate.min, candidate.max);
@@ -364,30 +369,22 @@ export class Renderer {
     }
   }
 
-  /** Phase 1 owns CPU state and queue uploads; no command encoder is created here. */
-  private uploadFrame(scene: Scene | undefined, timestamp: number): void {
-    const start = this.cpuProfiling ? performance.now() : 0;
+  /** Pose-upload phase consumes evaluated CPU revisions; no simulation or encoder. */
+  private uploadFrame(scene: Scene | undefined, view: CameraView): void {
     let poseChanged = false;
-    // Phase 1: sample animation and upload its inputs before encoding any GPU work.
     if (scene) {
-      // This list belongs to this frame; paused/held poses must not replay old dispatches.
       scene.pendingDeformations.length = 0;
       if (scene.world) {
-        scene.world.source.update(timestamp);
-        poseChanged = scene.world.poseRevision !== scene.world.source.poseRevision;
-        scene.world.poseRevision = scene.world.source.poseRevision;
+        // Compare each pose, not a World's aggregate update revision. Explicit
+        // overrides and skipped frames stay dirty until this consumer uploads.
+        const revisions = scene.world.models.map((model) => model.pose.revision);
+        poseChanged = revisions.some(
+          (revision, index) => revision !== scene.world!.uploadedPoseRevisions?.[index],
+        );
+        scene.world.uploadedPoseRevisions = revisions;
       } else {
-        this.animation.update(timestamp);
         poseChanged = scene.poseRevision !== scene.pose.revision;
         scene.poseRevision = scene.pose.revision;
-      }
-      if (this.cpuProfiling) {
-        this.timings.animationMs = performance.now() - start;
-        for (const pose of scene.world
-          ? scene.world.models.map((model) => model.pose)
-          : [scene.pose])
-          for (const key of ['mixingMs', 'worldMs', 'sampledNodes', 'visitedNodes'] as const)
-            this.timings[key] += pose.timings[key];
       }
     }
     const animated = this.cpuProfiling ? performance.now() : 0;
@@ -399,7 +396,7 @@ export class Renderer {
       this.transmission.resize(this.viewport.width, this.viewport.height);
     if (scene?.transparent.length)
       this.transparency?.resize(this.viewport.width, this.viewport.height);
-    this.bindings.uploadCamera(this.camera, this.viewport.width / this.viewport.height);
+    this.bindings.uploadCamera(view);
     if (scene) this.lighting.update(scene);
     if (this.bindings.refreshLighting()) this.transmission.refreshLighting();
     // Visibility consumes updated bounds. Query input uploads also finish before
@@ -432,7 +429,7 @@ export class Renderer {
   }
 
   /** Encode compute, shadows, scene and presentation together, without pose uploads. */
-  private encodeFrame(scene: Scene | undefined): GPUCommandBuffer {
+  private encodeFrame(scene: Scene | undefined, view: CameraView): GPUCommandBuffer {
     const encoder = this.device.createCommandEncoder();
     // Phase 2: compute consumes uploaded inputs. Paused/static poses reuse their output.
     if (scene) encodeDeformation(encoder, scene);
@@ -444,7 +441,7 @@ export class Renderer {
       depth: this.viewport.depth!,
       frameGroup: this.bindings.frame,
       environmentGroup: this.environment.bindGroup,
-      camera: this.camera,
+      camera: view,
       transmission: this.transmission,
       transparency: this.transparency,
       occlusion: this.occlusionEnabled ? this.occlusion : undefined,
@@ -454,13 +451,16 @@ export class Renderer {
     return encoder.finish();
   }
 
-  /** Submit exactly one frame using the caller's clock in milliseconds (for example
-   * a RAF timestamp or engine simulation time). Gameplay/physics run before this call.
+  /** Submit prepared poses and a CPU camera view. The retained timestamp argument
+   * is validated for compatibility; it never advances animation or simulation.
    * No scheduling or GPU waits occur here. False tells the owner to stop rendering
    * after disposal or a fatal frame/device error, reported through onError once. */
-  render(timestamp: number): boolean {
+  render(timestamp: number, view?: CameraView): boolean {
     if (this.disposed || this.failed) return false;
     if (!Number.isFinite(timestamp)) throw new Error('Frame timestamp must be finite.');
+    const start = this.cpuProfiling ? performance.now() : 0;
+    const camera = view ?? this.camera.view(this.aspectRatio);
+    validateCameraView(camera, this.aspectRatio);
     if (
       this.scene?.world &&
       this.scene.world.structureRevision !== this.scene.world.source.structureRevision
@@ -468,23 +468,10 @@ export class Renderer {
       throw new Error('World membership changed. Await renderer.setWorld(world) before rendering.');
     try {
       const scene = this.scene;
-      const start = this.cpuProfiling ? performance.now() : 0;
-      if (this.cpuProfiling) {
-        Object.assign(this.timings, emptyCpuTimings());
-        if (scene)
-          for (const pose of scene.world
-            ? scene.world.models.map((model) => model.pose)
-            : [scene.pose])
-            Object.assign(pose.timings, {
-              mixingMs: 0,
-              worldMs: 0,
-              sampledNodes: 0,
-              visitedNodes: 0,
-            });
-      }
-      this.uploadFrame(scene, timestamp);
+      if (this.cpuProfiling) Object.assign(this.timings, emptyCpuTimings());
+      this.uploadFrame(scene, camera);
       const uploaded = this.cpuProfiling ? performance.now() : 0;
-      const commands = this.encodeFrame(scene);
+      const commands = this.encodeFrame(scene, camera);
       const encoded = this.cpuProfiling ? performance.now() : 0;
       this.device.queue.submit([commands]);
       if (this.occlusionEnabled) this.occlusion.afterSubmit();
@@ -520,7 +507,6 @@ export class Renderer {
     this.lighting.destroy();
     this.occlusion.destroy();
     this.bindings.destroy();
-    this.camera.destroy();
     this.context.unconfigure();
     this.device.destroy();
   }

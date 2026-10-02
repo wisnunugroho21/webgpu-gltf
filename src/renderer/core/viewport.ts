@@ -10,7 +10,7 @@ export class Viewport {
     private device: GPUDevice,
     private output: OutputPass,
   ) {}
-  resize(): void {
+  get size(): { width: number; height: number } {
     const ratio = Math.min(devicePixelRatio || 1, 2);
     const width = Math.max(
       1,
@@ -26,6 +26,10 @@ export class Viewport {
         Math.round(this.canvas.clientHeight * ratio),
       ),
     );
+    return { width, height };
+  }
+  resize(): void {
+    const { width, height } = this.size;
     if (width === this.width && height === this.height) return;
     this.canvas.width = this.width = width;
     this.canvas.height = this.height = height;

@@ -6,6 +6,7 @@ test('playback uploads and dispatches only affected transforms, weights and infl
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const canvas = document.createElement('canvas');
     canvas.style.width = '200px';
@@ -85,7 +86,7 @@ test('playback uploads and dispatches only affected transforms, weights and infl
         writeBuffer(...args);
       };
       const frame = async (timestamp: number) => {
-        renderer.render(timestamp);
+        renderViewerFrame(renderer, timestamp);
         await internal.device.queue.onSubmittedWorkDone();
       };
       const clear = () => {

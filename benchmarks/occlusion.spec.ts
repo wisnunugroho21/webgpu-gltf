@@ -5,6 +5,7 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
   await page.goto('/');
   const report = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
     const original = GPUAdapter.prototype.requestDevice;
     // Timing is opt-in in this benchmark, never an application requirement.
@@ -166,7 +167,7 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
                 else if (mode !== 'static') renderer.seek(frame * 0.025);
                 queries = 0;
                 const start = performance.now();
-                renderer.render(frame * 25);
+                renderViewerFrame(renderer, frame * 25);
                 const encoded = performance.now() - start;
                 await device.queue.onSubmittedWorkDone();
                 for (let i = 0; internal.occlusion.pending && i < 500; i++)

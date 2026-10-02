@@ -6,6 +6,7 @@ test('overlapping scene/environment preparation stays ordered and callback failu
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const canvas = document.createElement('canvas');
     canvas.style.width = '100px';
@@ -75,7 +76,7 @@ test('overlapping scene/environment preparation stays ordered and callback failu
       const attached = internal.scene.pose.asset === notified;
       // Encoding after the failed notification catches accidentally destroyed scene buffers.
       device.pushErrorScope('validation');
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await device.queue.onSubmittedWorkDone();
       const gpuError = await device.popErrorScope();
       return {

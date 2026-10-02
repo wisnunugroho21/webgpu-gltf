@@ -51,6 +51,18 @@ test('renderer modules do not schedule browser frames', () => {
   }
 });
 
+test('renderer camera and frame phases cannot evaluate simulation or attach input', () => {
+  for (const [path, source] of Object.entries(sources)) {
+    if (!path.includes('/src/renderer/')) continue;
+    expect(source, path).not.toMatch(
+      /(?:animation|scene\.world\.source|world)\.(?:update|updateTransforms)\s*\(/,
+    );
+    expect(source, path).not.toMatch(
+      /\.(?:addEventListener|removeEventListener)\s*\(\s*['"](?:pointer\w+|wheel|key\w+)/,
+    );
+  }
+});
+
 test('production modules never import migration test or benchmark helpers', () => {
   for (const [path, source] of Object.entries(sources))
     for (const specifier of imports(source))

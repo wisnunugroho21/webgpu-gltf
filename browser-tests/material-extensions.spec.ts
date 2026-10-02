@@ -6,6 +6,7 @@ test('extension maps decode their channels and UV transforms like equivalent fac
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:160px;height:160px';
@@ -29,7 +30,7 @@ test('extension maps decode their channels and UV transforms like equivalent fac
       );
     const blob = await new Promise<Blob>((resolve) => image.toBlob((value) => resolve(value!)));
     const pixel = async () => {
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
       const png = new Image();
       png.src = canvas.toDataURL();
@@ -220,6 +221,7 @@ test('glass preserves opaque HDR radiance, applies volume absorption and survive
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer, loadFiles } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { supportedExtensions } = await import('/src/gltf/extensions.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const canvas = document.createElement('canvas');
@@ -268,7 +270,7 @@ test('glass preserves opaque HDR radiance, applies volume absorption and survive
       renderer.camera.yaw = renderer.camera.pitch = 0;
       renderer.camera.distance = 4;
       renderer.camera.radius = 1;
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
       const png = new Image();
       png.src = canvas.toDataURL();
@@ -290,7 +292,7 @@ test('glass preserves opaque HDR radiance, applies volume absorption and survive
       const scaled = await render(0.5, 2, 1);
       // Removing transmission restores the ordinary one-pass path without stale bindings.
       await renderer.setAsset(materialAsset({ extensions: { KHR_materials_unlit: {} } }));
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
       return {
         thin,

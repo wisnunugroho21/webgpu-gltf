@@ -6,6 +6,7 @@ test('static groups in animated scenes match separate draws through parent motio
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
     const { inspectRenderer, testDevice } = await import('/browser-tests/helpers/inspect.ts');
     const asset = demoAsset();
@@ -48,7 +49,7 @@ test('static groups in animated scenes match separate draws through parent motio
     });
     const device = testDevice(renderer);
     const frame = async () => {
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await device.queue.onSubmittedWorkDone();
       return canvas.toDataURL();
     };

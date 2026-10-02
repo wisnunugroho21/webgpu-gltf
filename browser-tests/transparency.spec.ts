@@ -6,6 +6,7 @@ test('weighted transparency is stable across intersecting draw/triangle order, o
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     type Asset = import('../src/gltf/types').Asset;
     const asset = (
       reverse = false,
@@ -172,7 +173,7 @@ test('weighted transparency is stable across intersecting draw/triangle order, o
           renderer.camera.radius = 1;
           renderer.camera.distance = 4;
           renderer.camera.pitch = renderer.camera.yaw = 0;
-          renderer.render(0);
+          renderViewerFrame(renderer, 0);
           const texture = internal.output.texture;
           const row = Math.ceil((texture.width * 8) / 256) * 256;
           const buffer = internal.device.createBuffer({

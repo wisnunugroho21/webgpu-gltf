@@ -1,7 +1,7 @@
 import { vec3 } from 'gl-matrix';
 import type { Scene, Draw } from '../scene/types';
 import type { OutputPass } from '../presentation/output';
-import type { OrbitCamera } from '../camera/orbit-camera';
+import type { CameraView } from '../../engine/camera/view';
 import type { TransmissionBuffer } from './transmission';
 import type { TransparencyPass } from './transparency';
 import type { OcclusionCulling } from '../scene/occlusion';
@@ -11,7 +11,7 @@ export interface ScenePassContext {
   depth: GPUTexture;
   frameGroup: GPUBindGroup;
   environmentGroup: GPUBindGroup;
-  camera: OrbitCamera;
+  camera: CameraView;
   transmission: TransmissionBuffer;
   transparency?: TransparencyPass;
   occlusion?: OcclusionCulling;
@@ -87,7 +87,7 @@ export function encodeScene(
     }
     const forward = vec3.normalize(
       vec3.create(),
-      vec3.subtract(vec3.create(), camera.target, camera.eye),
+      vec3.fromValues(-camera.view[2], -camera.view[6], -camera.view[10]),
     );
     for (const list of hasWeighted
       ? [scene.visibleTransmission]

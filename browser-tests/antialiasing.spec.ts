@@ -143,6 +143,7 @@ test('renderer supports explicit single-sample mode and defaults to four samples
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
     const errors: string[] = [];
     const samples: number[] = [];
@@ -155,11 +156,11 @@ test('renderer supports explicit single-sample mode and defaults to four samples
       try {
         samples.push(renderer.sampleCount);
         await renderer.setAsset(demoAsset());
-        if (!renderer.render(0)) throw new Error('Initial frame failed.');
+        if (!renderViewerFrame(renderer, 0)) throw new Error('Initial frame failed.');
         canvas.style.width = '123px';
         canvas.style.height = '117px';
         await renderer.setAsset(demoAsset());
-        if (!renderer.render(16)) throw new Error('Resized replacement frame failed.');
+        if (!renderViewerFrame(renderer, 16)) throw new Error('Resized replacement frame failed.');
       } finally {
         renderer.destroy();
         canvas.remove();

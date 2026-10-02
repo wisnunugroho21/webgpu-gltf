@@ -6,7 +6,7 @@ Evolve the current renderer into a browser game engine through small, verified c
 
 This document is a plan. Proposed APIs, modules and systems below are not implemented yet. The [current review](review-2026-10-02.md) records existing capabilities and verification.
 
-Phase 0 safeguards are implemented; see the [migration safeguards guide](migration-safeguards.md) for commands, CI provisioning and baseline measurements. Later phases remain proposed work.
+Phase 0 safeguards and Phase 1 engine-owned updates/cameras are implemented; see [engine runtime and cameras](engine-runtime.md) for the new update/render contract; see the [migration safeguards guide](migration-safeguards.md) for commands, CI provisioning and baseline measurements. Phases 2 onward remain proposed work.
 
 ## Architecture and ownership contract
 

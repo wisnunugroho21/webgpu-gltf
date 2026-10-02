@@ -33,6 +33,7 @@ test('shadow capacity follows light faces, shrinks, releases, and refreshes both
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:100px;height:100px';
@@ -83,7 +84,7 @@ test('shadow capacity follows light faces, shrinks, releases, and refreshes both
     }[] = [];
     const frame = async (name: string) => {
       device.pushErrorScope('validation');
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await device.queue.onSubmittedWorkDone();
       const error = await device.popErrorScope();
       snapshots.push({

@@ -6,6 +6,7 @@ test('culls individual instances without changing pixels, and follows camera and
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:320px;height:200px';
@@ -16,7 +17,7 @@ test('culls individual instances without changing pixels, and follows camera and
       device: GPUDevice;
     };
     const frame = async () => {
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
     };
     try {
@@ -79,6 +80,7 @@ test('updates skinned and morphed bounds while offscreen, including blended noni
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/renderer/renderer.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:240px;height:200px';
@@ -98,7 +100,7 @@ test('updates skinned and morphed bounds while offscreen, including blended noni
     };
     let dispatches = 0;
     const frame = async () => {
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
     };
     try {

@@ -76,6 +76,7 @@ test('device-backed compressed uploads keep sRGB/data slots and mip tails valid;
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer, loadFiles } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const { prepareTextureCompression, compressionSupport } =
       await import('/src/renderer/textures/compression.ts');
@@ -127,7 +128,7 @@ test('device-backed compressed uploads keep sRGB/data slots and mip tails valid;
         const before = uploads.length;
         await renderer.setAsset(asset);
         device.pushErrorScope('validation');
-        renderer.render(0);
+        renderViewerFrame(renderer, 0);
         await device.queue.onSubmittedWorkDone();
         const error = await device.popErrorScope();
         const fallback = await prepareTextureCompression(asset, new Set());

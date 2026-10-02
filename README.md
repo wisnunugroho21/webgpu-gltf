@@ -81,13 +81,14 @@ The existing settings and playback APIs remain available. `Renderer.create()` no
 
 ## Explicit frames and engine integration
 
-Creating a renderer and loading an asset do not start a frame loop. The caller controls when a frame happens and supplies a finite timestamp in **milliseconds**, using a consistent, nondecreasing clock. Browser RAF timestamps work; engines may supply their own simulation clock. This lets gameplay and physics finish before rendering preparation begins.
+Creating a renderer and loading an asset do not start a frame loop. The caller controls when a frame happens and supplies a finite timestamp in **milliseconds**, after evaluating visual state with an engine-owned presentation clock. Rendering itself does not advance that clock. This lets gameplay and physics finish before rendering preparation begins.
 
 ```ts
 import { Renderer, loadUrl } from './src';
 
 const renderer = await Renderer.create(canvas, showError);
 await renderer.setAsset(await loadUrl(modelUrl));
+renderer.animation.update(0); // Evaluate visual state outside rendering.
 renderer.render(0); // One frame; the caller schedules any later frames.
 ```
 
@@ -97,17 +98,19 @@ Inside an engine's existing frame callback, the order can be:
 function frame(timestampMs: number) {
   gameplay.update(); // Engine-owned simulation policy and timestep.
   physics.step();
-  if (!renderer.render(timestampMs)) engine.stop();
+  world.update(timestampMs); // Or use EngineRuntime for bounded fixed steps.
+  const view = followCamera.view(renderer.aspectRatio);
+  if (!renderer.render(timestampMs, view)) engine.stop();
 }
 ```
 
-`render()` synchronously prepares/uploads the current pose and camera, records compute, shadows, scene and presentation, and submits once. It returns `true` after submission, without waiting for GPU completion. Animation is evaluated inside this preparation using the supplied clock; do not also call `renderer.animation.update()` separately. A nonfinite timestamp throws without disabling the renderer. Frame/GPU/device failures invoke `showError` once and disable further frames; `render()` then returns `false`. Calls after `destroy()` also return `false`. Cancel the owner's loop before destroying the renderer; destruction is idempotent.
+`render()` synchronously prepares/uploads the current pose and camera, records compute, shadows, scene and presentation, and submits once. It returns `true` after submission, without waiting for GPU completion. Evaluate single-asset animation with `renderer.animation.update(timestampMs)` or a world with `world.update(timestampMs)` before rendering. `render()` consumes pose revisions and never advances animation/gameplay. A nonfinite timestamp throws without disabling the renderer. Frame/GPU/device failures invoke `showError` once and disable further frames; `render()` then returns `false`. Calls after `destroy()` also return `false`. Cancel the owner's loop before destroying the renderer; destruction is idempotent.
 
-The browser viewer uses `ViewerRenderLoop` in `src/app/render-loop.ts`. Its `start()` schedules one RAF chain, `stop()` cancels pending work, and `destroy()` permanently disables scheduling. Generation checks ignore cancelled callbacks arriving after stop/restart. The adapter owns scheduling only; `Viewer` stops it on fatal errors and destroys it before the renderer on page exit. Playback controls, camera movement, resize, model/environment loading and rendering while animation is paused retain their existing viewer behavior. Engines can call the public frame method directly without importing viewer code.
+The browser viewer uses `ViewerRenderLoop` in `src/app/render-loop.ts`. Its `start()` schedules one RAF chain, `stop()` cancels pending work, and `destroy()` permanently disables scheduling. Generation checks ignore cancelled callbacks arriving after stop/restart. The loop adapter owns scheduling only; `renderViewerFrame` evaluates animation outside rendering and `OrbitInput` owns DOM camera listeners. `Viewer` stops it on fatal errors and destroys it before the renderer on page exit. Playback controls, camera movement, resize, model/environment loading and rendering while animation is paused retain their existing viewer behavior. Engines can call the public frame method directly without importing viewer code.
 
-**Migration:** embedding applications that previously relied on automatic frames from `Renderer.create()` must call `render()` from their own loop. Browser tests and benchmarks now use that public method rather than private render/stop hooks.
+**Migration:** embedding applications that previously relied on automatic frames from `Renderer.create()` must call `render()` from their own loop. Callers that relied on animation advancing inside `render()` must now evaluate it explicitly. The viewer adapter preserves continuous playback.
 
-See [frame scheduling and lifecycle](docs/frame-scheduling.md) for ownership rules and regression coverage.
+Use `EngineRuntime` for input, bounded fixed gameplay/physics steps, presentation evaluation and explicit render callbacks; `FollowCamera` supplies a CPU view without DOM listeners. See [engine runtime and cameras](docs/engine-runtime.md) and [frame scheduling and lifecycle](docs/frame-scheduling.md) for ownership rules and regression coverage.
 
 ## Gameplay transforms
 
@@ -140,11 +143,13 @@ const player = world.createEntity({
   components: { health: { current: 100, max: 100 } },
 });
 world.createEntity({ id: 'npc', model: { asset: 'hero' }, transform: { translation: [3, 0, 0] } });
+world.update(0); // Evaluate roots before rendering membership preparation.
 await renderer.setWorld(world);
 
 // Gameplay/physics writes placement before the caller-owned render frame.
 player.setTransform({ translation: [1, 0, 0] });
 player.model!.animation.select(0); // Independent of the NPC's playback.
+world.update(0);
 renderer.render(0);
 
 const savedScene = JSON.stringify(world.toDocument(), null, 2);
@@ -152,7 +157,7 @@ const savedScene = JSON.stringify(world.toDocument(), null, 2);
 
 Engine scene JSON has `version: 1`, an `assets` dictionary mapping stable IDs to model URIs, and `entities` containing IDs, optional parents/names, transforms, model references and JSON component data. `parseSceneDocument()` validates it; `loadWorld(document, resolver?)` loads each asset ID once and builds independent model instances. Component data is preserved for gameplay systems; it does not automatically implement physics or behaviors. Scene saving does not embed glTF nodes, geometry, GPU resources or current animation playback state.
 
-`setTransform()` and `world.setParent()` become visible on the next frame without GPU preparation. Creating or destroying entities changes membership: pause submission, mutate the world, await `renderer.setWorld(world)`, then resume. Rendering an uncommitted membership change throws a recoverable error instead of drawing stale entities. A failed replacement releases candidate resources and retains the previously attached scene. Empty worlds render the background. The original viewer and `setAsset()` remain available.
+`setTransform()` and `world.setParent()` become visible after the next engine world evaluation and render, without rebuilding GPU membership. Creating or destroying entities changes membership: pause submission, mutate the world, await `renderer.setWorld(world)`, then resume. Rendering an uncommitted membership change throws a recoverable error instead of drawing stale entities. A failed replacement releases candidate resources and retains the previously attached scene. Empty worlds render the background. The original viewer and `setAsset()` remain available.
 
 Loaded resources are separate from instances: `ModelLibrary.getModel(id)` returns a CPU `LoadedModel` shared through `ModelInstance.resources`, including lazily prepared, frozen animation clips. Entities using the same `Asset` share GPU geometry, textures, material bindings, pipelines and immutable deformation inputs. Poses, animation, joint palettes, morph weights and deformation outputs remain independent. Shared allocations survive overlapping scene replacement and release after their final scene lease. See [shared model resources](docs/model-resources.md). All world model nodes are treated as movable so entity placement reaches transforms, joint palettes, bounds, winding, lights, shadows and occlusion dependencies. See [entity ownership and the scene format](docs/game-world.md) for loading, hierarchy, lifecycle and test coverage.
 

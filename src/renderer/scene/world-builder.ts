@@ -19,7 +19,6 @@ export async function prepareWorld(
   resources: Resources,
 ): Promise<Scene> {
   const structureRevision = world.structureRevision;
-  world.updateTransforms();
   const models = world.modelInstances;
   const parts: SceneData[] = [];
   for (const model of models)
@@ -110,7 +109,7 @@ export async function prepareWorld(
         draws: parts.reduce((n, part) => n + part.stats.draws, 0),
         instances: parts.reduce((n, part) => n + part.stats.instances, 0),
       },
-      world: { source: world, models, structureRevision, poseRevision: -1 },
+      world: { source: world, models, structureRevision },
     },
     'World model instances',
   );

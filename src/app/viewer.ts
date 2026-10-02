@@ -7,11 +7,14 @@ import { AnimationControls } from './controls/animation';
 import { bindDisplayControls } from './controls/display';
 import { bindEnvironmentControls } from './controls/environment';
 import { ViewerRenderLoop } from './render-loop';
+import { OrbitInput } from './orbit-input';
+import { renderViewerFrame } from './frame';
 
 /** Application state and serialized loading. Widgets don't own renderer lifetime. */
 export class Viewer {
   private renderer?: Renderer;
   private renderLoop?: ViewerRenderLoop;
+  private orbitInput?: OrbitInput;
   private animationControls?: AnimationControls;
   private busy = false;
   private failed = false;
@@ -22,7 +25,17 @@ export class Viewer {
         this.fail(message),
       );
       this.renderer = renderer;
-      this.renderLoop = new ViewerRenderLoop(renderer);
+      this.orbitInput = new OrbitInput(element<HTMLCanvasElement>('canvas'), renderer.camera);
+      this.renderLoop = new ViewerRenderLoop({
+        render: (timestamp) => {
+          try {
+            return renderViewerFrame(renderer, timestamp);
+          } catch (error) {
+            this.fail(errorMessage(error));
+            return false;
+          }
+        },
+      });
       this.animationControls = new AnimationControls(renderer, () => this.busy || this.failed);
       bindDisplayControls(renderer);
       bindEnvironmentControls(renderer, (source, name) =>
@@ -54,6 +67,7 @@ export class Viewer {
   /** Cancel the owner loop before releasing any resources it could draw from. */
   destroy(): void {
     this.renderLoop?.destroy();
+    this.orbitInput?.destroy();
     this.renderer?.destroy();
     window.removeEventListener('pagehide', this.pageHide);
   }

@@ -6,6 +6,7 @@ test('opaque occlusion removes hidden instances without changing pixels, and inv
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
     const scenarios = [];
     for (const sampleCount of [1, 4] as const) {
@@ -23,7 +24,7 @@ test('opaque occlusion removes hidden instances without changing pixels, and inv
         occlusion: { pending: boolean; readback: GPUBuffer };
       };
       const frame = async () => {
-        renderer.render(0);
+        renderViewerFrame(renderer, 0);
         await internal.device.queue.onSubmittedWorkDone();
         // Test harness waits for asynchronous visibility; production frames never wait.
         for (let i = 0; internal.occlusion.pending && i < 100; i++)
@@ -127,6 +128,7 @@ test('scale threshold culls tiny projected instances and reacts to zoom and view
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:200px;height:200px';
@@ -140,7 +142,7 @@ test('scale threshold culls tiny projected instances and reacts to zoom and view
       device: GPUDevice;
     };
     const frame = async () => {
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
       return renderer.frameStats;
     };
@@ -190,6 +192,7 @@ test('BLEND, discarded MASK and transmission cannot hide opaque background geome
   await page.goto('/');
   const scenarios = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
     const scenarios = [];
     for (const transparency of ['weighted', 'sorted'] as const) {
@@ -207,7 +210,7 @@ test('BLEND, discarded MASK and transmission cannot hide opaque background geome
         occlusion: { pending: boolean };
       };
       const frame = async () => {
-        renderer.render(0);
+        renderViewerFrame(renderer, 0);
         await internal.device.queue.onSubmittedWorkDone();
         for (let i = 0; internal.occlusion.pending && i < 100; i++)
           await new Promise((resolve) => setTimeout(resolve, 1));
@@ -273,6 +276,7 @@ test('hidden animated meshes keep computing and updating shadows, pose changes i
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:200px;height:200px';
@@ -312,7 +316,7 @@ test('hidden animated meshes keep computing and updating shadows, pose changes i
     };
     const frame = async () => {
       events.length = 0;
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await device.queue.onSubmittedWorkDone();
       for (let i = 0; internal.occlusion.pending && i < 100; i++)
         await new Promise((resolve) => setTimeout(resolve, 1));

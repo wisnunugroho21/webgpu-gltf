@@ -33,6 +33,15 @@ export { loadEnvironmentImage, decodeRadiance } from './renderer';
 export type { Asset, Gltf } from './gltf/types';
 export {
   World,
+  EngineRuntime,
+  OrbitCamera,
+  FollowCamera,
+  perspectiveView,
+  type RuntimeHooks,
+  type RuntimeOptions,
+  type SimulationStep,
+  type EngineFrame,
+  type CameraView,
   Entity,
   ModelInstance,
   ModelLibrary,

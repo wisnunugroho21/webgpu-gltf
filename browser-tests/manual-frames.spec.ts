@@ -62,6 +62,7 @@ test('caller owns frames and clock, gameplay precedes GPU phases, and failures s
       renderer.seek(1);
       phases.push('physics');
       renderer.camera.distance = 4;
+      renderer.animation.update(1000);
       const submitted = renderer.render(1000);
       await device.queue.onSubmittedWorkDone();
       const first = [...phases];

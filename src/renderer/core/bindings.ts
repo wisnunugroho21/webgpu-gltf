@@ -1,5 +1,6 @@
 import { materialLayoutEntries } from '../materials/factory';
-import type { OrbitCamera } from '../camera/orbit-camera';
+import { mat4 } from 'gl-matrix';
+import type { CameraView } from '../../engine/camera/view';
 import { lightingFloats, type PunctualLighting } from '../lighting/punctual';
 
 // Instance = world mat4 + inverse-transpose normal mat4, matching render/shader.ts.
@@ -104,8 +105,8 @@ export class SceneBindings {
     });
   }
 
-  uploadCamera(camera: OrbitCamera, aspect: number): void {
-    this.frameData.set(camera.matrix(aspect));
+  uploadCamera(camera: CameraView): void {
+    mat4.multiply(this.frameData.subarray(0, 16), camera.projection, camera.view);
     this.frameData.set(camera.eye, 16);
     this.device.queue.writeBuffer(this.frameBuffer, 0, this.frameData);
   }

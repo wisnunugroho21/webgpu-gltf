@@ -4,6 +4,7 @@ test('typed renderer inspection snapshots cannot mutate live scene state', async
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
     const { inspectRenderer, testDevice } = await import('/browser-tests/helpers/inspect.ts');
     const canvas = document.createElement('canvas');
@@ -14,11 +15,11 @@ test('typed renderer inspection snapshots cannot mutate live scene state', async
     });
     try {
       await renderer.setAsset(demoAsset(), { movableNodes: [0] });
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await testDevice(renderer).queue.onSubmittedWorkDone();
       const before = inspectRenderer(renderer);
       renderer.setNodeOverride(0, { translation: [4, 0, 0] });
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       const after = inspectRenderer(renderer);
       return {
         frozen: Object.isFrozen(before.scene!.nodes[0].world),

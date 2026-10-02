@@ -10,6 +10,12 @@ import {
 /** CPU gameplay world. Entity hierarchy and model node hierarchy are independent;
  * each entity world matrix becomes an external root transform for its model. */
 export class World {
+  /** CPU evaluation profiling is owned by the world, independently of rendering. */
+  profiling = false;
+  private timings = { evaluationMs: 0, mixingMs: 0, worldMs: 0, sampledNodes: 0, visitedNodes: 0 };
+  get cpuTimings() {
+    return this.profiling ? { ...this.timings } : undefined;
+  }
   private records = new Map<string, Entity>();
   private parents = new Map<string, string>();
   private structure = 0;
@@ -85,12 +91,35 @@ export class World {
     };
     for (const entity of this.records.values()) visit(entity);
   }
-  /** Called by rendering preparation, or explicitly by CPU-only simulations. A
+  /** Engine-owned presentation evaluation, independent of render frequency. A
    * revision survives repeated evaluation so the renderer never loses dirty work. */
   update(timestampMs: number): void {
     if (!Number.isFinite(timestampMs)) throw new Error('World timestamp must be finite.');
-    for (const entity of this.records.values()) entity.model?.animation.update(timestampMs);
+    const start = this.profiling ? performance.now() : 0;
+    if (this.profiling)
+      Object.keys(this.timings).forEach((key) => {
+        this.timings[key as keyof typeof this.timings] = 0;
+      });
+    for (const entity of this.records.values()) {
+      const model = entity.model;
+      if (!model) continue;
+      model.pose.profiling = this.profiling;
+      if (this.profiling)
+        Object.assign(model.pose.timings, {
+          mixingMs: 0,
+          worldMs: 0,
+          sampledNodes: 0,
+          visitedNodes: 0,
+        });
+      model.animation.update(timestampMs);
+    }
     this.updateTransforms();
+    if (this.profiling) {
+      this.timings.evaluationMs = performance.now() - start;
+      for (const model of this.modelInstances)
+        for (const key of ['mixingMs', 'worldMs', 'sampledNodes', 'visitedNodes'] as const)
+          this.timings[key] += model.pose.timings[key];
+    }
   }
   toDocument(): SceneDocument {
     return {

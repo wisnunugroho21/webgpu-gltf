@@ -6,6 +6,7 @@ test('authored light color, intensity, distance, cone and animation reach HDR sh
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:160px;height:160px';
@@ -20,7 +21,7 @@ test('authored light color, intensity, distance, cone and animation reach HDR sh
     renderer.setEnvironment({ intensity: 0 });
     renderer.setOutput({ toneMapping: 'none' });
     const pixel = async () => {
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
       const image = new Image();
       image.src = canvas.toDataURL();
@@ -138,6 +139,7 @@ test('directional, spot and point shadows darken receivers; camera culling retai
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:200px;height:200px';
@@ -153,7 +155,7 @@ test('directional, spot and point shadows darken receivers; camera culling retai
     renderer.setEnvironment({ intensity: 0 });
     renderer.setOutput({ toneMapping: 'none' });
     const pixels = async () => {
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
       const image = new Image();
       image.src = canvas.toDataURL();
@@ -242,6 +244,7 @@ test('shadow MASK coverage uses the selected transformed UVs; glass and BLEND do
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:200px;height:200px';
@@ -269,7 +272,7 @@ test('shadow MASK coverage uses the selected transformed UVs; glass and BLEND do
       imageCanvas.toBlob((blob) => resolve(blob!)),
     );
     const pixels = async () => {
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
       const picture = new Image();
       picture.src = canvas.toDataURL();
@@ -355,6 +358,7 @@ test('shadows follow computed deformation and reuse static poses; unrelated anim
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:150px;height:150px';
@@ -393,7 +397,7 @@ test('shadows follow computed deformation and reuse static poses; unrelated anim
     };
     const frame = async () => {
       events.length = 0;
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
       return [...events];
     };

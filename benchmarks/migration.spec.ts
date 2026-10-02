@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { CpuTimings } from '../src/renderer/core/cpu-timings';
+import type { World } from '../src/engine/world';
 
 test('small medium large migration baseline', async ({ page }, testInfo) => {
   await page.goto('/browser-tests/fixtures/harness.html');
@@ -34,6 +35,7 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
         models.register('rigid', demoAsset(), 'fixture:demo');
         models.register('animated', animatedAsset(), 'fixture:animated');
         const world = new World(models);
+        world.profiling = true;
         for (let i = 0; i < count; i++)
           world.createEntity({
             id: String(i),
@@ -42,17 +44,23 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
           });
         const constructionMs = performance.now() - start;
         const preparationStart = performance.now();
+        world.updateTransforms();
         await renderer.setWorld(world);
         const preparationMs = performance.now() - preparationStart;
         renderer.camera.target = new Float32Array([15, 0, -count / 16]);
         renderer.camera.distance = Math.max(35, count / 8);
         const samples: Readonly<CpuTimings>[] = [];
+        const evaluationSamples: NonNullable<World['cpuTimings']>[] = [];
         for (let frame = 0; frame < 40; frame++) {
           // A deterministic moving root plus active clips exercises dirty uploads.
           world.getEntity('0').setTransform({ translation: [Math.sin(frame / 10), 0, 0] });
+          world.update(frame * (1000 / 60));
           renderer.render(frame * (1000 / 60));
           const cpu = renderer.cpuTimings!;
-          if (frame >= 10) samples.push(cpu);
+          if (frame >= 10) {
+            samples.push(cpu);
+            evaluationSamples.push(world.cpuTimings!);
+          }
           // Avoid accumulating GPU backlog; this wait is outside CPU measurements.
           await device.queue.onSubmittedWorkDone();
         }
@@ -65,6 +73,12 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
           }),
         );
         const inspection = inspectRenderer(renderer);
+        const evaluationCpu = Object.fromEntries(
+          Object.keys(evaluationSamples[0]).map((key) => {
+            const values = evaluationSamples.map((sample) => sample[key as keyof typeof sample]);
+            return [key, { p50: percentile(values, 0.5), p95: percentile(values, 0.95) }];
+          }),
+        );
         const allocated = allocations.snapshot();
         renderer.destroy();
         rows.push({
@@ -74,6 +88,7 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
           constructionMs,
           preparationMs,
           cpu,
+          evaluationCpu,
           scene: inspection.scene!.stats,
           frame: inspection.stats,
           allocations: allocated,
@@ -94,7 +109,7 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
       }
     }
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       capturedAt: new Date().toISOString(),
       browser: navigator.userAgent,
       devicePixelRatio: window.devicePixelRatio,
@@ -110,7 +125,7 @@ test('small medium large migration baseline', async ({ page }, testInfo) => {
       memoryScope:
         'Resources requested after renderer creation; excludes startup and swapchain. Texture payload estimates, not physical VRAM.',
       cpuScope:
-        'CPU wall time for pose evaluation, uploads and command construction/submission; excludes GPU completion waits.',
+        'cpu: render-only uploads/visibility/command construction/submission; evaluationCpu: engine pose evaluation. Excludes GPU completion waits; legacy renderer pose fields are zero.',
       gpuExecutionMs: null,
       rows,
     };

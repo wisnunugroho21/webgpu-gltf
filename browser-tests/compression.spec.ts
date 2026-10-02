@@ -8,6 +8,7 @@ test('meshopt placeholder buffers decode skins, morphs and animation before GPU 
     const { MeshoptEncoder } = await import('/node_modules/meshoptimizer/meshopt_encoder.js');
     const { animatedAsset } = await import('/tests/fixtures/animated.ts');
     const { loadFiles, Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { decodeAccessor } = await import('/src/gltf/accessors.ts');
     await MeshoptEncoder.ready;
     const template = animatedAsset();
@@ -72,7 +73,7 @@ test('meshopt placeholder buffers decode skins, morphs and animation before GPU 
       await renderer.setAsset(asset);
       renderer.animation.setPlaying(false);
       renderer.animation.seek(1);
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
       return { equal, errors };
     } finally {
@@ -90,6 +91,7 @@ test('Draco required assets decode in the worker and render normalized integer c
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { loadUrl, Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { decodeAccessor } = await import('/src/gltf/accessors.ts');
     const asset = await loadUrl('/tests/fixtures/compression/quad-draco.gltf');
     const primitive = asset.gltf.meshes![0].primitives[0];
@@ -108,7 +110,7 @@ test('Draco required assets decode in the worker and render normalized integer c
       renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.distance = 4;
       renderer.camera.yaw = renderer.camera.pitch = 0;
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
       const image = new Image();
       image.src = canvas.toDataURL();
@@ -138,6 +140,7 @@ test('ETC1S and UASTC KTX2 retain mipmaps and match PNG in color and data slots'
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const { loadFiles, Renderer } = await import('/src/index.ts');
+    const { renderViewerFrame } = await import('/src/app/frame.ts');
     const { materialAsset } = await import('/tests/fixtures/material.ts');
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'width:160px;height:160px';
@@ -154,7 +157,7 @@ test('ETC1S and UASTC KTX2 retain mipmaps and match PNG in color and data slots'
       renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.distance = 4;
       renderer.camera.yaw = renderer.camera.pitch = 0;
-      renderer.render(0);
+      renderViewerFrame(renderer, 0);
       await internal.device.queue.onSubmittedWorkDone();
       const image = new Image();
       image.src = canvas.toDataURL();

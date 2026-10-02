@@ -53,7 +53,9 @@ const world = await loadWorld(document, (uri) =>
     textureCompression: renderer.textureCompression,
   }),
 );
+world.update(0);
 await renderer.setWorld(world);
+world.update(0);
 renderer.render(0);
 ```
 
@@ -69,7 +71,7 @@ Use `world.createEntity(definition)`, `world.getEntity(id)`, `entity.setTransfor
 
 Entity transforms are outside the model's authored defaults and animation hierarchy. Entity world matrices multiply model roots, including skin joints and lights. A clip switch or authored-pose reset cannot overwrite gameplay placement. Use `entity.model.animation` for independent playback. `entity.model.setNodeTransform(node, patch)` applies persistent local TRS overrides after animation, with copied getters and an explicit clear operation. [Supported transforms](transforms.md) describes validation, revisions and animation precedence. `Renderer.animation` and its forwarding methods alias the first world model for compatibility, while the single-asset viewer retains its existing behavior.
 
-Gameplay/physics writes entity transforms before `renderer.render(timestampMs)`. World preparation then evaluates animation and entity placement before pose uploads. CPU-only simulations may also call `world.update(timestampMs)`; the persistent world pose revision prevents a repeated evaluation from discarding dirty uploads. Direct writes to model pose arrays/controller `update()` are lower-level APIs and should not bypass world revision tracking.
+Gameplay/physics writes entity transforms before `renderer.render(timestampMs)`. The engine calls `world.update(timestampMs)` before pose uploads (or uses EngineRuntime). Rendering never evaluates animation or entity placement; the persistent world pose revision prevents a repeated evaluation from discarding dirty uploads. Direct writes to model pose arrays/controller `update()` are lower-level APIs and should not bypass world revision tracking.
 
 Changing transforms, parents or component data requires no GPU rebuild. Spawn/destroy changes membership: pause submissions, mutate the world, await `renderer.setWorld(world)`, then resume. Preparation is atomic and uses the same device validation queue as asset/environment loading. Failed candidates release their resources and retain the old attachment. Submitting uncommitted membership throws without permanently disabling the renderer; refresh with `setWorld()` to recover. Changes during preparation reject that candidate. Empty worlds render the background and keep the fixed binding layout valid. `setAsset()` switches back to the original viewer path.
 
