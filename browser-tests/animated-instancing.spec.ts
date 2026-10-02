@@ -7,8 +7,9 @@ test('static groups in animated scenes match separate draws through parent motio
   const result = await page.evaluate(async () => {
     const { Renderer } = await import('/src/index.ts');
     const { demoAsset } = await import('/src/app/demo.ts');
+    const { inspectRenderer, testDevice } = await import('/browser-tests/helpers/inspect.ts');
     const asset = demoAsset();
-    const add = (data: Float32Array, type: string) => {
+    const add = (data: Float32Array<ArrayBuffer>, type: string) => {
       const buffer = asset.buffers.push(data.buffer) - 1;
       asset.gltf.buffers!.push({ byteLength: data.byteLength });
       const bufferView = asset.gltf.bufferViews!.push({ buffer, byteLength: data.byteLength }) - 1;
@@ -26,7 +27,7 @@ test('static groups in animated scenes match separate draws through parent motio
       translation: [(i - 2.5) * 0.5, -0.5, 0],
       scale: [i < 4 ? 0.2 : -0.2, 0.2, 0.2],
     }));
-    asset.gltf.nodes.push(
+    asset.gltf.nodes!.push(
       { children: [7] },
       { mesh: 0, translation: [0, 0.5, 0], scale: [0.2, 0.2, 0.2] },
     );
@@ -45,14 +46,14 @@ test('static groups in animated scenes match separate draws through parent motio
     const renderer = await Renderer.create(canvas, (message) => errors.push(message), {
       cpuProfiling: true,
     });
-    const internal = renderer as any;
+    const device = testDevice(renderer);
     const frame = async () => {
       renderer.render(0);
-      await internal.device.queue.onSubmittedWorkDone();
+      await device.queue.onSubmittedWorkDone();
       return canvas.toDataURL();
     };
     const capture = async () => {
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.yaw = renderer.camera.pitch = 0;
       renderer.camera.distance = 4;
       renderer.setPlaying(false);
@@ -70,8 +71,9 @@ test('static groups in animated scenes match separate draws through parent motio
     };
     try {
       const stats = await renderer.setAsset(asset);
-      const updates = internal.scene.updates.map((u: any) => u.node);
-      const groups = internal.scene.draws.map((d: any) => d.instanceCount).sort();
+      const scene = inspectRenderer(renderer).scene!;
+      const updates = scene.updateNodes;
+      const groups = scene.draws.map((draw) => draw.instanceCount).sort();
       const images = await capture();
       const timings = renderer.cpuTimings;
       const copy = renderer.cpuTimings;

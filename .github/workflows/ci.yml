@@ -1,0 +1,19 @@
+name: Migration safeguards
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  cpu-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm check:browser
+      - run: pnpm test
+      - run: pnpm build

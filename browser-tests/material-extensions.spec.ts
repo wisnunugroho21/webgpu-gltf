@@ -63,7 +63,7 @@ test('extension maps decode their channels and UV transforms like equivalent fac
         asset.gltf.samplers = [{ minFilter: 9728, magFilter: 9728 }];
       }
       await renderer.setAsset(asset);
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.yaw = renderer.camera.pitch = 0;
       renderer.camera.distance = 4;
       renderer.camera.radius = 1;
@@ -264,7 +264,7 @@ test('glass preserves opaque HDR radiance, applies volume absorption and survive
       await renderer.setAsset(
         await loadFiles([new File([JSON.stringify(asset.gltf)], 'extensions.gltf')]),
       );
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.yaw = renderer.camera.pitch = 0;
       renderer.camera.distance = 4;
       renderer.camera.radius = 1;

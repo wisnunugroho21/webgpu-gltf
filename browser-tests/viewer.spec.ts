@@ -34,11 +34,11 @@ test('a black emissive map masks a white emissive factor without washing out bas
     const gltf = asset.gltf;
     const dataUri = (bytes: Uint8Array) =>
       'data:application/octet-stream;base64,' + btoa(String.fromCharCode(...bytes));
-    gltf.buffers[0].uri = dataUri(new Uint8Array(asset.buffers[0]));
+    gltf.buffers![0].uri = dataUri(new Uint8Array(asset.buffers[0]));
     const uv = new Float32Array(48);
-    gltf.buffers.push({ uri: dataUri(new Uint8Array(uv.buffer)), byteLength: uv.byteLength });
-    gltf.bufferViews.push({ buffer: 1, byteLength: uv.byteLength });
-    gltf.accessors.push({ bufferView: 2, type: 'VEC2', componentType: 5126, count: 24 });
+    gltf.buffers!.push({ uri: dataUri(new Uint8Array(uv.buffer)), byteLength: uv.byteLength });
+    gltf.bufferViews!.push({ buffer: 1, byteLength: uv.byteLength });
+    gltf.accessors!.push({ bufferView: 2, type: 'VEC2', componentType: 5126, count: 24 });
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 1;
     const context = canvas.getContext('2d')!;
@@ -46,11 +46,11 @@ test('a black emissive map masks a white emissive factor without washing out bas
     context.fillRect(0, 0, 1, 1);
     gltf.images = [{ uri: canvas.toDataURL('image/png') }];
     gltf.textures = [{ source: 0 }];
-    gltf.materials.forEach((material) => {
+    gltf.materials!.forEach((material) => {
       material.emissiveFactor = [1, 1, 1];
       material.emissiveTexture = { index: 0 };
     });
-    gltf.meshes.forEach((mesh) => {
+    gltf.meshes!.forEach((mesh) => {
       mesh.primitives[0].attributes.TEXCOORD_0 = 3;
     });
     return JSON.stringify(gltf);
@@ -80,27 +80,31 @@ test('a black emissive map masks a white emissive factor without washing out bas
   expect(await colorfulPixels(page, await page.locator('canvas').screenshot())).toBe(0);
 });
 
-test('Khronos DamagedHelmet GLB retains visible texture colors', async ({ page }) => {
-  test.skip(
-    !process.env.TEST_REMOTE_MODELS,
-    'Opt-in network test against the user-reported asset.',
-  );
-  test.setTimeout(90_000);
-  await page.goto('/');
-  await expect(page.locator('#stats')).toContainText('4 primitive instances');
-  await page
-    .locator('#url')
-    .fill(
-      'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/refs/heads/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb',
+test(
+  'Khronos DamagedHelmet GLB retains visible texture colors',
+  { tag: '@remote' },
+  async ({ page }) => {
+    test.skip(
+      !process.env.TEST_REMOTE_MODELS,
+      'Opt-in network test against the user-reported asset.',
     );
-  await page.locator('#url-form button').click();
-  await expect(page.locator('#status')).toHaveText('DamagedHelmet.glb', { timeout: 60_000 });
-  await expect(page.locator('#warnings')).toBeEmpty();
-  const screenshot = await page
-    .locator('canvas')
-    .screenshot({ path: 'test-results/damaged-helmet.png' });
-  expect(await colorfulPixels(page, screenshot)).toBeGreaterThan(500);
-});
+    test.setTimeout(90_000);
+    await page.goto('/');
+    await expect(page.locator('#stats')).toContainText('4 primitive instances');
+    await page
+      .locator('#url')
+      .fill(
+        'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/refs/heads/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb',
+      );
+    await page.locator('#url-form button').click();
+    await expect(page.locator('#status')).toHaveText('DamagedHelmet.glb', { timeout: 60_000 });
+    await expect(page.locator('#warnings')).toBeEmpty();
+    const screenshot = await page
+      .locator('canvas')
+      .screenshot({ path: 'test-results/damaged-helmet.png' });
+    expect(await colorfulPixels(page, screenshot)).toBeGreaterThan(500);
+  },
+);
 
 test('offline demo compiles, instances, resizes, and responds to orbit controls', async ({
   page,
@@ -144,7 +148,7 @@ test('textured glTF exercises missing attributes, mask/blend, colors, mirroring 
     const gltf = asset.gltf;
     const dataUri = (bytes: Uint8Array) =>
       'data:application/octet-stream;base64,' + btoa(String.fromCharCode(...bytes));
-    gltf.buffers[0].uri = dataUri(new Uint8Array(asset.buffers[0]));
+    gltf.buffers![0].uri = dataUri(new Uint8Array(asset.buffers[0]));
     // UV/color use integer formats, exercising the repack path and shader color input.
     const uv = new Uint16Array(48);
     for (let i = 0; i < 24; i++) {
@@ -152,15 +156,15 @@ test('textured glTF exercises missing attributes, mask/blend, colors, mirroring 
       uv[i * 2 + 1] = i % 4 >= 2 ? 65535 : 0;
     }
     const colors = new Uint8Array(96).fill(255);
-    gltf.buffers.push(
+    gltf.buffers!.push(
       { uri: dataUri(new Uint8Array(uv.buffer)), byteLength: uv.byteLength },
       { uri: dataUri(colors), byteLength: colors.byteLength },
     );
-    gltf.bufferViews.push(
+    gltf.bufferViews!.push(
       { buffer: 1, byteLength: uv.byteLength },
       { buffer: 2, byteLength: colors.byteLength },
     );
-    gltf.accessors.push(
+    gltf.accessors!.push(
       { bufferView: 2, type: 'VEC2', componentType: 5123, normalized: true, count: 24 },
       { bufferView: 3, type: 'VEC4', componentType: 5121, normalized: true, count: 24 },
     );
@@ -175,7 +179,7 @@ test('textured glTF exercises missing attributes, mask/blend, colors, mirroring 
     gltf.images = [{ uri: canvas.toDataURL('image/png') }];
     gltf.samplers = [{ wrapS: 33648, wrapT: 33071, magFilter: 9728, minFilter: 9984 }];
     gltf.textures = [{ source: 0, sampler: 0 }];
-    gltf.materials = ['OPAQUE', 'MASK', 'BLEND'].map((alphaMode) => ({
+    gltf.materials = (['OPAQUE', 'MASK', 'BLEND'] as const).map((alphaMode) => ({
       alphaMode,
       doubleSided: true,
       pbrMetallicRoughness: {

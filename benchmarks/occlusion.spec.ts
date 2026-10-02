@@ -88,7 +88,7 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
           const asset = demoAsset();
           asset.gltf.nodes = [{ mesh: 1, scale: [4, 4, 0.1], translation: [0, 0, 1] }];
           for (let i = 0; i < count; i++)
-            asset.gltf.nodes.push({
+            asset.gltf.nodes!.push({
               mesh: 0,
               scale: [0.03, 0.03, 0.03],
               translation: [
@@ -97,7 +97,7 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
                 -1 - Math.floor(i / 2048) * 0.1,
               ],
             });
-          let animated = asset.gltf.nodes.push({}) - 1;
+          let animated = asset.gltf.nodes!.push({}) - 1;
           if (mode === 'transparent') {
             asset.gltf.materials!.push({
               alphaMode: 'BLEND',
@@ -106,7 +106,7 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
             asset.gltf.meshes!.push({
               primitives: [{ ...asset.gltf.meshes![0].primitives[0], material: 2 }],
             });
-            asset.gltf.nodes[animated] = {
+            asset.gltf.nodes![animated] = {
               mesh: 2,
               scale: [0.1, 0.1, 0.1],
               translation: [0, 0, -2],
@@ -143,14 +143,14 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
               },
             ];
           }
-          asset.gltf.scenes = [{ nodes: asset.gltf.nodes.map((_, i) => i) }];
+          asset.gltf.scenes = [{ nodes: asset.gltf.nodes!.map((_, i) => i) }];
           return asset;
         };
         try {
           for (const mode of ['static', 'unrelated', 'transparent', 'occluder', 'camera']) {
             await renderer.setAsset(makeAsset(mode));
             renderer.setPlaying(false);
-            renderer.camera.target.set([0, 0, 0]);
+            renderer.camera.target = new Float32Array([0, 0, 0]);
             renderer.camera.yaw = renderer.camera.pitch = 0;
             renderer.camera.distance = 6;
             for (const enabled of [false, true]) {

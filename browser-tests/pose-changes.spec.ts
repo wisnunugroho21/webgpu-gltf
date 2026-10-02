@@ -32,7 +32,7 @@ test('playback uploads and dispatches only affected transforms, weights and infl
       };
     };
     const asset = animatedAsset();
-    asset.gltf.nodes.push(
+    asset.gltf.nodes!.push(
       { mesh: 0, weights: [0.3], translation: [-2, 0, 0] },
       { mesh: 0, skin: 1, weights: [0.3] },
       { children: [7] },
@@ -40,14 +40,14 @@ test('playback uploads and dispatches only affected transforms, weights and infl
       { children: [3, 4], translation: [2, 0, 0] },
       { translation: [2, 0, 0] },
     );
-    asset.gltf.skins.push({ joints: [6, 7] });
-    asset.gltf.skins[0].joints.push(9); // No positive influence references this joint.
-    delete asset.gltf.skins[0].inverseBindMatrices;
-    asset.gltf.scenes[0].nodes = [0, 1, 5, 6, 8, 9];
+    asset.gltf.skins!.push({ joints: [6, 7] });
+    asset.gltf.skins![0].joints.push(9); // No positive influence references this joint.
+    delete asset.gltf.skins![0].inverseBindMatrices;
+    asset.gltf.scenes![0].nodes = [0, 1, 5, 6, 8, 9];
     for (const node of [8, 9, 0])
-      asset.gltf.animations.push({
+      asset.gltf.animations!.push({
         name: `Translation ${node}`,
-        samplers: asset.gltf.animations[2].samplers,
+        samplers: asset.gltf.animations![2].samplers,
         channels: [{ sampler: 0, target: { node, path: 'translation' } }],
       });
     const writes: { node?: number; kind: string; offset: number; size?: number }[] = [];

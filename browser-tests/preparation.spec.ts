@@ -31,8 +31,8 @@ test('overlapping scene/environment preparation stays ordered and callback failu
       }
     };
     let release!: () => void, entered!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
+    const gate = new Promise<undefined>((resolve) => {
+      release = () => resolve(undefined);
     });
     const started = new Promise<void>((resolve) => {
       entered = resolve;

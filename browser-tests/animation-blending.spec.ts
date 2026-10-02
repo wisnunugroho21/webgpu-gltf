@@ -27,8 +27,8 @@ test('renderer blends skin and morph poses before compute, preserves phase order
     let outputBindings = false;
     try {
       const asset = animatedAsset();
-      asset.gltf.nodes.push({ mesh: 0, skin: 0, weights: [-0.3] }, { mesh: 0, weights: [0.4] });
-      asset.gltf.scenes[0].nodes.push(4, 5);
+      asset.gltf.nodes!.push({ mesh: 0, skin: 0, weights: [-0.3] }, { mesh: 0, weights: [0.4] });
+      asset.gltf.scenes![0].nodes!.push(4, 5);
       await renderer.setAsset(asset);
       outputBindings = internal.scene.updates.every((update) => {
         const gpu = update.deformation!;

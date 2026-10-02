@@ -13,7 +13,7 @@ test('meshopt placeholder buffers decode skins, morphs and animation before GPU 
     const template = animatedAsset();
     const gltf = template.gltf;
     const original = structuredClone(gltf);
-    const encoded = [];
+    const encoded: Uint8Array<ArrayBuffer>[] = [];
     // Each original view becomes a meshopt stream. Integer joints use four-byte records.
     for (const view of gltf.bufferViews!) {
       const accessor = gltf.accessors!.find(
@@ -30,7 +30,7 @@ test('meshopt placeholder buffers decode skins, morphs and animation before GPU 
         'ATTRIBUTES',
       );
       const buffer = encoded.length;
-      encoded.push(bytes);
+      encoded.push(new Uint8Array(bytes));
       view.buffer = 0;
       view.extensions = {
         EXT_meshopt_compression: {
@@ -53,7 +53,7 @@ test('meshopt placeholder buffers decode skins, morphs and animation before GPU 
     ];
     await loadFiles(files());
     // The fallback tag is optional: URI-less placeholders must work without it too.
-    delete gltf.buffers[0].extensions;
+    delete gltf.buffers![0].extensions;
     const asset = await loadFiles(files());
     const equal = original.accessors!.every(
       (accessor, i) =>
@@ -105,7 +105,7 @@ test('Draco required assets decode in the worker and render normalized integer c
     try {
       renderer.setOutput({ toneMapping: 'none' });
       await renderer.setAsset(asset);
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.distance = 4;
       renderer.camera.yaw = renderer.camera.pitch = 0;
       renderer.render(0);
@@ -151,7 +151,7 @@ test('ETC1S and UASTC KTX2 retain mipmaps and match PNG in color and data slots'
     renderer.setOutput({ toneMapping: 'none' });
     const pixel = async (asset: Awaited<ReturnType<typeof loadFiles>>) => {
       await renderer.setAsset(asset);
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.distance = 4;
       renderer.camera.yaw = renderer.camera.pitch = 0;
       renderer.render(0);

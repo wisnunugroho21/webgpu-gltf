@@ -28,7 +28,7 @@ test('culls individual instances without changing pixels, and follows camera and
       }));
       asset.gltf.scenes = [{ nodes: [0, 1, 2, 3, 4] }];
       const prepared = await renderer.setAsset(asset);
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.yaw = 0;
       renderer.camera.pitch = 0;
       renderer.camera.distance = 4;
@@ -41,15 +41,15 @@ test('culls individual instances without changing pixels, and follows camera and
       const all = renderer.frameStats;
       const samePixels = culledImage === canvas.toDataURL();
       renderer.setFrustumCulling(true);
-      renderer.camera.target.set([30, 0, 0]);
+      renderer.camera.target = new Float32Array([30, 0, 0]);
       await frame();
       const moved = renderer.frameStats;
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       canvas.style.width = '50px';
       await frame();
       const narrow = renderer.frameStats;
       canvas.style.width = '200px';
-      renderer.camera.target.set([-0.7, 0, 0]);
+      renderer.camera.target = new Float32Array([-0.7, 0, 0]);
       await frame();
       const partial = renderer.frameStats;
       const edgeImage = canvas.toDataURL();
@@ -106,7 +106,7 @@ test('updates skinned and morphed bounds while offscreen, including blended noni
       asset.gltf.materials![0].alphaMode = 'BLEND';
       await renderer.setAsset(asset);
       renderer.animation.setPlaying(false);
-      renderer.camera.target.set([0, 1, 0]);
+      renderer.camera.target = new Float32Array([0, 1, 0]);
       renderer.camera.yaw = 0;
       renderer.camera.pitch = 0;
       renderer.camera.distance = 5;

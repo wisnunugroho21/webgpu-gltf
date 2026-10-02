@@ -37,7 +37,7 @@ test('opaque occlusion removes hidden instances without changing pixels, and inv
       ];
       asset.gltf.scenes = [{ nodes: [0, 1] }];
       const camera = () => {
-        renderer.camera.target.set([0, 0, 0]);
+        renderer.camera.target = new Float32Array([0, 0, 0]);
         renderer.camera.yaw = 0;
         renderer.camera.pitch = 0;
         renderer.camera.distance = 5;
@@ -69,8 +69,8 @@ test('opaque occlusion removes hidden instances without changing pixels, and inv
         const readback = internal.occlusion.readback;
         const map = readback.mapAsync.bind(readback);
         let release!: () => void;
-        const gate = new Promise<void>((resolve) => {
-          release = resolve;
+        const gate = new Promise<undefined>((resolve) => {
+          release = () => resolve(undefined);
         });
         readback.mapAsync = (...args) => map(...args).then(() => gate);
         renderer.setOcclusionCulling(true);
@@ -149,7 +149,7 @@ test('scale threshold culls tiny projected instances and reacts to zoom and view
       asset.gltf.nodes = [{ mesh: 0, scale: [0.01, 0.01, 0.01] }];
       asset.gltf.scenes = [{ nodes: [0] }];
       await renderer.setAsset(asset);
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.pitch = renderer.camera.yaw = 0;
       renderer.camera.distance = 5;
       renderer.camera.radius = 1;
@@ -216,11 +216,11 @@ test('BLEND, discarded MASK and transmission cannot hide opaque background geome
         for (const mode of ['blend', 'mask', 'glass']) {
           const asset = demoAsset();
           const primitive = {
-            ...asset.gltf.meshes[0].primitives[0],
-            material: asset.gltf.materials.length,
+            ...asset.gltf.meshes![0].primitives[0],
+            material: asset.gltf.materials!.length,
           };
-          asset.gltf.meshes.push({ primitives: [primitive] });
-          asset.gltf.materials.push({
+          asset.gltf.meshes!.push({ primitives: [primitive] });
+          asset.gltf.materials!.push({
             alphaMode: mode === 'blend' ? 'BLEND' : mode === 'mask' ? 'MASK' : 'OPAQUE',
             doubleSided: true,
             pbrMetallicRoughness: {
@@ -233,12 +233,12 @@ test('BLEND, discarded MASK and transmission cannot hide opaque background geome
               : {}),
           });
           asset.gltf.nodes = [
-            { mesh: asset.gltf.meshes.length - 1, scale: [1, 1, 0.2], translation: [0, 0, 1] },
+            { mesh: asset.gltf.meshes!.length - 1, scale: [1, 1, 0.2], translation: [0, 0, 1] },
             { mesh: 0, scale: [0.25, 0.25, 0.25], translation: [0, 0, -1] },
           ];
           asset.gltf.scenes = [{ nodes: [0, 1] }];
           await renderer.setAsset(asset);
-          renderer.camera.target.set([0, 0, 0]);
+          renderer.camera.target = new Float32Array([0, 0, 0]);
           renderer.camera.yaw = renderer.camera.pitch = 0;
           renderer.camera.distance = 5;
           renderer.camera.radius = 2;
@@ -324,20 +324,20 @@ test('hidden animated meshes keep computing and updating shadows, pose changes i
         -4, -4, 1, 4, -4, 1, -4, 4, 1, -4, 4, 1, 4, -4, 1, 4, 4, 1,
       ]);
       const buffer = asset.buffers.push(vertices.buffer) - 1;
-      asset.gltf.buffers.push({ byteLength: vertices.byteLength });
+      asset.gltf.buffers!.push({ byteLength: vertices.byteLength });
       const bufferView =
-        asset.gltf.bufferViews.push({ buffer, byteLength: vertices.byteLength }) - 1;
+        asset.gltf.bufferViews!.push({ buffer, byteLength: vertices.byteLength }) - 1;
       const position =
-        asset.gltf.accessors.push({ bufferView, componentType: 5126, type: 'VEC3', count: 6 }) - 1;
+        asset.gltf.accessors!.push({ bufferView, componentType: 5126, type: 'VEC3', count: 6 }) - 1;
       const mesh =
-        asset.gltf.meshes.push({
+        asset.gltf.meshes!.push({
           primitives: [{ attributes: { POSITION: position }, material: 0 }],
         }) - 1;
-      const node = asset.gltf.nodes.push({ mesh }) - 1;
-      asset.gltf.scenes[0].nodes.push(node);
+      const node = asset.gltf.nodes!.push({ mesh }) - 1;
+      asset.gltf.scenes![0].nodes!.push(node);
       await renderer.setAsset(asset);
       renderer.animation.setPlaying(false);
-      renderer.camera.target.set([0, 1, 0]);
+      renderer.camera.target = new Float32Array([0, 1, 0]);
       renderer.camera.pitch = renderer.camera.yaw = 0;
       renderer.camera.distance = 6;
       renderer.camera.radius = 3;

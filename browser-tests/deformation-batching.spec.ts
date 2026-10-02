@@ -46,24 +46,24 @@ test('batched dispatches preserve independent outputs, dirty subsets and device-
       try {
         const asset = animatedAsset();
         delete asset.gltf.animations;
-        asset.gltf.skins.push({ joints: [2, 1, 3] }); // Different ordering and palette size.
-        asset.gltf.nodes.push(
+        asset.gltf.skins!.push({ joints: [2, 1, 3] }); // Different ordering and palette size.
+        asset.gltf.nodes!.push(
           { mesh: 0, skin: 1, weights: [-0.4] },
           { mesh: 0, skin: 0, weights: [0.6] },
           { mesh: 0, skin: 1, weights: [1.1] },
           { mesh: 0, weights: [-0.2] },
           { mesh: 0, weights: [0.3] },
         );
-        asset.gltf.scenes[0].nodes.push(4, 5, 6, 7, 8);
-        const primitive = asset.gltf.meshes[0].primitives[0];
+        asset.gltf.scenes![0].nodes!.push(4, 5, 6, 7, 8);
+        const primitive = asset.gltf.meshes![0].primitives[0];
         // 69 vertices require two X workgroups; the final one is partially occupied.
         const attributes = new Set<number>([
           ...Object.values(primitive.attributes),
-          ...primitive.targets.flatMap((target: Record<string, number>) => Object.values(target)),
+          ...primitive.targets!.flatMap((target: Record<string, number>) => Object.values(target)),
         ] as number[]);
         for (const index of attributes) {
-          const accessor = asset.gltf.accessors[index];
-          const view = asset.gltf.bufferViews[accessor.bufferView];
+          const accessor = asset.gltf.accessors![index];
+          const view = asset.gltf.bufferViews![accessor.bufferView!];
           const source = new Uint8Array(asset.buffers[view.buffer]);
           const repeated = new Uint8Array(source.length * 23);
           for (let i = 0; i < 23; i++) repeated.set(source, i * source.length);
@@ -73,8 +73,8 @@ test('batched dispatches preserve independent outputs, dirty subsets and device-
         }
         if (mode === 'skin-only') {
           delete primitive.targets;
-          delete asset.gltf.meshes[0].weights;
-          for (const node of asset.gltf.nodes) delete node.weights;
+          delete asset.gltf.meshes![0].weights;
+          for (const node of asset.gltf.nodes!) delete node.weights;
         }
         const pose = new Pose(asset);
         const cpuCache = new DeformationInputCache(asset);

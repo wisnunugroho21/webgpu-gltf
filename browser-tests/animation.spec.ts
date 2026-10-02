@@ -113,7 +113,7 @@ test('scene preparation shares immutable deformation buffers and releases them o
     const batchedAsset = () => {
       const asset = animatedAsset();
       asset.gltf.nodes!.push({ mesh: 0, skin: 0, weights: [-0.3] });
-      asset.gltf.scenes![0].nodes.push(4);
+      asset.gltf.scenes![0].nodes!.push(4);
       return asset;
     };
     try {
@@ -186,7 +186,7 @@ test('scene preparation shares immutable deformation buffers and releases them o
 });
 
 for (const model of ['SimpleSkin', 'AnimatedMorphCube']) {
-  test(`Khronos ${model} animates in the viewer`, async ({ page }) => {
+  test(`Khronos ${model} animates in the viewer`, { tag: '@remote' }, async ({ page }) => {
     test.skip(!process.env.TEST_REMOTE_MODELS, 'Optional live Khronos model regression.');
     test.setTimeout(90_000);
     const errors: string[] = [];

@@ -99,23 +99,27 @@ test('GPU mipmaps filter color in linear light, preserve data values and handle 
   expect(result.samples[3]).toEqual([64, 128, 192, 255]);
 });
 
-test('Khronos ChronographWatch loads with texture transforms', async ({ page }) => {
-  test.skip(!process.env.TEST_REMOTE_MODELS, 'Optional public asset regression.');
-  test.setTimeout(120_000);
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
-  });
-  await page.goto('/');
-  await expect(page.locator('#stats')).toContainText('4 primitive instances');
-  await page
-    .locator('#url')
-    .fill(
-      'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ChronographWatch/glTF-Binary/ChronographWatch.glb',
-    );
-  await page.locator('#url-form button').click();
-  await expect(page.locator('#status')).toHaveText('ChronographWatch.glb', { timeout: 100_000 });
-  await page.locator('canvas').screenshot({ path: 'test-results/ChronographWatch.png' });
-  expect(errors).toEqual([]);
-});
+test(
+  'Khronos ChronographWatch loads with texture transforms',
+  { tag: '@remote' },
+  async ({ page }) => {
+    test.skip(!process.env.TEST_REMOTE_MODELS, 'Optional public asset regression.');
+    test.setTimeout(120_000);
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(message.text());
+    });
+    await page.goto('/');
+    await expect(page.locator('#stats')).toContainText('4 primitive instances');
+    await page
+      .locator('#url')
+      .fill(
+        'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ChronographWatch/glTF-Binary/ChronographWatch.glb',
+      );
+    await page.locator('#url-form button').click();
+    await expect(page.locator('#status')).toHaveText('ChronographWatch.glb', { timeout: 100_000 });
+    await page.locator('canvas').screenshot({ path: 'test-results/ChronographWatch.png' });
+    expect(errors).toEqual([]);
+  },
+);

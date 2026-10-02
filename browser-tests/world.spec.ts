@@ -22,7 +22,7 @@ test('entities render independent multi-node models with root transforms, shadow
       KHR_lights_punctual: { lights: [{ type: 'directional', intensity: 2 }] },
     };
     character.gltf.nodes!.push({ extensions: { KHR_lights_punctual: { light: 0 } } });
-    character.gltf.scenes![0].nodes.push(4);
+    character.gltf.scenes![0].nodes!.push(4);
     const original = JSON.stringify(character.gltf);
     const models = new ModelLibrary();
     models.register('hero', character, 'hero.glb');
@@ -177,7 +177,7 @@ test('entities render independent multi-node models with root transforms, shadow
         };
         return encoder;
       };
-      renderer.camera.target.set([1, 0.5, 0]);
+      renderer.camera.target = new Float32Array([1, 0.5, 0]);
       renderer.camera.yaw = renderer.camera.pitch = 0;
       renderer.camera.distance = 12;
       const initial = await frame();

@@ -97,7 +97,7 @@ test('weighted transparency is stable across intersecting draw/triangle order, o
           ],
         });
         a.gltf.nodes!.push({ mesh: meshIndex });
-        a.gltf.scenes![0].nodes.push(meshIndex);
+        a.gltf.scenes![0].nodes!.push(meshIndex);
       };
       if (oneMesh)
         mesh([...red, ...blue], [1, 1, 1], 1, [
@@ -168,7 +168,7 @@ test('weighted transparency is stable across intersecting draw/triangle order, o
           return texture;
         };
         const read = async () => {
-          renderer.camera.target.set([0, 0, 0]);
+          renderer.camera.target = new Float32Array([0, 0, 0]);
           renderer.camera.radius = 1;
           renderer.camera.distance = 4;
           renderer.camera.pitch = renderer.camera.yaw = 0;

@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-02T01:38:01.362Z",
+  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+  "devicePixelRatio": 1,
+  "workload": {
+    "viewport": [320, 240],
+    "sampleCount": 1,
+    "shadows": false,
+    "warmupFrames": 10,
+    "measuredFrames": 30,
+    "stepMs": 16.666666666666668,
+    "animatedFraction": 0.25
+  },
+  "memoryScope": "Resources requested after renderer creation; excludes startup and swapchain. Texture payload estimates, not physical VRAM.",
+  "cpuScope": "CPU wall time for pose evaluation, uploads and command construction/submission; excludes GPU completion waits.",
+  "gpuExecutionMs": null,
+  "rows": [
+    {
+      "name": "small",
+      "entities": 16,
+      "animatedEntities": 4,
+      "constructionMs": 4.300000000745058,
+      "preparationMs": 350.5999999977648,
+      "cpu": {
+        "animationMs": {
+          "p50": 0.10000000149011612,
+          "p95": 0.9000000022351742
+        },
+        "mixingMs": {
+          "p50": 0,
+          "p95": 0.10000000149011612
+        },
+        "worldMs": {
+          "p50": 0,
+          "p95": 0.29999999701976776
+        },
+        "uploadsMs": {
+          "p50": 0.10000000149011612,
+          "p95": 0.20000000298023224
+        },
+        "visibilityMs": {
+          "p50": 0,
+          "p95": 0.10000000149011612
+        },
+        "encodingMs": {
+          "p50": 0.10000000149011612,
+          "p95": 0.20000000298023224
+        },
+        "submissionMs": {
+          "p50": 0,
+          "p95": 0.10000000149011612
+        },
+        "totalMs": {
+          "p50": 0.3999999985098839,
+          "p95": 1.800000000745058
+        },
+        "sampledNodes": {
+          "p50": 4,
+          "p95": 4
+        },
+        "visitedNodes": {
+          "p50": 4,
+          "p95": 4
+        }
+      },
+      "scene": {
+        "pipelines": 4,
+        "draws": 56,
+        "instances": 56
+      },
+      "frame": {
+        "draws": 56,
+        "instances": 56,
+        "culledInstances": 0
+      },
+      "allocations": {
+        "buffers": 43,
+        "textures": 8,
+        "liveBytes": 933544,
+        "peakBytes": 933544,
+        "requestedBytes": 933544
+      },
+      "liveBytesAfterDestroy": 0,
+      "device": {
+        "vendor": "intel",
+        "architecture": "gen-12lp",
+        "device": "",
+        "description": "",
+        "features": ["core-features-and-limits", "texture-compression-bc"]
+      },
+      "errors": []
+    },
+    {
+      "name": "medium",
+      "entities": 128,
+      "animatedEntities": 32,
+      "constructionMs": 6,
+      "preparationMs": 50.69999999925494,
+      "cpu": {
+        "animationMs": {
+          "p50": 0.4000000022351742,
+          "p95": 2.900000002235174
+        },
+        "mixingMs": {
+          "p50": 0.10000000149011612,
+          "p95": 0.6999999992549419
+        },
+        "worldMs": {
+          "p50": 0,
+          "p95": 0.19999999925494194
+        },
+        "uploadsMs": {
+          "p50": 0.19999999925494194,
+          "p95": 0.3999999985098839
+        },
+        "visibilityMs": {
+          "p50": 0.09999999776482582,
+          "p95": 0.20000000298023224
+        },
+        "encodingMs": {
+          "p50": 0.19999999925494194,
+          "p95": 0.4000000022351742
+        },
+        "submissionMs": {
+          "p50": 0,
+          "p95": 0.10000000149011612
+        },
+        "totalMs": {
+          "p50": 0.8999999985098839,
+          "p95": 3.5
+        },
+        "sampledNodes": {
+          "p50": 32,
+          "p95": 32
+        },
+        "visitedNodes": {
+          "p50": 32,
+          "p95": 32
+        }
+      },
+      "scene": {
+        "pipelines": 4,
+        "draws": 448,
+        "instances": 448
+      },
+      "frame": {
+        "draws": 448,
+        "instances": 448,
+        "culledInstances": 0
+      },
+      "allocations": {
+        "buffers": 267,
+        "textures": 8,
+        "liveBytes": 998280,
+        "peakBytes": 998280,
+        "requestedBytes": 998280
+      },
+      "liveBytesAfterDestroy": 0,
+      "device": {
+        "vendor": "intel",
+        "architecture": "gen-12lp",
+        "device": "",
+        "description": "",
+        "features": ["core-features-and-limits", "texture-compression-bc"]
+      },
+      "errors": []
+    },
+    {
+      "name": "large",
+      "entities": 512,
+      "animatedEntities": 128,
+      "constructionMs": 25.199999999254942,
+      "preparationMs": 103.39999999850988,
+      "cpu": {
+        "animationMs": {
+          "p50": 1.300000000745058,
+          "p95": 2.300000000745058
+        },
+        "mixingMs": {
+          "p50": 0.30000000074505806,
+          "p95": 0.6000000014901161
+        },
+        "worldMs": {
+          "p50": 0.10000000149011612,
+          "p95": 0.4000000059604645
+        },
+        "uploadsMs": {
+          "p50": 0.6999999992549419,
+          "p95": 1.3999999985098839
+        },
+        "visibilityMs": {
+          "p50": 0.30000000074505806,
+          "p95": 0.5
+        },
+        "encodingMs": {
+          "p50": 0.5,
+          "p95": 3.300000000745058
+        },
+        "submissionMs": {
+          "p50": 0,
+          "p95": 0.10000000149011612
+        },
+        "totalMs": {
+          "p50": 3.199999999254942,
+          "p95": 6.899999998509884
+        },
+        "sampledNodes": {
+          "p50": 128,
+          "p95": 128
+        },
+        "visitedNodes": {
+          "p50": 128,
+          "p95": 128
+        }
+      },
+      "scene": {
+        "pipelines": 4,
+        "draws": 1792,
+        "instances": 1792
+      },
+      "frame": {
+        "draws": 1776,
+        "instances": 1776,
+        "culledInstances": 16
+      },
+      "allocations": {
+        "buffers": 1035,
+        "textures": 8,
+        "liveBytes": 1220232,
+        "peakBytes": 1220232,
+        "requestedBytes": 1220232
+      },
+      "liveBytesAfterDestroy": 0,
+      "device": {
+        "vendor": "intel",
+        "architecture": "gen-12lp",
+        "device": "",
+        "description": "",
+        "features": ["core-features-and-limits", "texture-compression-bc"]
+      },
+      "errors": []
+    }
+  ]
+}

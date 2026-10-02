@@ -97,13 +97,13 @@ test('shadow capacity follows light faces, shrinks, releases, and refreshes both
     const asset = (types: ('directional' | 'point' | 'spot')[], intensity = 1, blend = false) => {
       // Include transmitting geometry so its cached frame group must also refresh.
       const model = materialAsset(blend ? { alphaMode: 'BLEND' } : {});
-      model.gltf.materials.push({
+      model.gltf.materials!.push({
         extensions: { KHR_materials_transmission: { transmissionFactor: 1 } },
       });
-      model.gltf.meshes.push({
-        primitives: [{ ...model.gltf.meshes[0].primitives[0], material: 2 }],
+      model.gltf.meshes!.push({
+        primitives: [{ ...model.gltf.meshes![0].primitives[0], material: 2 }],
       });
-      model.gltf.nodes.push({ mesh: 2, translation: [0, 0, 1] });
+      model.gltf.nodes!.push({ mesh: 2, translation: [0, 0, 1] });
       model.gltf.extensions = {
         KHR_lights_punctual: {
           lights: types.map((type) => ({
@@ -114,12 +114,12 @@ test('shadow capacity follows light faces, shrinks, releases, and refreshes both
         },
       };
       types.forEach((_, light) =>
-        model.gltf.nodes.push({
+        model.gltf.nodes!.push({
           translation: [0, 1, 3],
           extensions: { KHR_lights_punctual: { light } },
         }),
       );
-      model.gltf.scenes[0].nodes = model.gltf.nodes.map((_, index) => index);
+      model.gltf.scenes![0].nodes = model.gltf.nodes!.map((_, index) => index);
       return model;
     };
     try {

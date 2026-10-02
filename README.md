@@ -21,6 +21,10 @@ npm run build    # Strict TypeScript check and production bundle
 npm run preview  # Serve the production bundle locally
 npm run test:browser # Real WebGPU integration tests in installed Microsoft Edge
 npm run test:compressed-build # After build: verify emitted Draco/Basis WASM and worker URLs
+npm run check:browser # Strict checking of browser tests, benchmarks and Playwright configs
+npm run test:browser:offline # Local fixtures only, excludes all @remote tests
+npm run test:browser:remote # Explicit opt-in to four live Khronos regressions
+npm run bench:migration # Small/medium/large scene baseline JSON
 ```
 
 The first scene is generated locally and makes no network requests for models. Three green cubes share one primitive, so they render in one instanced draw; the orange cube shares the pipeline but uses a different material. The demo reports **1 pipeline, 2 draws, and 4 primitive instances**. These counts describe scene geometry; the fixed fullscreen presentation pipeline and draw are additional.
@@ -544,6 +548,8 @@ Visibility and query-input uploads occur after pose/bounds uploads and before co
 Keep material texture slots on the same explicit bind group layout across variants, with neutral defaults. Decode color textures as sRGB and data textures as linear. Add shader flags only when they materially change the interface or algorithm. Preserve the separate pose-upload, compute, and render phases when adding deformation features. Larger scenes should split buffers at device limits. Keep new rendering features isolated from file parsing and test their layout or ordering edge cases.
 
 ## Verification
+
+The [migration safeguards guide](docs/migration-safeguards.md) documents Phase 0's strict browser checking, read-only inspection helpers, CI runner setup and repeatable measurement procedure. CPU/build checks run on GitHub-hosted Linux; GPU checks and production decoder loading run through the manual workflow on a provisioned Windows WebGPU runner. GPU tests fail if no usable adapter exists. Remote Khronos regressions are a separate opt-in suite, so network availability does not affect offline fixture results.
 
 `tests/lights.test.ts` checks selected-scene light instances, inherited transforms, defaults, invalid definitions, attenuation and all six point shadow projections. `browser-tests/lights.spec.ts` checks authored color/distance/cone/intensity and animated positions, visible directional/spot/point shadows, off-camera casters, MASK UV transforms, glass/BLEND caster policy, and compute → shadow → color ordering. It also verifies map reuse for held and unrelated poses and shadow toggling.
 

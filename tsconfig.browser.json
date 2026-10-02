@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["@webgpu/types", "vite/client", "node"],
+    "allowImportingTsExtensions": true,
+    "baseUrl": ".",
+    "paths": { "/*": ["./*"] }
+  },
+  "include": ["src", "tests", "browser-tests", "benchmarks", "playwright*.ts"]
+}

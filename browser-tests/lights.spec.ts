@@ -68,7 +68,7 @@ test('authored light color, intensity, distance, cone and animation reach HDR sh
       });
       asset.gltf.scenes![0].nodes!.push(1);
       await renderer.setAsset(asset);
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.distance = 4;
       renderer.camera.yaw = renderer.camera.pitch = 0;
       values[name] = await pixel();
@@ -106,7 +106,7 @@ test('authored light color, intensity, distance, cone and animation reach HDR sh
         },
       ];
       await renderer.setAsset(asset);
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.distance = 4;
       renderer.camera.yaw = renderer.camera.pitch = 0;
       renderer.animation.setPlaying(false);
@@ -203,7 +203,7 @@ test('directional, spot and point shadows darken receivers; camera culling retai
           },
         };
         await renderer.setAsset(asset);
-        renderer.camera.target.set([0, 0, 0]);
+        renderer.camera.target = new Float32Array([0, 0, 0]);
         renderer.camera.distance = 4;
         renderer.camera.yaw = type === 'directional' ? 0 : 0.4;
         renderer.camera.pitch = 0;
@@ -324,7 +324,7 @@ test('shadow MASK coverage uses the selected transformed UVs; glass and BLEND do
         };
         asset.gltf.scenes = [{ nodes: [0, 1, 2] }];
         await renderer.setAsset(asset);
-        renderer.camera.target.set([0, 0, 0]);
+        renderer.camera.target = new Float32Array([0, 0, 0]);
         renderer.camera.distance = 4;
         renderer.camera.yaw = renderer.camera.pitch = 0;
         renderer.setShadows({ enabled: false });

@@ -17,12 +17,12 @@ test('unrelated animation reuses history and in-flight transparent results inval
     });
     const internal = renderer as any;
     const asset = demoAsset();
-    asset.gltf.materials.push({
+    asset.gltf.materials!.push({
       alphaMode: 'BLEND',
       pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 0.5] },
     });
-    asset.gltf.meshes.push({
-      primitives: [{ ...asset.gltf.meshes[0].primitives[0], material: 2 }],
+    asset.gltf.meshes!.push({
+      primitives: [{ ...asset.gltf.meshes![0].primitives[0], material: 2 }],
     });
     asset.gltf.nodes = [
       { mesh: 1, translation: [0, 0, 1], scale: [1, 1, 0.2] },
@@ -31,11 +31,11 @@ test('unrelated animation reuses history and in-flight transparent results inval
       {},
     ];
     asset.gltf.scenes = [{ nodes: [0, 1, 2, 3] }];
-    const add = (data: Float32Array, type: string) => {
+    const add = (data: Float32Array<ArrayBuffer>, type: string) => {
       const buffer = asset.buffers.push(data.buffer) - 1;
-      asset.gltf.buffers.push({ byteLength: data.byteLength });
-      const bufferView = asset.gltf.bufferViews.push({ buffer, byteLength: data.byteLength }) - 1;
-      return asset.gltf.accessors.push({ bufferView, type, componentType: 5126, count: 2 }) - 1;
+      asset.gltf.buffers!.push({ byteLength: data.byteLength });
+      const bufferView = asset.gltf.bufferViews!.push({ buffer, byteLength: data.byteLength }) - 1;
+      return asset.gltf.accessors!.push({ bufferView, type, componentType: 5126, count: 2 }) - 1;
     };
     const input = add(new Float32Array([0, 2]), 'SCALAR');
     asset.gltf.animations = [3, 2, 0].map((node) => ({
@@ -66,7 +66,7 @@ test('unrelated animation reuses history and in-flight transparent results inval
     try {
       await renderer.setAsset(asset);
       renderer.setPlaying(false);
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.yaw = renderer.camera.pitch = 0;
       renderer.camera.distance = 8;
       await frame();
@@ -89,8 +89,8 @@ test('unrelated animation reuses history and in-flight transparent results inval
       const readback: GPUBuffer = internal.occlusion.readback;
       const map = readback.mapAsync.bind(readback);
       let release!: () => void;
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
+      const gate = new Promise<undefined>((resolve) => {
+        release = () => resolve(undefined);
       });
       readback.mapAsync = (...args) => map(...args).then(() => gate);
       await frame(false);

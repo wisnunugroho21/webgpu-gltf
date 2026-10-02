@@ -51,6 +51,12 @@ test('renderer modules do not schedule browser frames', () => {
   }
 });
 
+test('production modules never import migration test or benchmark helpers', () => {
+  for (const [path, source] of Object.entries(sources))
+    for (const specifier of imports(source))
+      expect(specifier, path).not.toMatch(/\/(tests|browser-tests|benchmarks)\//);
+});
+
 test('source modules have no circular static dependencies', () => {
   const visited = new Set<string>();
   const active: string[] = [];

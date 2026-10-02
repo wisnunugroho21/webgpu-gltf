@@ -33,7 +33,7 @@ test('declared gameplay nodes leave static groups and update uploads, bounds, wi
     try {
       const stats = await renderer.setAsset(asset, { movableNodes: [4] });
       renderer.setPlaying(false);
-      renderer.camera.target.set([0, 0, 0]);
+      renderer.camera.target = new Float32Array([0, 0, 0]);
       renderer.camera.yaw = renderer.camera.pitch = 0;
       renderer.camera.distance = 8;
       const scene = internal.scene;

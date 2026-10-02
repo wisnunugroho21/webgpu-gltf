@@ -34,25 +34,25 @@ test('compute output matches CPU reference across morph, skin and combined cases
     for (const name of cases) {
       const asset = animatedAsset();
       delete asset.gltf.animations;
-      const primitive = asset.gltf.meshes[0].primitives[0];
-      if (name === 'morph-only') delete asset.gltf.nodes[0].skin;
+      const primitive = asset.gltf.meshes![0].primitives[0];
+      if (name === 'morph-only') delete asset.gltf.nodes![0].skin;
       if (name === 'skin-only') {
         delete primitive.targets;
         delete primitive.attributes.NORMAL;
         delete primitive.attributes.TANGENT;
-        delete asset.gltf.meshes[0].weights;
-        delete asset.gltf.nodes[0].weights;
-        delete asset.gltf.nodes[3].weights;
+        delete asset.gltf.meshes![0].weights;
+        delete asset.gltf.nodes![0].weights;
+        delete asset.gltf.nodes![3].weights;
       }
       // Exercise a real weighted blend (including translation), not only rigid vertices.
-      const jointAccessor = asset.gltf.accessors[primitive.attributes.JOINTS_0];
-      new Uint8Array(asset.buffers[asset.gltf.bufferViews[jointAccessor.bufferView].buffer]).set([
+      const jointAccessor = asset.gltf.accessors![primitive.attributes.JOINTS_0];
+      new Uint8Array(asset.buffers[asset.gltf.bufferViews![jointAccessor.bufferView!].buffer]).set([
         0, 1, 0, 0,
       ]);
-      const weightAccessor = asset.gltf.accessors[primitive.attributes.WEIGHTS_0];
-      new Float32Array(asset.buffers[asset.gltf.bufferViews[weightAccessor.bufferView].buffer]).set(
-        [0.25, 0.75, 0, 0],
-      );
+      const weightAccessor = asset.gltf.accessors![primitive.attributes.WEIGHTS_0];
+      new Float32Array(
+        asset.buffers[asset.gltf.bufferViews![weightAccessor.bufferView!].buffer],
+      ).set([0.25, 0.75, 0, 0]);
       // 69 vertices require two workgroups and exercise the final invocation bounds guard.
       const attributes = new Set<number>([
         ...Object.values(primitive.attributes),
@@ -61,13 +61,13 @@ test('compute output matches CPU reference across morph, skin and combined cases
         ),
       ] as number[]);
       for (const index of attributes) {
-        const accessor = asset.gltf.accessors[index];
-        const buffer = asset.gltf.bufferViews[accessor.bufferView].buffer;
+        const accessor = asset.gltf.accessors![index];
+        const buffer = asset.gltf.bufferViews![accessor.bufferView!].buffer;
         const source = new Uint8Array(asset.buffers[buffer]);
         const repeated = new Uint8Array(source.length * 23);
         for (let i = 0; i < 23; i++) repeated.set(source, i * source.length);
         asset.buffers[buffer] = repeated.buffer;
-        asset.gltf.bufferViews[accessor.bufferView].byteLength = repeated.byteLength;
+        asset.gltf.bufferViews![accessor.bufferView!].byteLength = repeated.byteLength;
         accessor.count *= 23;
       }
       if (name === 'multiple-sets') {
@@ -75,13 +75,13 @@ test('compute output matches CPU reference across morph, skin and combined cases
         primitive.attributes.WEIGHTS_1 = primitive.attributes.WEIGHTS_0;
       }
       if (name === 'sparse') {
-        const target = asset.gltf.accessors[primitive.targets[0].POSITION];
-        const valuesView = target.bufferView;
+        const target = asset.gltf.accessors![primitive.targets![0].POSITION];
+        const valuesView = target.bufferView!;
         delete target.bufferView;
         const buffer = asset.buffers.length;
         asset.buffers.push(new Uint8Array([2]).buffer);
-        const indicesView = asset.gltf.bufferViews.length;
-        asset.gltf.bufferViews.push({ buffer, byteLength: 1 });
+        const indicesView = asset.gltf.bufferViews!.length;
+        asset.gltf.bufferViews!.push({ buffer, byteLength: 1 });
         target.sparse = {
           count: 1,
           indices: { bufferView: indicesView, componentType: 5121 },
@@ -181,14 +181,14 @@ test('shared deformation inputs feed independently weighted nodes with different
     };
     const compute = await DeformationCompute.create(device);
     const asset = animatedAsset();
-    asset.gltf.nodes.push(
+    asset.gltf.nodes!.push(
       { mesh: 0, skin: 1, weights: [-0.4] },
       { children: [6], translation: [-2, 0, 0] },
       { translation: [0, 1, 0] },
     );
-    asset.gltf.skins.push({ joints: [5, 6] });
-    asset.gltf.scenes[0].nodes.push(4, 5);
-    const primitive = asset.gltf.meshes[0].primitives[0];
+    asset.gltf.skins!.push({ joints: [5, 6] });
+    asset.gltf.scenes![0].nodes!.push(4, 5);
+    const primitive = asset.gltf.meshes![0].primitives[0];
     primitive.attributes.JOINTS_1 = primitive.attributes.JOINTS_0;
     primitive.attributes.WEIGHTS_1 = primitive.attributes.WEIGHTS_0;
     const pose = new Pose(asset);
