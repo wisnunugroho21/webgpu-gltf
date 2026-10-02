@@ -187,7 +187,7 @@ test('device recovery reconstructs current world, compute outputs, handles and s
       height: 1,
       pixels: new Float32Array([4, 2, 1, 1, 1, 2, 4, 1]),
     });
-    const scene = () => Reflect.get(renderer, 'scene') as Scene;
+    const scene = () => Reflect.get(Reflect.get(renderer, 'gpu'), 'scene') as Scene;
     const output = () => scene().updates.find((update) => update.deformation)!.deformation!;
     const read = async () => {
       const device = testDevice(renderer),

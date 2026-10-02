@@ -15,7 +15,7 @@ test('caller owns frames and clock, gameplay precedes GPU phases, and failures s
     const renderer = await Renderer.create(canvas, (message) => errors.push(message), {
       shadows: false,
     });
-    const internal = renderer as any;
+    const internal = Reflect.get(renderer, 'gpu') as any;
     const device: GPUDevice = internal.device;
     const phases: string[] = [];
     let submissions = 0;
@@ -157,7 +157,7 @@ test('device loss disables explicit frames and rejects later scene preparation',
     const canvas = document.createElement('canvas');
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
-    const device: GPUDevice = (renderer as any).device;
+    const device: GPUDevice = (Reflect.get(renderer, 'gpu') as any).device;
     try {
       device.destroy();
       await device.lost;

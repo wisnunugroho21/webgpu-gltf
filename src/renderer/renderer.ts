@@ -1,41 +1,34 @@
+import type { Pose } from '../scene/pose';
+import { DeviceResources } from './core/device-resources';
 import type { Asset } from '../gltf/types';
 import type { TransformData, TransformField } from '../scene/transform';
 import { OrbitCamera } from '../engine/camera/orbit-camera';
 import { validateCameraView, type CameraView } from '../engine/camera/view';
-import { SceneBindings } from './core/bindings';
 import { Resources } from './core/resources';
-import { prepareGpu } from './core/preparation';
-import { Viewport } from './core/viewport';
 import { AnimationController } from '../animation/controller';
-import { MipmapGenerator } from './textures/mipmaps';
-import { compressionRequirements, compressionSupport } from './textures/compression';
+import { compressionSupport } from './textures/compression';
 import type { TextureCompression } from '../gltf/compression/textures';
-import { OutputPass, type OutputSettings, type SceneSampleCount } from './presentation/output';
-import { EnvironmentLighting, type EnvironmentSettings } from './lighting/environment';
+import type { OutputSettings, SceneSampleCount } from './presentation/output';
+import type { EnvironmentSettings } from './lighting/environment';
 import type { EnvironmentImage } from './lighting/source';
 import type { Scene, FrameStats, SceneStats } from './scene/types';
-import { SceneBuilder } from './scene/builder';
 import { prepareWorld } from './scene/world-builder';
 import type { World } from '../engine/world';
 import type { ModelInstance } from '../engine/model';
 import type { RenderInstanceHandle } from '../engine/rendering/instance-slots';
 import { uploadPose } from './scene/pose-upload';
 import { SceneVisibility } from './scene/visibility';
-import { OcclusionCulling } from './scene/occlusion';
 import type { OcclusionStats } from './scene/occlusion';
 import { emptyCpuTimings, type CpuTimings } from './core/cpu-timings';
-import { GpuTimer, trackGpuMemory } from './core/diagnostics';
 export type { CpuTimings } from './core/cpu-timings';
 import { encodeDeformation } from './deformation/pass';
 import { encodeScene } from './render/pass';
-import { TransmissionBuffer } from './render/transmission';
-import { TransparencyPass, type TransparencyMode } from './render/transparency';
-import {
-  PunctualLighting,
-  type ShadowResolution,
-  type ShadowSettings,
-  type ShadowUpdate,
-  type ShadowMemoryStats,
+import type { TransparencyMode } from './render/transparency';
+import type {
+  ShadowResolution,
+  ShadowSettings,
+  ShadowUpdate,
+  ShadowMemoryStats,
 } from './lighting/punctual';
 export type { FrameStats, SceneStats } from './scene/types';
 
@@ -70,19 +63,17 @@ export interface RendererOptions {
 }
 export class Renderer {
   private options: RendererOptions = {};
-  private memory?: ReturnType<typeof trackGpuMemory>;
-  private gpuTimer?: GpuTimer;
-  private notificationTarget?: Renderer;
   private lost = false;
   private recovery?: Promise<void>;
-  private deviceGeneration = 0;
-  private source?: { asset: Asset; options: AssetOptions };
+  private source?: { asset: Asset; options: AssetOptions; pose: Pose };
+  private retainedWorld?: World;
+  private worldAnimation?: AnimationController;
   get deviceState(): 'ready' | 'lost' | 'recovering' | 'disposed' | 'failed' {
     return this.disposed
       ? 'disposed'
       : this.recovery
         ? 'recovering'
-        : this.lost
+        : this.lost || this.gpu.isLost
           ? 'lost'
           : this.failed
             ? 'failed'
@@ -91,11 +82,11 @@ export class Renderer {
   get diagnostics() {
     return {
       deviceState: this.deviceState,
-      memory: this.memory?.snapshot(),
-      gpuTimings: this.gpuTimer?.snapshot,
-      gpuTimingSupported: this.device.features.has('timestamp-query'),
+      memory: this.gpu.memory?.snapshot(),
+      gpuTimings: this.gpu.gpuTimer?.snapshot,
+      gpuTimingSupported: this.gpu.device.features.has('timestamp-query'),
       cpuTimings: this.cpuTimings,
-      scene: this.scene && { ...this.scene.stats },
+      scene: this.gpu.scene && { ...this.gpu.scene.stats },
       frame: this.frameStats,
       shadows: this.shadowMemory,
       compression: [...this.textureCompression],
@@ -107,43 +98,37 @@ export class Renderer {
     return this.cpuProfiling ? { ...this.timings } : undefined;
   }
   get occlusionStats(): Readonly<OcclusionStats> {
-    const stats = this.occlusion.stats;
+    const stats = this.gpu.occlusion.stats;
     return this.occlusionEnabled ? stats : { ...stats, queries: 0 };
   }
   get textureCompression(): readonly TextureCompression[] {
-    return compressionSupport(this.device.features);
+    return compressionSupport(this.gpu.device.features);
   }
   /** Default CPU orbit state; input belongs to the viewer adapter. */
-  readonly camera: OrbitCamera;
+  readonly camera = new OrbitCamera();
   get world(): World | undefined {
-    return this.scene?.world?.source;
+    return this.retainedWorld;
   }
   get aspectRatio(): number {
-    const { width, height } = this.viewport.size;
+    const { width, height } = this.gpu.viewport.size;
     return width / height;
   }
   private assetAnimation = new AnimationController();
   /** Single-asset compatibility; world gameplay normally uses entity.model.animation. */
   get animation(): AnimationController {
-    return this.scene?.world?.models[0]?.animation ?? this.assetAnimation;
+    return this.worldAnimation ?? this.assetAnimation;
   }
-  private scene?: Scene;
-  private bindings: SceneBindings;
   private disposed = false;
   private failed = false;
   private visibility = new SceneVisibility();
-  private builder: SceneBuilder;
-  private viewport: Viewport;
-  private transmission: TransmissionBuffer;
-  private lighting: PunctualLighting;
   get shadowSettings(): Readonly<ShadowSettings> {
-    return this.lighting.settings;
+    return this.gpu.lighting.settings;
   }
   get shadowMemory(): Readonly<ShadowMemoryStats> {
-    return this.lighting.memoryStats;
+    return this.gpu.lighting.memoryStats;
   }
   setShadows(settings: ShadowUpdate): void {
-    this.lighting.setSettings(settings);
+    this.gpu.lighting.setSettings(settings);
   }
   private cullingEnabled = true;
   private occlusionEnabled = false;
@@ -154,7 +139,7 @@ export class Renderer {
   setOcclusionCulling(enabled: boolean): void {
     if (typeof enabled !== 'boolean') throw new Error('Occlusion culling must be a boolean.');
     this.occlusionEnabled = enabled;
-    this.occlusion.invalidate();
+    this.gpu.occlusion.invalidate();
   }
   get scaleCulling(): number {
     return this.minPixels;
@@ -163,7 +148,7 @@ export class Renderer {
     if (!Number.isFinite(minPixels) || minPixels < 0)
       throw new Error('Scale culling must be a finite nonnegative pixel threshold.');
     this.minPixels = minPixels;
-    this.occlusion.invalidate();
+    this.gpu.occlusion.invalidate();
   }
   private lastFrame: FrameStats = { draws: 0, instances: 0, culledInstances: 0 };
   get frameStats(): Readonly<FrameStats> {
@@ -175,27 +160,27 @@ export class Renderer {
   setFrustumCulling(enabled: boolean): void {
     if (typeof enabled !== 'boolean') throw new Error('Frustum culling must be a boolean.');
     this.cullingEnabled = enabled;
-    this.occlusion.invalidate();
+    this.gpu.occlusion.invalidate();
   }
   get sampleCount(): SceneSampleCount {
-    return this.output.sampleCount;
+    return this.gpu.output.sampleCount;
   }
   get environmentSettings(): Readonly<EnvironmentSettings> {
-    return this.environment.settings;
+    return this.gpu.environment.settings;
   }
   setEnvironment(settings: Partial<EnvironmentSettings>): void {
-    this.environment.setSettings(settings);
+    this.gpu.environment.setSettings(settings);
   }
   async setEnvironmentMap(image: EnvironmentImage): Promise<void> {
     const retained = { width: image.width, height: image.height, pixels: image.pixels.slice() };
-    await this.environment.setImage(retained);
+    await this.gpu.environment.setImage(retained);
     this.retainedEnvironment = retained;
   }
   get outputSettings(): Readonly<OutputSettings> {
-    return this.output.settings;
+    return this.gpu.output.settings;
   }
   setOutput(settings: Partial<OutputSettings>): void {
-    this.output.setSettings(settings);
+    this.gpu.output.setSettings(settings);
   }
   // Keep the original public playback API as small delegates for existing consumers.
   get onAnimationChange(): (() => void) | undefined {
@@ -248,143 +233,79 @@ export class Renderer {
     if (typeof frustumCulling !== 'boolean') throw new Error('Frustum culling must be a boolean.');
     if (sampleCount !== 1 && sampleCount !== 4)
       throw new Error('Scene sample count must be 1 (off) or 4 (MSAA).');
-    if (!navigator.gpu)
-      throw new Error('WebGPU is unavailable. Use a WebGPU-capable browser on localhost or HTTPS.');
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) throw new Error('No WebGPU adapter is available on this device.');
-    const device = await adapter.requestDevice({
-      requiredFeatures: [
-        ...compressionRequirements(adapter.features),
-        ...(options.gpuProfiling && adapter.features.has('timestamp-query')
-          ? ['timestamp-query' as GPUFeatureName]
-          : []),
-      ],
+    const gpu = await DeviceResources.create(canvas, {
+      memoryProfiling: options.memoryProfiling,
+      resourceBudgetBytes: options.resourceBudgetBytes,
+      gpuProfiling: options.gpuProfiling,
+      sampleCount,
+      transparency: transparencyMode,
+      shadows,
+      shadowResolution,
     });
-    const memory =
-      options.memoryProfiling || options.resourceBudgetBytes !== undefined
-        ? trackGpuMemory(device, options.resourceBudgetBytes)
-        : undefined;
-    const context = canvas.getContext('webgpu');
-    if (!context) {
-      device.destroy();
-      throw new Error('Could not create a WebGPU canvas context.');
-    }
-    const format = navigator.gpu.getPreferredCanvasFormat();
-    let output: OutputPass | undefined;
-    let transparency: TransparencyPass | undefined;
-    let environment: EnvironmentLighting | undefined;
-    let occlusion: OcclusionCulling | undefined;
-    let renderer: Renderer;
     try {
-      output = await OutputPass.create(device, format, sampleCount);
-      if (transparencyMode === 'weighted')
-        transparency = await TransparencyPass.create(device, sampleCount);
-      environment = await EnvironmentLighting.create(device);
-      occlusion = await OcclusionCulling.create(device, sampleCount);
-      renderer = new Renderer(
-        canvas,
-        device,
-        context,
-        format,
-        onError,
-        output,
-        environment,
-        occlusion,
-        shadowResolution,
-        shadows,
-        transparencyMode,
-        transparency,
-      );
+      const renderer = new Renderer(canvas, onError, gpu);
       renderer.setFrustumCulling(frustumCulling);
       renderer.cpuProfiling = options.cpuProfiling ?? false;
       renderer.setOcclusionCulling(occlusionCulling);
       renderer.setScaleCulling(scaleCulling);
       renderer.options = { ...options };
-      renderer.memory = memory;
-      if (options.gpuProfiling && device.features.has('timestamp-query'))
-        renderer.gpuTimer = new GpuTimer(device);
+      renderer.observeDevice(gpu);
+      return renderer;
     } catch (error) {
-      output?.destroy();
-      transparency?.destroy();
-      environment?.destroy();
-      occlusion?.destroy();
-      context.unconfigure();
-      // Device destruction also releases allocations from an interrupted constructor.
-      device.destroy();
+      gpu.destroy();
       throw error;
     }
-    device.addEventListener('uncapturederror', (event) => {
-      const target = renderer.notificationTarget ?? renderer;
-      if (target.device === device) target.fail(`GPU error: ${event.error.message}`);
-    });
-    void device.lost.then((info) => {
-      const target = renderer.notificationTarget ?? renderer;
-      if (!target.disposed && target.device === device) {
-        target.lost = target.failed = true;
-        const message = `WebGPU device lost: ${info.message || info.reason}.`;
-        // Notify after create() callers can store the facade. The lost flag already
-        // stops submissions; disposal before notification suppresses callbacks.
-        queueMicrotask(() => {
-          if (target.disposed || target.device !== device) return;
-          if (target.options.onDeviceLost) target.options.onDeviceLost(message);
-          else target.onError(`${message} Call recover() to reconnect.`);
-        });
-      }
-    });
-    return renderer;
   }
 
   private constructor(
     private canvas: HTMLCanvasElement,
-    private device: GPUDevice,
-    private context: GPUCanvasContext,
-    format: GPUTextureFormat,
     private onError: (message: string) => void,
-    private output: OutputPass,
-    private environment: EnvironmentLighting,
-    private occlusion: OcclusionCulling,
-    shadowResolution: ShadowResolution,
-    shadows: boolean,
-    readonly transparencyMode: TransparencyMode,
-    private transparency?: TransparencyPass,
-  ) {
-    context.configure({ device, format, alphaMode: 'opaque' });
-    const mipmaps = new MipmapGenerator(device);
-    this.viewport = new Viewport(canvas, device, output);
-    this.lighting = new PunctualLighting(device, shadowResolution, shadows);
-    this.bindings = new SceneBindings(device, environment.layout, this.lighting);
-    this.transmission = new TransmissionBuffer(device, this.bindings);
-    this.builder = new SceneBuilder(
-      device,
-      this.bindings,
-      mipmaps,
-      this.sampleCount,
-      transparencyMode,
-    );
-    this.camera = new OrbitCamera();
+    private gpu: DeviceResources,
+  ) {}
+  get transparencyMode(): TransparencyMode {
+    return this.gpu.options.transparency;
+  }
+
+  private observeDevice(gpu: DeviceResources): void {
+    gpu.observe({
+      error: (message) => {
+        if (!this.disposed && this.gpu === gpu) this.fail(message);
+      },
+      lost: (message) => {
+        if (this.disposed || this.gpu !== gpu) return;
+        this.lost = this.failed = true;
+        if (this.options.onDeviceLost) this.options.onDeviceLost(message);
+        else this.onError(`${message} Call recover() to reconnect.`);
+      },
+    });
   }
 
   /** Prepare a replacement fully before swapping. A failed load leaves the current model usable. */
   async setAsset(asset: Asset, options: AssetOptions = {}): Promise<SceneStats> {
-    const stats = await this.replaceScene((resources) =>
-      this.builder.prepare(asset, resources, options),
+    const gpu = this.gpu;
+    return this.replaceScene(
+      (resources) => gpu.builder.prepare(asset, resources, options),
+      (scene) => {
+        this.retainedWorld = undefined;
+        this.worldAnimation = undefined;
+        this.source = {
+          asset,
+          pose: scene.pose,
+          options: { movableNodes: options.movableNodes && [...options.movableNodes] },
+        };
+      },
     );
-    this.source = {
-      asset,
-      options: { movableNodes: options.movableNodes && [...options.movableNodes] },
-    };
-    return stats;
   }
 
   private transformPose(node: number) {
-    if (this.disposed || this.failed || !this.scene)
+    if (this.disposed || this.failed || !this.gpu.isUsable || !this.gpu.scene)
       throw new Error('No editable scene is attached.');
-    if (this.scene.world) throw new Error('Use entity.model.setNodeTransform() in a world.');
-    if (!this.scene.movableNodes?.has(node))
+    if (this.gpu.scene.world) throw new Error('Use entity.model.setNodeTransform() in a world.');
+    if (!this.gpu.scene.movableNodes?.has(node))
       throw new Error(
         'Declare the node in setAsset(asset, { movableNodes }) before gameplay movement.',
       );
-    return this.scene.pose;
+    return this.gpu.scene.pose;
   }
   getNodeTransform(node: number): TransformData {
     return this.transformPose(node).getNodeTransform(node);
@@ -408,17 +329,24 @@ export class Renderer {
   /** Attach an engine world without merging its entities into glTF node definitions.
    * Same-world calls synchronize membership without recreating surviving instances. */
   async setWorld(world: World): Promise<SceneStats> {
-    const stats = await this.replaceScene((resources) =>
-      prepareWorld(this.device, this.bindings, this.builder, world, resources, this.scene),
+    const gpu = this.gpu;
+    return this.replaceScene(
+      (resources) =>
+        prepareWorld(gpu.device, gpu.bindings, gpu.builder, world, resources, gpu.scene),
+      (scene) => {
+        this.source = undefined;
+        this.retainedWorld = world;
+        this.worldAnimation = scene.world?.models[0]?.animation;
+      },
     );
-    this.source = undefined;
-    return stats;
   }
 
   /** Immutable attachment-local handle; its address survives membership commits.
    * Removed instances return undefined, and a reused range receives a new identity. */
   getRenderInstanceHandle(model: ModelInstance): RenderInstanceHandle | undefined {
-    return this.disposed || this.failed ? undefined : this.scene?.world?.parts.get(model)?.handle;
+    return this.disposed || this.failed || !this.gpu.isUsable
+      ? undefined
+      : this.gpu.scene?.world?.parts.get(model)?.handle;
   }
 
   /** Explicit engine membership boundary. Requests are serialized with all device
@@ -429,52 +357,17 @@ export class Renderer {
 
   private async replaceScene(
     prepare: (resources: Resources) => Promise<Scene>,
+    retainSource: (scene: Scene) => void,
   ): Promise<SceneStats> {
-    const resources = new Resources();
-    const generation = this.deviceGeneration;
-    let committed = false;
-    try {
-      return await prepareGpu(
-        this.device,
-        async () => {
-          if (this.disposed || this.failed || generation !== this.deviceGeneration)
-            throw new Error('Renderer is disposed or failed.');
-          return prepare(resources);
-        },
-        (candidate) => {
-          if (this.disposed || this.failed || generation !== this.deviceGeneration)
-            throw new Error('Renderer is disposed or failed.');
-          if (
-            candidate.world &&
-            candidate.world.source.structureRevision !== candidate.world.structureRevision
-          )
-            throw new Error('World structure changed during preparation.');
-          const previous = this.scene;
-          if (previous === candidate) {
-            committed = true;
-            resources.destroy();
-            return candidate.stats;
-          }
-          const incremental = previous?.world && previous.world.source === candidate.world?.source;
-          candidate.world?.activate?.();
-          if (candidate.world) delete candidate.world.activate;
-          this.scene = candidate;
-          committed = true;
-          if (!incremental && candidate.stats.instances)
-            this.camera.frame(candidate.min, candidate.max);
-          this.occlusion.invalidate();
-          previous?.resources.destroy();
-          // Notify only after the valid scene is committed and old resources released.
-          // A caller's notification callback cannot destroy the newly attached scene.
-          if (!candidate.world || !candidate.world.models.length)
-            this.assetAnimation.setPose(candidate.pose);
-          return candidate.stats;
-        },
-      );
-    } catch (error) {
-      if (!committed) resources.destroy();
-      throw error;
-    }
+    if (this.disposed || this.failed) throw new Error('Renderer is disposed or failed.');
+    const gpu = this.gpu;
+    return gpu.replaceScene(prepare, (candidate, incremental) => {
+      retainSource(candidate);
+      if (!incremental && candidate.stats.instances)
+        this.camera.frame(candidate.min, candidate.max);
+      if (!candidate.world || !candidate.world.models.length)
+        this.assetAnimation.setPose(candidate.pose);
+    });
   }
 
   /** Pose-upload phase consumes evaluated CPU revisions; no simulation or encoder. */
@@ -497,16 +390,16 @@ export class Renderer {
     }
     const animated = this.cpuProfiling ? performance.now() : 0;
     if (scene) {
-      if (poseChanged) uploadPose(this.device, scene);
+      if (poseChanged) uploadPose(this.gpu.device, scene);
     }
-    this.viewport.resize();
+    this.gpu.viewport.resize();
     if (scene?.transmission.length)
-      this.transmission.resize(this.viewport.width, this.viewport.height);
+      this.gpu.transmission.resize(this.gpu.viewport.width, this.gpu.viewport.height);
     if (scene?.transparent.length)
-      this.transparency?.resize(this.viewport.width, this.viewport.height);
-    this.bindings.uploadCamera(view, this.viewport.width, this.viewport.height);
-    if (scene) this.lighting.update(scene);
-    if (this.bindings.refreshLighting()) this.transmission.refreshLighting();
+      this.gpu.transparency?.resize(this.gpu.viewport.width, this.gpu.viewport.height);
+    this.gpu.bindings.uploadCamera(view, this.gpu.viewport.width, this.gpu.viewport.height);
+    if (scene) this.gpu.lighting.update(scene);
+    if (this.gpu.bindings.refreshLighting()) this.gpu.transmission.refreshLighting();
     // Visibility consumes updated bounds. Query input uploads also finish before
     // encoding; visibility cannot suppress deformation or shadow preparation.
     this.lastFrame.draws = 0;
@@ -515,20 +408,26 @@ export class Renderer {
     const uploaded = this.cpuProfiling ? performance.now() : 0;
     if (scene) {
       if (this.occlusionEnabled)
-        this.occlusion.beginFrame(
+        this.gpu.occlusion.beginFrame(
           scene,
-          this.bindings.frameData,
-          this.viewport.width,
-          this.viewport.height,
+          this.gpu.bindings.frameData,
+          this.gpu.viewport.width,
+          this.gpu.viewport.height,
           poseChanged,
         );
-      this.visibility.update(scene, this.bindings.frameData, this.cullingEnabled, this.lastFrame, {
-        width: this.viewport.width,
-        height: this.viewport.height,
-        minPixels: this.minPixels,
-        occlusion: this.occlusionEnabled ? this.occlusion : undefined,
-      });
-      if (this.occlusionEnabled) this.occlusion.upload();
+      this.visibility.update(
+        scene,
+        this.gpu.bindings.frameData,
+        this.cullingEnabled,
+        this.lastFrame,
+        {
+          width: this.gpu.viewport.width,
+          height: this.gpu.viewport.height,
+          minPixels: this.minPixels,
+          occlusion: this.occlusionEnabled ? this.gpu.occlusion : undefined,
+        },
+      );
+      if (this.occlusionEnabled) this.gpu.occlusion.upload();
     }
     if (this.cpuProfiling) {
       this.timings.uploadsMs = uploaded - animated;
@@ -538,25 +437,25 @@ export class Renderer {
 
   /** Encode compute, shadows, scene and presentation together, without pose uploads. */
   private encodeFrame(scene: Scene | undefined, view: CameraView): GPUCommandBuffer {
-    const encoder = this.device.createCommandEncoder();
-    const finishTiming = this.gpuTimer?.instrument(encoder);
+    const encoder = this.gpu.device.createCommandEncoder();
+    const finishTiming = this.gpu.gpuTimer?.instrument(encoder);
     // Phase 2: compute consumes uploaded inputs. Paused/static poses reuse their output.
     if (scene) encodeDeformation(encoder, scene);
     // Shadow rendering consumes the same completed deformation output as the color pass.
-    if (scene) this.lighting.encode(encoder, scene);
+    if (scene) this.gpu.lighting.encode(encoder, scene);
     // Phase 3: render consumes completed deformation output in the same submission.
     encodeScene(encoder, scene, {
-      output: this.output,
-      depth: this.viewport.depth!,
-      frameGroup: this.bindings.frame,
-      environmentGroup: this.environment.bindGroup,
+      output: this.gpu.output,
+      depth: this.gpu.viewport.depth!,
+      frameGroup: this.gpu.bindings.frame,
+      environmentGroup: this.gpu.environment.bindGroup,
       camera: view,
-      transmission: this.transmission,
-      transparency: this.transparency,
-      occlusion: this.occlusionEnabled ? this.occlusion : undefined,
+      transmission: this.gpu.transmission,
+      transparency: this.gpu.transparency,
+      occlusion: this.occlusionEnabled ? this.gpu.occlusion : undefined,
     });
     // Presentation follows scene rendering: tone mapping happens once, after all blending.
-    this.output.encode(encoder, this.context.getCurrentTexture().createView());
+    this.gpu.output.encode(encoder, this.gpu.context.getCurrentTexture().createView());
     finishTiming?.();
     return encoder.finish();
   }
@@ -566,26 +465,26 @@ export class Renderer {
    * No scheduling or GPU waits occur here. False tells the owner to stop rendering
    * after disposal or a fatal frame/device error, reported through onError once. */
   render(timestamp: number, view?: CameraView): boolean {
-    if (this.disposed || this.failed) return false;
+    if (this.disposed || this.failed || !this.gpu.isUsable) return false;
     if (!Number.isFinite(timestamp)) throw new Error('Frame timestamp must be finite.');
     const start = this.cpuProfiling ? performance.now() : 0;
     const camera = view ?? this.camera.view(this.aspectRatio);
     validateCameraView(camera, this.aspectRatio);
     if (
-      this.scene?.world &&
-      this.scene.world.structureRevision !== this.scene.world.source.structureRevision
+      this.gpu.scene?.world &&
+      this.gpu.scene.world.structureRevision !== this.gpu.scene.world.source.structureRevision
     )
       throw new Error('World membership changed. Await renderer.setWorld(world) before rendering.');
     try {
-      const scene = this.scene;
+      const scene = this.gpu.scene;
       if (this.cpuProfiling) Object.assign(this.timings, emptyCpuTimings());
       this.uploadFrame(scene, camera);
       const uploaded = this.cpuProfiling ? performance.now() : 0;
       const commands = this.encodeFrame(scene, camera);
       const encoded = this.cpuProfiling ? performance.now() : 0;
-      this.device.queue.submit([commands]);
-      this.gpuTimer?.afterSubmit();
-      if (this.occlusionEnabled) this.occlusion.afterSubmit();
+      this.gpu.device.queue.submit([commands]);
+      this.gpu.gpuTimer?.afterSubmit();
+      if (this.occlusionEnabled) this.gpu.occlusion.afterSubmit();
       if (this.cpuProfiling) {
         const submitted = performance.now();
         this.timings.encodingMs = encoded - uploaded;
@@ -612,7 +511,7 @@ export class Renderer {
    * are newly prepared. A failed attempt remains lost and can be retried explicitly. */
   recover(): Promise<void> {
     if (this.recovery) return this.recovery;
-    if (!this.lost || this.disposed)
+    if ((!this.lost && !this.gpu.isLost) || this.disposed)
       return Promise.reject(new Error('Recovery requires a live facade with a lost device.'));
     this.recovery = this.rebuildDevice().finally(() => {
       this.recovery = undefined;
@@ -622,88 +521,56 @@ export class Renderer {
   private async rebuildDevice(): Promise<void> {
     const world = this.world,
       source = this.source;
-    const pose = !world ? this.scene?.pose : undefined;
+    const pose = !world ? source?.pose : undefined;
     const animation = this.assetAnimation;
     const output = this.outputSettings,
       environment = this.environmentSettings,
       shadows = this.shadowSettings,
       onChange = this.animation.onChange;
-    const settings: RendererOptions = {
-      ...this.options,
-      frustumCulling: this.frustumCulling,
-      occlusionCulling: this.occlusionCulling,
-      scaleCulling: this.scaleCulling,
-    };
-    this.deviceGeneration++;
-    this.releaseDevice();
-    let replacement: Renderer | undefined;
+    const previous = this.gpu;
+    previous.destroy();
+    let candidate: DeviceResources | undefined;
     try {
-      replacement = await Renderer.create(this.canvas, this.onError, settings);
-      replacement.setOutput(output);
-      replacement.setEnvironment(environment);
-      replacement.setShadows(shadows);
-      if (this.retainedEnvironment) await replacement.setEnvironmentMap(this.retainedEnvironment);
-      if (world) await replacement.setWorld(world);
-      else if (source) {
-        // Reuse the already evaluated CPU pose, just like world model instances.
-        // Recovery uploads current state without evaluating animation in the renderer.
-        await replacement.replaceScene((resources) =>
-          replacement!.builder.prepare(source.asset, resources, { ...source.options, pose }),
+      candidate = await DeviceResources.create(this.canvas, previous.options);
+      candidate.output.setSettings(output);
+      candidate.environment.setSettings(environment);
+      candidate.lighting.setSettings(shadows);
+      if (this.retainedEnvironment) await candidate.environment.setImage(this.retainedEnvironment);
+      const gpu = candidate; // Capture the candidate's device throughout preparation.
+      if (world)
+        await gpu.replaceScene((resources) =>
+          prepareWorld(gpu.device, gpu.bindings, gpu.builder, world, resources),
         );
-        replacement.assetAnimation = animation;
-        animation.setClock(animation.state.clock); // Exclude recovery wall time.
-      }
-      if (this.disposed || replacement.failed || replacement.lost)
-        throw new Error('Recovery was disposed or replacement GPU device failed.');
-      // Keep this facade/camera identity so viewer controls remain attached. Move
-      // only device-owned implementation state; late callbacks route to this owner.
-      this.device = replacement.device;
-      this.context = replacement.context;
-      this.output = replacement.output;
-      this.environment = replacement.environment;
-      this.occlusion = replacement.occlusion;
-      this.bindings = replacement.bindings;
-      this.viewport = replacement.viewport;
-      this.transmission = replacement.transmission;
-      this.lighting = replacement.lighting;
-      this.transparency = replacement.transparency;
-      this.builder = replacement.builder;
-      this.scene = replacement.scene;
-      this.memory = replacement.memory;
-      this.gpuTimer = replacement.gpuTimer;
-      this.assetAnimation = replacement.assetAnimation;
+      else if (source)
+        await gpu.replaceScene((resources) =>
+          gpu.builder.prepare(source.asset, resources, { ...source.options, pose }),
+        );
+      if (this.disposed) throw new Error('Recovery was disposed.');
+      gpu.assertUsable();
+      // Swap one coherent owner. Facade/camera identity and all CPU pose/playback
+      // state survive; only device caches, bindings, outputs and handles change.
+      this.observeDevice(gpu);
+      this.gpu = gpu;
+      if (!world && source) animation.setClock(animation.state.clock); // Exclude recovery wall time.
       this.animation.onChange = onChange;
-      replacement.notificationTarget = this;
       this.lost = this.failed = false;
     } catch (error) {
-      replacement?.destroy();
+      candidate?.destroy();
       throw error;
     }
-  }
-  private releaseDevice(): void {
-    this.scene?.resources.destroy();
-    this.viewport.destroy();
-    this.transmission.destroy();
-    this.transparency?.destroy();
-    this.output.destroy();
-    this.environment.destroy();
-    this.lighting.destroy();
-    this.occlusion.destroy();
-    this.bindings.destroy();
-    this.gpuTimer?.destroy();
-    this.memory?.restore();
-    this.context.unconfigure();
-    this.device.destroy();
   }
   destroy(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.releaseDevice();
-    // A disposed facade must not keep an unloaded CPU world, local file blobs or
-    // HDR panorama alive. Recovery retains these only while the facade is live.
-    this.scene = undefined;
-    this.source = undefined;
-    this.retainedEnvironment = undefined;
-    this.assetAnimation = new AnimationController();
+    try {
+      this.gpu.destroy();
+    } finally {
+      // Drop CPU retention even if a GPU cleanup hook reports an error.
+      this.source = undefined;
+      this.retainedWorld = undefined;
+      this.worldAnimation = undefined;
+      this.retainedEnvironment = undefined;
+      this.assetAnimation = new AnimationController();
+    }
   }
 }

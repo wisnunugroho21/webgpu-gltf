@@ -85,7 +85,7 @@ test('device-backed compressed uploads keep sRGB/data slots and mip tails valid;
     document.body.append(canvas);
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
-    const internal = renderer as any;
+    const internal = Reflect.get(renderer, 'gpu') as any;
     const device: GPUDevice = internal.device;
     const uploads: { format: GPUTextureFormat; usage: number; mips: number }[] = [];
     const create = device.createTexture.bind(device);

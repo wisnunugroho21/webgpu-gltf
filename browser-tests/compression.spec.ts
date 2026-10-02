@@ -66,7 +66,7 @@ test('meshopt placeholder buffers decode skins, morphs and animation before GPU 
     document.body.append(canvas);
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
     };
     try {
@@ -101,7 +101,7 @@ test('Draco required assets decode in the worker and render normalized integer c
     document.body.append(canvas);
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
     };
     try {
@@ -147,7 +147,7 @@ test('ETC1S and UASTC KTX2 retain mipmaps and match PNG in color and data slots'
     document.body.append(canvas);
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
     };
     renderer.setEnvironment({ intensity: 0 });

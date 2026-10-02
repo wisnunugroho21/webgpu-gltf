@@ -77,7 +77,7 @@ test('toon ramps retain bands, linear HDR, alpha blending and the fixed material
       });
       await renderer.setAsset(alpha);
       const blended = await pixel();
-      const scene = Reflect.get(renderer, 'scene') as Scene;
+      const scene = Reflect.get(Reflect.get(renderer, 'gpu'), 'scene') as Scene;
       return {
         errors,
         values,
@@ -150,7 +150,7 @@ test('outline hulls use skinned/morphed output, mirrored winding and MSAA, and p
           }
           return { outline, partial };
         };
-        const scene = () => Reflect.get(renderer, 'scene') as Scene;
+        const scene = () => Reflect.get(Reflect.get(renderer, 'gpu'), 'scene') as Scene;
         const output = scene().updates[0].deformation!.output,
           firstPipeline = scene().draws[0].outlinePipeline;
         const normal = await pixels();

@@ -85,3 +85,13 @@ test('source modules have no circular static dependencies', () => {
   };
   Object.keys(sources).forEach(visit);
 });
+
+test('renderer facade delegates device lifetime to one owner', () => {
+  const facade = sources['../src/renderer/renderer.ts'];
+  expect(facade).not.toMatch(/\brequest(?:Adapter|Device)\s*\(/);
+  expect(facade).not.toMatch(/\bcontext\.(?:configure|unconfigure)\s*\(/);
+  expect(facade).not.toMatch(/\bdevice\.destroy\s*\(/);
+  expect(facade).not.toMatch(
+    /\bprivate\s+(?:device|context|scene|bindings|builder|viewport|memory|gpuTimer)\s*[:?]/,
+  );
+});

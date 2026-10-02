@@ -94,7 +94,7 @@ test('scene preparation shares immutable deformation buffers and releases them o
       }[];
       resources: { owned: (GPUBuffer | GPUTexture)[] };
     };
-    const internal = renderer as unknown as { scene: Scene; device: GPUDevice };
+    const internal = Reflect.get(renderer, 'gpu') as unknown as { scene: Scene; device: GPUDevice };
     const destructions = new Map<GPUBuffer, number>();
     const track = (buffer: GPUBuffer) => {
       destructions.set(buffer, 0);

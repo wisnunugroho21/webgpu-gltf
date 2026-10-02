@@ -13,7 +13,7 @@ test('culls individual instances without changing pixels, and follows camera and
     document.body.append(canvas);
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
     };
     const frame = async () => {
@@ -87,7 +87,7 @@ test('updates skinned and morphed bounds while offscreen, including blended noni
     document.body.append(canvas);
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
       scene: {
         pose: {

@@ -69,7 +69,7 @@ test('slice companion changes retain the player handle, pose and actual compute 
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
     const device = testDevice(renderer),
       player = world.getEntity('player').model!;
-    const scene = () => Reflect.get(renderer, 'scene') as Scene;
+    const scene = () => Reflect.get(Reflect.get(renderer, 'gpu'), 'scene') as Scene;
     const output = () =>
       scene().updates.find((update) => update.pose === player.pose && update.deformation)!
         .deformation!;

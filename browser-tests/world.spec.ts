@@ -17,7 +17,7 @@ test('entities render independent multi-node models with root transforms, shadow
     const renderer = await Renderer.create(canvas, (message) => errors.push(message), {
       occlusionCulling: true,
     });
-    const internal = renderer as any;
+    const internal = Reflect.get(renderer, 'gpu') as any;
     const device: GPUDevice = internal.device;
     const character = animatedAsset();
     character.gltf.extensions = {

@@ -27,7 +27,7 @@ test('measure query cost and history reuse in moving scenes', async ({ page }) =
           shadows: false,
           cpuProfiling: true,
         });
-        const internal = renderer as any;
+        const internal = Reflect.get(renderer, 'gpu') as any;
         const device: GPUDevice = internal.device;
         const info = device.adapterInfo;
         adapterInfo = {

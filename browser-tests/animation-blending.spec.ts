@@ -16,7 +16,7 @@ test('renderer blends skin and morph poses before compute, preserves phase order
     const renderer = await Renderer.create(canvas, (message) => errors.push(message), {
       shadows: false,
     });
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
       scene: import('../src/renderer/scene/types').Scene;
     };

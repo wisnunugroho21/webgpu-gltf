@@ -19,7 +19,7 @@ test('opaque occlusion removes hidden instances without changing pixels, and inv
         occlusionCulling: true,
         shadows: false,
       });
-      const internal = renderer as unknown as {
+      const internal = Reflect.get(renderer, 'gpu') as unknown as {
         device: GPUDevice;
         occlusion: { pending: boolean; readback: GPUBuffer };
       };
@@ -138,7 +138,7 @@ test('scale threshold culls tiny projected instances and reacts to zoom and view
       scaleCulling: 10,
       shadows: false,
     });
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
     };
     const frame = async () => {
@@ -205,7 +205,7 @@ test('BLEND, discarded MASK and transmission cannot hide opaque background geome
         occlusionCulling: true,
         shadows: false,
       });
-      const internal = renderer as unknown as {
+      const internal = Reflect.get(renderer, 'gpu') as unknown as {
         device: GPUDevice;
         occlusion: { pending: boolean };
       };
@@ -286,7 +286,7 @@ test('hidden animated meshes keep computing and updating shadows, pose changes i
       occlusionCulling: true,
       shadows: true,
     });
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
       scene: import('../src/renderer/scene/types').Scene;
       occlusion: { pending: boolean };

@@ -48,7 +48,7 @@ test('world synchronization retains private output and slots, grows once, and ro
     };
     const a = spawn('a', -2),
       b = spawn('b', 0);
-    const scene = () => Reflect.get(renderer, 'scene') as Scene;
+    const scene = () => Reflect.get(Reflect.get(renderer, 'gpu'), 'scene') as Scene;
     const frame = async () => {
       world.update(0);
       if (!renderer.render(0)) throw new Error('Frame failed');
@@ -297,7 +297,7 @@ test('a delayed visibility readback cannot apply to a reused membership slot', a
       transform: { translation: [0, 0, -4] },
     });
     const occlusion = Reflect.get(
-      renderer,
+      Reflect.get(renderer, 'gpu'),
       'occlusion',
     ) as import('/src/renderer/scene/occlusion.ts').OcclusionCulling;
     const wait = async () => {

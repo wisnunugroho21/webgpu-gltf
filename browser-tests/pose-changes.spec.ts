@@ -24,7 +24,7 @@ test('playback uploads and dispatches only affected transforms, weights and infl
         dispatchBatched(pass: GPUComputePassEncoder): void;
       };
     };
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
       scene: {
         updates: Update[];

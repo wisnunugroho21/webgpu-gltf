@@ -643,3 +643,7 @@ Test your own textured and transparent assets before depending on broader featur
 The [review after Phase 7](docs/review-phase7-2026-10-02.md) records current verification, reproduced defects, remaining game-engine features and a prioritized refactoring order. The latest review fixes matrix-node save inspection, scopes saved asset references to the world, validates detached animation checkpoints in a separate module, supports light-only/empty model entities in worlds, and uses explicit stacks for deep model hierarchies. Existing binding layouts, resource sharing, transform ownership and upload/compute/render phases remain intact.
 
 The [game engine migration plan](docs/game-engine-plan.md) defines ownership, phased restructuring, acceptance checks and the first playable milestone.
+
+### Device lifecycle refactoring
+
+The first post-migration refactoring step is implemented in `src/renderer/core/device-resources.ts`. One owner handles device/context creation, GPU subsystems, attached scene transactions, startup rollback and teardown. `Renderer` retains the camera, CPU playback/world references and recovery inputs; recovery prepares a new owner privately and swaps it once, preserving facade identity. Failed recovery remains retryable, disposed candidates cannot commit, and old device notifications cannot affect a replacement. The pose-upload → compute → shadows → render → presentation phases and fixed binding layouts stay intact. See [architecture](docs/architecture.md) and [recovery contracts](docs/resilience-and-scale.md).

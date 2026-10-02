@@ -19,7 +19,7 @@ test('declared gameplay nodes leave static groups and update uploads, bounds, wi
     const renderer = await Renderer.create(canvas, (message) => errors.push(message), {
       occlusionCulling: true,
     });
-    const internal = renderer as any,
+    const internal = Reflect.get(renderer, 'gpu') as any,
       device: GPUDevice = internal.device;
     const phases: string[] = [],
       writes: number[] = [];

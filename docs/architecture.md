@@ -159,3 +159,11 @@ Optional visibility filters live in `renderer/scene/visibility.ts`, `projected-b
 World model preparation permits lights-only and empty selected scenes, reserving one neutral transform slot per geometry-free model without a draw. Surviving model handles and lighting/material binding layouts retain their identity during membership changes. The standalone viewer still diagnoses assets without renderable primitives.
 
 See [the current review](review-phase7-2026-10-02.md) for verified behavior, remaining feature gaps and the proposed device-lifecycle ownership split.
+
+## Device lifecycle ownership
+
+`renderer/core/device-resources.ts` owns one WebGPU device generation: canvas context, output/environment/lighting, explicit bindings, viewport/transparency/transmission attachments, occlusion/readbacks, preparation caches, attached GPU scene leases and diagnostic wrappers. Its factory performs capability negotiation and initialization; partial startup rolls back through the same idempotent teardown used on disposal. Scene transactions capture that owner through asynchronous preparation and validation, so they cannot mix devices during recovery. CPU notifications run after scene ownership commits.
+
+`Renderer` keeps application policy, the camera, CPU visibility scratch, culling settings, CPU timings and durable CPU recovery inputs (world, evaluated single-asset pose/playback and HDR pixels). It still exposes separate upload and encode phases and never schedules simulation. Recovery releases the old owner, privately prepares a replacement, restores its settings and reuploads existing poses, then swaps a single `gpu` reference. The facade/camera/controllers retain identity. A failed attempt leaves CPU inputs available for retry; disposal during preparation rejects publication and destroys the candidate. Older owners remove error listeners and suppress delayed notifications.
+
+Teardown clears scene/world references, releases all subsystems even if one cleanup callback fails, restores diagnostics, unconfigures the context and destroys the device. Cleanup is attempted once per owner. The supported renderer API and explicit material/lighting layouts are unchanged. Test-only instrumentation now accesses the private owner rather than relying on separate GPU fields on the facade; no live GPU inspection API is exported to applications.

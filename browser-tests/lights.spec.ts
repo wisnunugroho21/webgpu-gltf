@@ -15,7 +15,7 @@ test('authored light color, intensity, distance, cone and animation reach HDR sh
     const renderer = await Renderer.create(canvas, (message) => errors.push(message), {
       shadows: false,
     });
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
     };
     renderer.setEnvironment({ intensity: 0 });
@@ -148,7 +148,7 @@ test('directional, spot and point shadows darken receivers; camera culling retai
     const renderer = await Renderer.create(canvas, (message) => errors.push(message), {
       shadowResolution: 256,
     });
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
       lighting: { encode(encoder: GPUCommandEncoder, scene: unknown): void };
     };
@@ -253,7 +253,7 @@ test('shadow MASK coverage uses the selected transformed UVs; glass and BLEND do
     const renderer = await Renderer.create(canvas, (message) => errors.push(message), {
       shadowResolution: 256,
     });
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
     };
     renderer.setEnvironment({ intensity: 0 });
@@ -367,7 +367,7 @@ test('shadows follow computed deformation and reuse static poses; unrelated anim
     const renderer = await Renderer.create(canvas, (message) => errors.push(message), {
       shadowResolution: 256,
     });
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
     };
     const asset = animatedAsset();

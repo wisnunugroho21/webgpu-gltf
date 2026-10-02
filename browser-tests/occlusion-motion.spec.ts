@@ -16,7 +16,7 @@ test('unrelated animation reuses history and in-flight transparent results inval
       occlusionCulling: true,
       shadows: true,
     });
-    const internal = renderer as any;
+    const internal = Reflect.get(renderer, 'gpu') as any;
     const asset = demoAsset();
     asset.gltf.materials!.push({
       alphaMode: 'BLEND',

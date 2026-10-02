@@ -148,7 +148,7 @@ test('weighted transparency is stable across intersecting draw/triangle order, o
           shadows: false,
           frustumCulling: false,
         });
-        const internal = renderer as unknown as {
+        const internal = Reflect.get(renderer, 'gpu') as unknown as {
           device: GPUDevice;
           output: { texture: GPUTexture };
           scene: import('../src/renderer/scene/types').Scene;

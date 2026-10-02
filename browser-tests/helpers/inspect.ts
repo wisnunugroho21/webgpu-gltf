@@ -16,7 +16,7 @@ function identity(resource: object): Readonly<{ id: number }> {
  * identity tokens for comparison, never live GPU objects, mutable arrays or setters.
  * Keep this helper out of public engine exports and production modules. */
 export function inspectRenderer(renderer: Renderer) {
-  const scene = Reflect.get(renderer, 'scene') as Scene | undefined;
+  const scene = Reflect.get(Reflect.get(renderer, 'gpu'), 'scene') as Scene | undefined;
   return Object.freeze({
     stats: Object.freeze({ ...renderer.frameStats }),
     scene: scene
@@ -58,7 +58,7 @@ export function inspectRenderer(renderer: Renderer) {
 /** Explicit instrumentation access for GPU allocation/timing tests, distinct from
  * read-only scene inspection. Browser tests already depend on this private device. */
 export function testDevice(renderer: Renderer): GPUDevice {
-  const device: unknown = Reflect.get(renderer, 'device');
+  const device: unknown = Reflect.get(Reflect.get(renderer, 'gpu'), 'device');
   if (!(device instanceof GPUDevice)) throw new Error('Renderer test device is unavailable.');
   return device;
 }

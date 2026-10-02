@@ -41,7 +41,7 @@ test('light-only and empty models retain identity through world membership chang
     const world = new World(assets);
     const light = world.createEntity({ id: 'light', model: { asset: 'light' } });
     world.createEntity({ id: 'empty', model: { asset: 'empty' } });
-    const scene = () => Reflect.get(renderer, 'scene') as Scene;
+    const scene = () => Reflect.get(Reflect.get(renderer, 'gpu'), 'scene') as Scene;
     const frame = async () => {
       world.update(0);
       if (!renderer.render(0)) throw new Error('Frame failed');

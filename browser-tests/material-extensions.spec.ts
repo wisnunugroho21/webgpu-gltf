@@ -13,7 +13,7 @@ test('extension maps decode their channels and UV transforms like equivalent fac
     document.body.append(canvas);
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
     };
     renderer.setEnvironment({ intensity: 0 });
@@ -229,7 +229,7 @@ test('glass preserves opaque HDR radiance, applies volume absorption and survive
     document.body.append(canvas);
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
-    const internal = renderer as unknown as {
+    const internal = Reflect.get(renderer, 'gpu') as unknown as {
       device: GPUDevice;
     };
     renderer.setEnvironment({ intensity: 0 });

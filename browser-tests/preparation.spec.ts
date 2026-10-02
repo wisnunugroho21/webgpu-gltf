@@ -14,7 +14,7 @@ test('overlapping scene/environment preparation stays ordered and callback failu
     document.body.append(canvas);
     const errors: string[] = [];
     const renderer = await Renderer.create(canvas, (message) => errors.push(message));
-    const internal = renderer as any;
+    const internal = Reflect.get(renderer, 'gpu') as any;
     const device: GPUDevice = internal.device;
     let depth = 0,
       maximumDepth = 0;
