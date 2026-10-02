@@ -4,9 +4,14 @@ export interface CharacterMotion {
   z: number;
   jump: boolean;
 }
+export interface CharacterCheckpoint {
+  position: Point3;
+  verticalVelocity: number;
+  grounded: boolean;
+}
 export interface CharacterBody {
-  checkpoint?(): { position: Point3; verticalVelocity: number; grounded: boolean };
-  restore?(state: { position: Point3; verticalVelocity: number; grounded: boolean }): void;
+  checkpoint?(): CharacterCheckpoint;
+  restore?(state: CharacterCheckpoint): void;
   readonly position: Point3;
   readonly grounded: boolean;
   move(motion: CharacterMotion, deltaSeconds: number): void;
@@ -19,4 +24,14 @@ export interface PhysicsAdapter {
   createCharacter(feet: Point3): CharacterBody;
   step(deltaSeconds: number): void;
   destroy(): void;
+}
+
+/** Save-capable extension used by the playable slice. Smaller physics adapters can
+ * continue implementing PhysicsAdapter without inventing checkpoint support. */
+export interface CheckpointCharacterBody extends CharacterBody {
+  checkpoint(): CharacterCheckpoint;
+  restore(state: CharacterCheckpoint): void;
+}
+export interface CheckpointPhysicsAdapter extends PhysicsAdapter {
+  createCharacter(feet: Point3): CheckpointCharacterBody;
 }

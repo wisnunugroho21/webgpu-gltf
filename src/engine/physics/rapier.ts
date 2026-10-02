@@ -1,9 +1,14 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import type { CharacterBody, CharacterMotion, PhysicsAdapter, Point3 } from './contracts';
+import type {
+  CheckpointCharacterBody,
+  CharacterMotion,
+  CheckpointPhysicsAdapter,
+  Point3,
+} from './contracts';
 
 let initialization: Promise<void> | undefined;
 /** Optional backend module: import directly to avoid pulling WASM into the viewer. */
-export class RapierPhysics implements PhysicsAdapter {
+export class RapierPhysics implements CheckpointPhysicsAdapter {
   private world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   private disposed = false;
   static async create(): Promise<RapierPhysics> {
@@ -24,7 +29,7 @@ export class RapierPhysics implements PhysicsAdapter {
       throw new Error('Invalid box shape.');
     this.world.createCollider(RAPIER.ColliderDesc.cuboid(...halfExtents).setTranslation(...center));
   }
-  createCharacter(feet: Point3): CharacterBody {
+  createCharacter(feet: Point3): CheckpointCharacterBody {
     this.assertLive();
     if (!feet.every(Number.isFinite)) throw new Error('Invalid character position.');
     const body = this.world.createRigidBody(

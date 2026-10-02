@@ -143,7 +143,10 @@ export class World {
   /** Explicit atomic structural boundary. Commands run in order on a candidate;
    * final parent presence/cycles are validated before any live entity is published.
    * Create parents later in the same batch when loading unordered scene documents. */
-  applyChanges(changes: readonly WorldChange[]): readonly Entity[] {
+  applyChanges(
+    changes: readonly WorldChange[],
+    initialize?: (entity: Entity) => void,
+  ): readonly Entity[] {
     if (!changes.length) return [];
     const candidate = this.hierarchy.clone();
     const created: Entity[] = [];
@@ -151,6 +154,9 @@ export class World {
       if (change.type === 'create') {
         const definition = entityDefinition(change.entity);
         const entity = this.makeEntity(definition);
+        // Initialize only this unpublished entity (for example playback/overrides).
+        // A failure discards the candidate before any live membership changes.
+        initialize?.(entity);
         candidate.add(entity, definition.parent, true);
         created.push(entity);
       } else if (change.type === 'reparent') candidate.reparent(change.id, change.parent, true);

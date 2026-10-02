@@ -39,6 +39,7 @@ export {
   ComponentValidationError,
   type ComponentSchema,
   type ComponentType,
+  type VersionedComponentSchema,
   type UnknownComponentPolicy,
 } from './components/registry';
 export type { EngineSystem, SystemContext } from './systems/scheduler';
@@ -58,6 +59,15 @@ export { inspectWorld } from './inspection';
 export {
   AudioScene,
   type AudioBackend,
+  type PcmAudioBackend,
   type AudioEmitter,
   type AudioListenerPose,
 } from './audio/audio-scene';
+
+export { WorldEditor } from './editor/world-editor';
+export type { EditorCommand, EditorResult } from './editor/commands';
+export type {
+  CharacterCheckpoint,
+  CheckpointCharacterBody,
+  CheckpointPhysicsAdapter,
+} from './physics/contracts';

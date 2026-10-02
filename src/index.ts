@@ -77,6 +77,7 @@ export {
   ComponentRegistry,
   ComponentValidationError,
   type ComponentSchema,
+  type VersionedComponentSchema,
   type ComponentType,
   type UnknownComponentPolicy,
 } from './engine/components/registry';
@@ -102,3 +103,15 @@ export type {
   AudioListenerPose,
 } from './engine';
 export type { MemorySnapshot, GpuTimingSnapshot } from './renderer/core/diagnostics';
+
+export { WorldEditor, type EditorCommand, type EditorResult } from './engine';
+export type {
+  PhysicsAdapter,
+  CharacterBody,
+  CharacterMotion,
+  Point3,
+  CharacterCheckpoint,
+  CheckpointCharacterBody,
+  CheckpointPhysicsAdapter,
+  PcmAudioBackend,
+} from './engine';

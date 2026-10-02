@@ -1,4 +1,4 @@
-import type { AudioBackend, AudioEmitter, AudioListenerPose, AudioPoint } from './audio-scene';
+import type { PcmAudioBackend, AudioEmitter, AudioListenerPose, AudioPoint } from './audio-scene';
 function point(value: AudioPoint): void {
   if (value.length !== 3 || !value.every(Number.isFinite))
     throw new Error('Invalid audio position.');
@@ -11,7 +11,7 @@ function direction(value: AudioPoint): AudioPoint {
 }
 /** Explicit browser backend. Construct/resume from a user gesture; autoplay policies
  * can leave the context suspended. Every source/node/cache has a scene-owned lifetime. */
-export class WebAudioBackend implements AudioBackend {
+export class WebAudioBackend implements PcmAudioBackend {
   private context = new AudioContext();
   private clips = new Map<string, AudioBuffer>();
   private emitters = new Set<AudioEmitter>();

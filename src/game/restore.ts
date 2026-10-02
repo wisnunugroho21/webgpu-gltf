@@ -22,10 +22,20 @@ export function readPendingSave(
 /** Capture the restored player controller before constructing gameplay systems:
  * their constructors establish defaults that must not overwrite the save. */
 export async function restoreGameWorld(value: string, initial: World) {
-  const restored = await loadSaveState(value, { assets: initial.models });
+  const restored = await loadSaveState(value, {
+    assets: initial.models,
+    components: initial.components,
+  });
   const playerAnimation = restored.world.getEntity('player').model?.animation.checkpoint();
   if (!playerAnimation) throw new Error('Saved player requires a model.');
-  return { ...restored, playerAnimation };
+  // Older playground saves had neither actor nor collider metadata. Keep this
+  // compatibility decision in the game restore adapter, not generic editor data.
+  const legacyBoxes = restored.world.entities.every(
+    (entity) =>
+      entity.getComponent('game.actor') === undefined &&
+      entity.getComponent('game.colliderBox') === undefined,
+  );
+  return { ...restored, playerAnimation, legacyBoxes };
 }
 export type GameRestore = Awaited<ReturnType<typeof restoreGameWorld>>;
 
@@ -48,7 +58,7 @@ export function restoreCharacter(
     !['Idle', 'Walk', 'Run'].includes(gameplay.locomotion)
   )
     throw new Error('Invalid saved character gameplay.');
-  simulation.body.restore!(gameplay.body);
+  simulation.body.restore(gameplay.body);
   simulation.footfalls = gameplay.footfalls;
   simulation.rootMotionEnabled = gameplay.rootMotion;
   simulation.locomotion.state = gameplay.locomotion;

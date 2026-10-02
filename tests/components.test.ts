@@ -94,3 +94,44 @@ test('unknown JSON round trips and registering a schema later cannot permit an i
     'already registered',
   );
 });
+
+test('opt-in versions migrate detached legacy JSON and reject future/malformed versions without publication', () => {
+  const components = new ComponentRegistry();
+  const type = components.registerVersioned<{ version: 1; role: string }>('actor', {
+    version: 1,
+    migrate(value, from) {
+      if (from !== 0 || !value || typeof value !== 'object' || Array.isArray(value))
+        throw new Error('Bad legacy actor');
+      return { ...value, version: 1 };
+    },
+    parse(value) {
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        Array.isArray(value) ||
+        typeof value.role !== 'string'
+      )
+        throw new Error('Bad actor role');
+      return { version: 1, role: value.role };
+    },
+  });
+  const source = { role: 'companion' };
+  const world = new World(undefined, components);
+  const entity = world.createEntity({ id: 'a', components: { actor: source } });
+  expect(source).toEqual({ role: 'companion' });
+  expect(entity.getComponent(type)).toEqual({ version: 1, role: 'companion' });
+  for (const version of [2, -1, 0.5, null, '1'])
+    expect(() => entity.setComponent('actor', { version, role: 'player' })).toThrow('version');
+  expect(entity.getComponent(type)!.role).toBe('companion');
+  components.registerVersioned<{ version: 1 }>('bad-migration', {
+    version: 1,
+    migrate: () => ({ version: 0 }),
+    parse: () => ({ version: 1 }),
+  });
+  expect(() => entity.setComponent('bad-migration', {})).toThrow('migration');
+  components.registerVersioned<{ version: 1 }>('bad-parser', {
+    version: 1,
+    parse: () => ({ version: 2 }) as unknown as { version: 1 },
+  });
+  expect(() => entity.setComponent('bad-parser', { version: 1 })).toThrow('parser');
+});

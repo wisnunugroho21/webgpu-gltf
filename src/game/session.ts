@@ -1,11 +1,12 @@
 import { ActionInput } from '../engine/input/actions';
 import { AssetRegistry } from '../engine/assets/registry';
-import { RapierPhysics } from '../engine/physics/rapier';
+import type { CheckpointPhysicsAdapter } from '../engine/physics/contracts';
+import { browserGameBackends, type GameBackends } from './backends';
 import { EngineRuntime } from '../engine/runtime/runtime';
 import type { World } from '../engine/world';
 import { Renderer } from '../renderer/renderer';
 import { GameControls, type GameElements } from './controls';
-import { addCompanion, createLevel } from './level';
+import { addCompanion, createLevelWorld, installLevelCollisions } from './level';
 import { CharacterSimulation } from './simulation';
 import { GamePresentation } from './presentation';
 import { readPendingSave, restoreGameWorld, restoreCharacter } from './restore';
@@ -21,7 +22,7 @@ const canvasPreparation = new WeakMap<HTMLCanvasElement, Promise<void>>();
 export class GameSession {
   private input = new ActionInput();
   private events = new AbortController();
-  private physics?: RapierPhysics;
+  private physics?: CheckpointPhysicsAdapter;
   private assets?: AssetRegistry;
   private world?: World;
   private simulation?: CharacterSimulation;
@@ -42,7 +43,10 @@ export class GameSession {
   private get busy(): boolean {
     return this.operations.size > 0;
   }
-  constructor(private view: GameElements) {}
+  constructor(
+    private view: GameElements,
+    private backends: GameBackends = browserGameBackends,
+  ) {}
 
   async start(): Promise<void> {
     if (this.started || this.disposed) throw new Error('Game session can only start once.');
@@ -54,12 +58,13 @@ export class GameSession {
       const pending = readPendingSave((message) => {
         this.view.saveStatus.textContent = message;
       });
-      this.physics = this.accept(await RapierPhysics.create());
-      this.assets = new AssetRegistry();
-      const initial = createLevel(this.physics, this.assets);
+      this.physics = this.accept(await this.backends.createPhysics());
+      this.assets = new AssetRegistry(this.backends.assets);
+      const initial = createLevelWorld(this.assets);
       const restored = pending === undefined ? undefined : await restoreGameWorld(pending, initial);
       this.ensureActive();
       const world = (this.world = restored?.world ?? initial);
+      installLevelCollisions(world, this.physics, restored?.legacyBoxes);
       const simulation = (this.simulation = new CharacterSimulation(
         world,
         this.physics,
@@ -93,6 +98,7 @@ export class GameSession {
         renderer,
         simulation,
         () => this.busy || this.disposed,
+        () => this.backends.createAudio(),
       );
       presentation.tools = this.tools;
       this.controls = new GameControls(this.view, this.input, {

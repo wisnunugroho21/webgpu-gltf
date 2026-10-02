@@ -6,14 +6,13 @@ import type { CharacterSimulation } from './simulation';
 import type { JsonValue } from '../engine/serialization/json';
 import { captureSaveState } from '../engine/serialization/save-state';
 import { inspectWorld } from '../engine/inspection';
-import { AudioScene, type AudioEmitter } from '../engine/audio/audio-scene';
-import { WebAudioBackend } from '../engine/audio/web-audio';
+import { AudioScene, type AudioEmitter, type PcmAudioBackend } from '../engine/audio/audio-scene';
 
 /** Optional application tooling, kept out of simulation and renderer ownership.
  * Storage and audio failures report locally; they do not destroy a playable world. */
 export class GameTools {
   private events = new AbortController();
-  private audio?: WebAudioBackend;
+  private audio?: PcmAudioBackend;
   private audioScene?: AudioScene;
   private footstep?: AudioEmitter;
   private lastFootfalls: number;
@@ -26,6 +25,7 @@ export class GameTools {
     private renderer: Renderer,
     private simulation: CharacterSimulation,
     private busy: () => boolean,
+    private createAudio: () => PcmAudioBackend,
   ) {
     this.lastFootfalls = simulation.footfalls;
     const options = { signal: this.events.signal };
@@ -35,7 +35,7 @@ export class GameTools {
         if (this.busy()) return;
         try {
           const saved = captureSaveState(world, runtime, {
-            body: simulation.body.checkpoint!() as unknown as JsonValue,
+            body: simulation.body.checkpoint() as unknown as JsonValue,
             footfalls: simulation.footfalls,
             rootMotion: simulation.rootMotionEnabled,
             locomotion: simulation.locomotion.state,
@@ -79,7 +79,7 @@ export class GameTools {
   }
   private async enableAudio(): Promise<void> {
     if (this.audio || this.disposed || this.busy()) return;
-    const audio = (this.audio = new WebAudioBackend());
+    const audio = (this.audio = this.createAudio());
     try {
       // Original synthesized footfall; production games can load authored clips.
       const samples = new Float32Array(4800);
@@ -92,11 +92,10 @@ export class GameTools {
       await audio.resume();
       if (this.disposed) return;
       if (this.paused) await audio.suspend();
+      if (this.disposed) return;
       document.querySelector('#audio')!.textContent = 'Audio enabled';
     } catch (error) {
-      this.audioScene?.destroy();
-      audio.destroy();
-      this.audio = undefined;
+      this.releaseAudio(audio);
       throw error;
     }
   }
@@ -137,10 +136,27 @@ export class GameTools {
       this.lastInspection = performance.now();
     }
   }
+  private releaseAudio(audio = this.audio): void {
+    if (!audio || this.audio !== audio) return;
+    const scene = this.audioScene;
+    // Clear ownership before release; pending resume/suspend failures cannot
+    // destroy an already released backend or a later replacement.
+    this.audio = undefined;
+    this.audioScene = undefined;
+    this.footstep = undefined;
+    try {
+      scene?.destroy();
+    } finally {
+      audio.destroy();
+    }
+  }
   destroy(): void {
+    if (this.disposed) return;
     this.disposed = true;
-    this.events.abort();
-    this.audioScene?.destroy();
-    this.audio?.destroy();
+    try {
+      this.events.abort();
+    } finally {
+      this.releaseAudio();
+    }
   }
 }

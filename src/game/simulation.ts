@@ -1,6 +1,9 @@
 import type { World } from '../engine/world';
 import type { ActionInput } from '../engine/input/actions';
-import type { PhysicsAdapter, CharacterBody } from '../engine/physics/contracts';
+import type {
+  CheckpointPhysicsAdapter,
+  CheckpointCharacterBody,
+} from '../engine/physics/contracts';
 import { writePhysicsPosition } from '../engine/physics/entity-pose';
 import type { EngineSystem } from '../engine/systems/scheduler';
 import { Locomotion, movement } from './locomotion';
@@ -9,7 +12,7 @@ import { Locomotion, movement } from './locomotion';
  * produces intent, physics resolves it and publishes the sole entity-root write.
  * Add other actors' movement before the shared step when expanding this slice. */
 export class CharacterSimulation {
-  readonly body: CharacterBody;
+  readonly body: CheckpointCharacterBody;
   readonly locomotion: Locomotion;
   readonly systems: readonly EngineSystem[];
   rootMotionEnabled = false;
@@ -24,7 +27,7 @@ export class CharacterSimulation {
     this.extracting = animation.checkpoint().rootMotion?.mode === 'extract';
   }
   private locomotionAnimation;
-  constructor(world: World, physics: PhysicsAdapter, input: ActionInput) {
+  constructor(world: World, physics: CheckpointPhysicsAdapter, input: ActionInput) {
     const player = world.getEntity('player');
     if (player.transformOwner !== 'physics' || !player.model)
       throw new Error('Player needs a model and a physics-owned root.');

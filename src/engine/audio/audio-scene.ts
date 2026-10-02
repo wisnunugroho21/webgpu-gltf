@@ -19,6 +19,11 @@ export interface AudioBackend {
   suspend(): Promise<void>;
   destroy(): void;
 }
+/** Content-loading extension for the original synthesized footstep clip. Backend
+ * construction/resume remains application-owned and user-gesture driven. */
+export interface PcmAudioBackend extends AudioBackend {
+  registerPCM(id: string, samples: Float32Array, sampleRate?: number): void;
+}
 /** CPU association layer. The backend owns voices; entities supply spatial roots.
  * Update after world evaluation, so hierarchy motion reaches audio in the same frame.
  * Removal stops voices even when a replacement reuses the old gameplay ID. */

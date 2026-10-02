@@ -189,3 +189,9 @@ Startup registers page-exit cancellation before its first await. Every acquired 
 ## World composition ownership
 
 `renderer/scene/world-builder.ts` stages membership, leases, slots, transform storage and commit-only uploads. `world-composition.ts` owns CPU structural draw lists/buckets and per-model prepared pipeline summaries; its `WorldComposition` contract in scene types avoids an implementation dependency cycle. Candidates reuse unaffected lists without mutating active structure, reread live bounds/winding, and allocate independent frame scratch. GPU resources remain owned by model/binding leases, and cache metadata lives only with its scene. See [profiling and cache contracts](world-composition.md).
+
+## Editor and backend boundaries
+
+`engine/editor/` owns CPU command/history/selection data. It uses Entity transforms/components and staged World membership; a host adapter owns evaluation, GPU synchronization and physics reconciliation. The versioned schema wrapper in ComponentRegistry preserves existing unversioned/unknown JSON contracts. `game/components.ts` owns actor/collider schemas shared by fresh/loaded worlds, while `game/level.ts` separates CPU content from backend collision installation.
+
+`game/backends.ts` is the browser service composition root. GameSession owns the selected checkpoint-capable physics backend, and GameTools owns a gesture-created PCM audio backend through interfaces. Base engine contracts remain available for smaller adapters. These interfaces follow existing saved character and footstep content; they do not add a generic plugin registry or replace scheduling/component storage. See [commands, versions and lifecycle contracts](editor-and-backends.md).

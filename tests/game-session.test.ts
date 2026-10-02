@@ -359,3 +359,46 @@ test('a remount also waits for canceled device recovery to release its candidate
   await pending;
   expect(order).toEqual(['recovery released', 'new created']);
 });
+
+test('session acquires an injected backend with owned lifetime and validates versioned game content on restore', async () => {
+  const factory = vi.fn(async () => harness.physics);
+  const audio = vi.fn();
+  const session = new GameSession(view, { createPhysics: factory, createAudio: audio });
+  sessions.push(session);
+  await session.start();
+  expect(factory).toHaveBeenCalledTimes(1);
+  expect(harness.createPhysics).not.toHaveBeenCalled();
+  expect(audio).not.toHaveBeenCalled();
+  const world = Reflect.get(session, 'world') as ReturnType<typeof createLevel>;
+  expect(world.getEntity('player').getComponent('game.actor')).toEqual({
+    version: 1,
+    role: 'player',
+  });
+  session.destroy();
+  expect(harness.physics.destroy).toHaveBeenCalledTimes(1);
+  const initial = createLevel(harness.physics);
+  const saved = captureSaveState(initial);
+  saved.scene.entities.find((entity) => entity.id === 'player')!.components!['game.actor'] = {
+    version: 2,
+    role: 'player',
+  };
+  storage.set('engine-game-pending', JSON.stringify(saved));
+  initial.models.destroy();
+  await expect(start().start()).rejects.toThrow('version');
+});
+
+test('legacy playground saves restore collision without requiring newer authored component metadata', async () => {
+  const initial = createLevel(harness.physics);
+  const saved = captureSaveState(initial, undefined, {
+    body: { position: [0, 0.05, 3], verticalVelocity: 0, grounded: true },
+    footfalls: 0,
+    rootMotion: false,
+    locomotion: 'Idle',
+  });
+  for (const entity of saved.scene.entities) entity.components = {};
+  storage.set('engine-game-pending', JSON.stringify(saved));
+  initial.models.destroy();
+  harness.physics.addBox.mockClear();
+  await start().start();
+  expect(harness.physics.addBox).toHaveBeenCalledTimes(8);
+});
