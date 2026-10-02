@@ -107,7 +107,7 @@ See [frame scheduling and lifecycle](docs/frame-scheduling.md) for ownership rul
 
 ## Gameplay transforms
 
-Use `entity.setTransform(patch)` for placement and `entity.model.setNodeTransform(node, patch)` for persistent per-instance local TRS overrides. `clearNodeTransform(node)` resumes animation. Getters return copies, setters validate inputs, and revisions update uploads, winding, bounds, shadows and occlusion dependencies.
+Gameplay owns entity roots by default. Explicitly hand authority to physics with `entity.setTransformOwner('physics')`, then write `entity.setTransform(patch, 'physics')`; conflicting gameplay writes reject. Animation owns model node locals. Use `entity.model.setNodeOverride(node, patch)` for deliberate per-field exceptions, inspect them with `getNodeOverride()`, and release fields with `clearNodeOverride(node, fields?)`. Existing node-transform setters retain their override behavior. `clearNodeTransform(node)` resumes animation. Getters return copies, setters validate inputs, and revisions update uploads, winding, bounds, shadows and occlusion dependencies.
 
 For a single asset, declare movable subtrees with `await renderer.setAsset(asset, { movableNodes: [node] })`, then use `renderer.setNodeTransform(node, patch)`. Undeclared nodes reject edits; unrelated static instances stay grouped. World models are already prepared for gameplay movement. See [supported transform APIs](docs/transforms.md) for animation precedence, validation, revision tracking and matrix-node limitations.
 

@@ -4,11 +4,18 @@ export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 import { transformData, type TransformData } from '../scene/transform';
 export { transformData, type TransformData } from '../scene/transform';
+export type EntityTransformOwner = 'gameplay' | 'physics';
+export function transformOwner(value: unknown): EntityTransformOwner {
+  if (value !== 'gameplay' && value !== 'physics')
+    throw new Error('Invalid entity transform owner.');
+  return value;
+}
 export interface EntityDefinition {
   id: string;
   name?: string;
   parent?: string;
   transform?: Partial<TransformData>;
+  transformOwner?: EntityTransformOwner;
   model?: { asset: string };
   components?: Record<string, JsonValue>;
 }
@@ -54,7 +61,11 @@ export function copyJson<T extends JsonValue>(value: T): T {
 
 export function entityDefinition(value: unknown): EntityDefinition {
   const source = record(value, 'Entity');
-  fields(source, ['id', 'name', 'parent', 'transform', 'model', 'components'], 'entity');
+  fields(
+    source,
+    ['id', 'name', 'parent', 'transform', 'transformOwner', 'model', 'components'],
+    'entity',
+  );
   const id = identifier(source.id);
   if (source.name !== undefined && typeof source.name !== 'string')
     throw new Error('Entity name must be a string.');
@@ -74,6 +85,9 @@ export function entityDefinition(value: unknown): EntityDefinition {
     ...(source.name !== undefined ? { name: source.name as string } : {}),
     ...(parent !== undefined ? { parent } : {}),
     transform: transformData(source.transform),
+    ...(source.transformOwner !== undefined
+      ? { transformOwner: transformOwner(source.transformOwner) }
+      : {}),
     ...(model ? { model } : {}),
     components,
   };

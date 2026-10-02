@@ -63,7 +63,7 @@ test('declared gameplay nodes leave static groups and update uploads, bounds, wi
       const oldCenter = update.draw.center[0];
       internal.occlusion.hidden.add(update.draw.firstInstance); // Simulate a stale hidden result.
       const generation = internal.occlusion.generation;
-      renderer.setNodeTransform(4, { translation: [50, 0, 0], scale: [-1, 1, 1] });
+      renderer.setNodeOverride(4, { translation: [50, 0, 0], scale: [-1, 1, 1] });
       const moved = await frame();
       const worldX = scene.pose.nodes[0].world[12];
       const mirrored = update.draw.pipeline === update.mirrored;
@@ -74,7 +74,7 @@ test('declared gameplay nodes leave static groups and update uploads, bounds, wi
       const held = await frame();
       const noOp = renderer.setNodeTransform(4, { translation: [50, 0, 0], scale: [-1, 1, 1] });
       const repeated = await frame();
-      renderer.clearNodeTransform(4);
+      renderer.clearNodeOverride(4);
       const restored = await frame();
       return {
         stats,

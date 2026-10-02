@@ -63,6 +63,8 @@ Save with `JSON.stringify(world.toDocument(), null, 2)`. Saving records gameplay
 
 ## Runtime and rendering
 
+Optional `transformOwner` in an entity definition selects `gameplay` (the default) or `physics` and round trips with scene JSON. Transfer root authority with `entity.setTransformOwner(owner)`; root setters identify the writer and reject competing writes. Animation continues to own model locals, with explicit per-field node overrides. See [transform ownership](transforms.md#ownership).
+
 Use `world.createEntity(definition)`, `world.getEntity(id)`, `entity.setTransform(patch)`, `world.setParent(id, parentId?)`, and `world.destroyEntity(id)`. Destroying an entity removes its gameplay subtree; unrelated entities and loaded models remain. Reparenting preserves local transform values. Entities without models can hold gameplay data or group other entities.
 
 Entity transforms are outside the model's authored defaults and animation hierarchy. Entity world matrices multiply model roots, including skin joints and lights. A clip switch or authored-pose reset cannot overwrite gameplay placement. Use `entity.model.animation` for independent playback. `entity.model.setNodeTransform(node, patch)` applies persistent local TRS overrides after animation, with copied getters and an explicit clear operation. [Supported transforms](transforms.md) describes validation, revisions and animation precedence. `Renderer.animation` and its forwarding methods alias the first world model for compatibility, while the single-asset viewer retains its existing behavior.

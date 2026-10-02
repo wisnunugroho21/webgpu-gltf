@@ -8,5 +8,7 @@ export {
   type SceneDocument,
   type EntityDefinition,
   type TransformData,
+  type EntityTransformOwner,
   type JsonValue,
 } from './scene-document';
+export type { TransformField } from '../scene/transform';

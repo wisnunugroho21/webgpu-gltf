@@ -86,3 +86,52 @@ test('world revisions retain gameplay edits across repeated simulation and held 
   world.update(0);
   expect(world.poseRevision).toBe(version + 2);
 });
+
+test('entity root authority has explicit handoff and survives animation, overrides and scene saving', () => {
+  const models = new ModelLibrary();
+  models.register('hero', animatedAsset(), 'hero.glb');
+  const world = new World(models);
+  const entity = world.createEntity({ id: 'player', model: { asset: 'hero' } });
+  expect(entity.transformOwner).toBe('gameplay');
+  entity.setTransform({ translation: [4, 0, 0] });
+  expect(() => entity.setTransform({ translation: [999, 0, 0] }, 'physics')).toThrow(
+    'owned by gameplay',
+  );
+  entity.setTransformOwner('physics');
+  expect(entity.transform.translation[0]).toBe(4);
+  expect(() => entity.setTransform({ translation: [999, 0, 0] })).toThrow('owned by physics');
+  entity.setTransform({ translation: [7, 0, 0] }, 'physics');
+  const model = entity.model!;
+  model.animation.setPlaying(false);
+  model.animation.select(2);
+  model.animation.seek(1);
+  world.update(0);
+  expect(model.getNodeTransform(3).translation[0]).toBe(2.5);
+  model.setNodeOverride(3, { translation: [5, 0, 0], scale: [2, 2, 2] });
+  const copy = model.getNodeOverride(3);
+  copy.translation![0] = 999;
+  expect(model.getNodeOverride(3).translation![0]).toBe(5);
+  expect(() => model.clearNodeOverride(3, ['invalid'] as any)).toThrow();
+  model.clearNodeOverride(3, ['translation']);
+  expect(model.getNodeTransform(3).translation[0]).toBe(2.5);
+  expect(model.getNodeOverride(3)).toEqual({ scale: [2, 2, 2] });
+  model.animation.crossFadeTo(-1, 1);
+  model.animation.setPlaying(true);
+  world.update(0);
+  world.update(1000);
+  expect(model.getNodeTransform(3).translation[0]).toBe(2);
+  expect(model.getNodeTransform(3).scale).toEqual([2, 2, 2]);
+  expect(entity.transform.translation[0]).toBe(7);
+  expect(model.pose.nodes[3].world[12]).toBe(9);
+  model.clearNodeOverride(3);
+  expect(model.getNodeOverride(3)).toEqual({});
+  const saved = world.toDocument();
+  expect(saved.entities[0].transformOwner).toBe('physics');
+  expect(World.fromDocument(saved, models).getEntity('player').transformOwner).toBe('physics');
+  expect(() => world.createEntity({ id: 'bad', transformOwner: 'animation' } as any)).toThrow();
+  expect(() => entity.setTransformOwner('animation' as any)).toThrow();
+  expect(entity.transformOwner).toBe('physics');
+  entity.setTransformOwner('gameplay');
+  entity.setTransform({ translation: [8, 0, 0] });
+  expect(entity.transform.translation[0]).toBe(8);
+});

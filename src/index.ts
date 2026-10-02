@@ -42,5 +42,7 @@ export {
   type SceneDocument,
   type EntityDefinition,
   type TransformData,
+  type TransformField,
+  type EntityTransformOwner,
   type JsonValue,
 } from './engine';

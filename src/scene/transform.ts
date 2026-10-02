@@ -3,6 +3,7 @@ export interface TransformData {
   rotation: number[];
   scale: number[];
 }
+export type TransformField = keyof TransformData;
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (

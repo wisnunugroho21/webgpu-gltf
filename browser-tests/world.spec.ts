@@ -175,19 +175,21 @@ test('entities render independent multi-node models with root transforms, shadow
       const initial = await frame();
       await oracle();
       const held = await frame();
-      player.model!.setNodeTransform(1, { translation: [3, 0, 0] });
+      player.model!.setNodeOverride(1, { translation: [3, 0, 0] });
       world.update(0);
       const gameplayJoint = await frame();
       await oracle();
-      player.model!.clearNodeTransform(1);
+      player.model!.clearNodeOverride(1);
       await frame();
-      group.setTransform({ translation: [1, 0, 0] });
+      group.setTransformOwner('physics');
+      group.setTransform({ translation: [1, 0, 0] }, 'physics');
       // CPU simulations may update before rendering; its persistent revision keeps
       // this root change visible even though the renderer evaluates the same time.
       world.update(0);
       const moved = await frame();
       await oracle();
       const nodeWorld = player.model!.pose.nodes[3].world[12];
+      group.setTransformOwner('gameplay');
       player.model!.animation.select(1);
       player.model!.animation.seek(2);
       npc.model!.animation.select(0);

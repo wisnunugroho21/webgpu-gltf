@@ -2,7 +2,7 @@ import { mat4, quat, type ReadonlyMat4 } from 'gl-matrix';
 import type { Asset } from '../gltf/types';
 import { prepareClips, type Clip } from '../animation/tracks';
 import { PoseMixer, clonePose, type BlendSample } from '../animation/blending';
-import { transformData, type TransformData } from './transform';
+import { transformData, type TransformData, type TransformField } from './transform';
 
 /** Immutable glTF defaults plus reusable mutable pose arrays. Switching clips resets all
  * properties, including those a previous clip animated but the new clip does not. */
@@ -156,6 +156,15 @@ export class Pose {
       scale: [...node.scale],
     };
   }
+  /** Inspect deliberate ownership exceptions; returned fields are detached copies. */
+  getNodeOverride(index: number): Partial<TransformData> {
+    this.transformNode(index);
+    const result: Partial<TransformData> = {};
+    const override = this.overrides.get(index);
+    for (const field of ['translation', 'rotation', 'scale'] as const)
+      if (override?.[field]) result[field] = [...override[field]];
+    return result;
+  }
   /** Persistent absolute local overrides, applied after animation per supplied field.
    * Empty patches are no-ops; unmentioned fields continue following animation. */
   setNodeTransform(index: number, patch: Partial<TransformData>): boolean {
@@ -173,10 +182,30 @@ export class Pose {
     this.selectionKey = '\u0000';
     return this.evaluateBlend(this.currentSamples);
   }
-  /** Resume animation/authored values for every overridden TRS field on this node. */
-  clearNodeTransform(index: number): boolean {
+  /** Return selected fields to animation/authored values; omission clears all.
+   * Validate the complete request before releasing any field ownership. */
+  clearNodeTransform(index: number, fields?: readonly TransformField[]): boolean {
     this.transformNode(index);
-    if (!this.overrides.delete(index)) return false;
+    if (
+      fields !== undefined &&
+      (!Array.isArray(fields) ||
+        fields.some((field) => !['translation', 'rotation', 'scale'].includes(field)))
+    )
+      throw new Error('Unknown node override field.');
+    const previous = this.overrides.get(index);
+    if (!previous) return false;
+    if (fields === undefined) this.overrides.delete(index);
+    else {
+      const next = { ...previous };
+      let removed = false;
+      for (const field of fields as readonly TransformField[]) {
+        removed ||= next[field] !== undefined;
+        delete next[field];
+      }
+      if (!removed) return false;
+      if (Object.keys(next).length) this.overrides.set(index, next);
+      else this.overrides.delete(index);
+    }
     this.selectionKey = '\u0000';
     return this.evaluateBlend(this.currentSamples);
   }

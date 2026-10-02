@@ -1,5 +1,32 @@
 # Supported gameplay transforms
 
+## Ownership
+
+| Transform            | Default writer                     | Explicit exception                             |
+| -------------------- | ---------------------------------- | ---------------------------------------------- |
+| Entity local root    | Gameplay, or physics after handoff | `setTransformOwner()` transfers root authority |
+| Model node locals    | Animation and authored defaults    | Per-field `setNodeOverride()`                  |
+| Model world matrices | World/pose hierarchy evaluation    | Derived values, read through copies            |
+
+Entities default to `transformOwner: 'gameplay'`. Use `entity.setTransformOwner('physics')` to hand placement to a physics system; then that system writes `entity.setTransform(patch, 'physics')`. Ordinary `setTransform(patch)` identifies a gameplay writer and rejects writes while physics owns the root. Handoff preserves the current transform. Hand back explicitly with `setTransformOwner('gameplay')`. Applications decide when to transfer ownership; there is no automatic rigid-body integration. Parent composition still applies, so root patches are entity-local TRS, not world-space physics poses.
+
+```ts
+player.setTransformOwner('physics');
+// After physics simulation, before world evaluation/rendering:
+player.setTransform({ translation: bodyLocalPosition, rotation: bodyLocalRotation }, 'physics');
+// Deliberate exception within this animated model:
+player.model!.setNodeOverride(handNode, { rotation: handRotation });
+player.model!.clearNodeOverride(handNode, ['rotation']);
+```
+
+Animation never writes entity roots, regardless of clip selection, crossfades or authored-pose reset. Animated glTF root-node motion remains internal to the model; it is not automatically extracted into physics/entity movement. Pose evaluation composes entity placement with animated model locals.
+
+`getNodeOverride(node)` returns copied active override fields; an empty object means animation owns all three TRS fields. `setNodeOverride(node, patch)` explicitly claims only the supplied fields. `clearNodeOverride(node, fields?)` returns selected fields to animation, or clears every field when omitted. Rotation can therefore return to animation while a scale override persists. Clearing resumes the latest sampled animation, including paused poses and fades. `setNodeTransform`/`clearNodeTransform` retain their existing override behavior for compatibility. Single-asset rendering provides the same explicit override methods with its existing `movableNodes` requirement.
+
+Scene JSON optionally stores `transformOwner: 'gameplay' | 'physics'`; omitted values mean gameplay. Physics ownership round trips with root placement. Model overrides remain per-instance runtime state, separate from shared assets/clips and scene root ownership.
+
+## Placement and node edits
+
 Move a whole gameplay object with `entity.setTransform(patch)`. Its placement lives outside the model's glTF node hierarchy and animation defaults. Entity parents propagate movement to child entities; mirrored entity scales also select the skinned model's winding variant. Gameplay may call `world.update(timestampMs)` before rendering; repeating that timestamp never loses a pending pose change.
 
 ```ts

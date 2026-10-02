@@ -1,5 +1,5 @@
 import type { Asset } from '../gltf/types';
-import type { TransformData } from '../scene/transform';
+import type { TransformData, TransformField } from '../scene/transform';
 import { OrbitCamera } from './camera/orbit-camera';
 import { SceneBindings } from './core/bindings';
 import { Resources } from './core/resources';
@@ -304,6 +304,15 @@ export class Renderer {
   }
   clearNodeTransform(node: number): boolean {
     return this.transformPose(node).clearNodeTransform(node);
+  }
+  getNodeOverride(node: number): Partial<TransformData> {
+    return this.transformPose(node).getNodeOverride(node);
+  }
+  setNodeOverride(node: number, patch: Partial<TransformData>): boolean {
+    return this.transformPose(node).setNodeTransform(node, patch);
+  }
+  clearNodeOverride(node: number, fields?: readonly TransformField[]): boolean {
+    return this.transformPose(node).clearNodeTransform(node, fields);
   }
 
   /** Attach an engine world without merging its entities into glTF node definitions.

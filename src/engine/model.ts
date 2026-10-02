@@ -3,7 +3,7 @@ import { Pose } from '../scene/pose';
 import { AnimationController } from '../animation/controller';
 import { identifier } from './scene-document';
 import { LoadedModel } from './loaded-model';
-import type { TransformData } from '../scene/transform';
+import type { TransformData, TransformField } from '../scene/transform';
 
 /** Loaded bytes/definitions are shared, but mutable model poses and playback are
  * instance-owned. Device-specific GPU resources are acquired separately by the renderer. */
@@ -60,5 +60,16 @@ export class ModelInstance {
   }
   clearNodeTransform(node: number): boolean {
     return this.pose.clearNodeTransform(node);
+  }
+  /** Animation owns node locals by default; these methods explicitly claim only
+   * supplied fields, for IK, aim offsets or other application-controlled poses. */
+  getNodeOverride(node: number): Partial<TransformData> {
+    return this.pose.getNodeOverride(node);
+  }
+  setNodeOverride(node: number, patch: Partial<TransformData>): boolean {
+    return this.pose.setNodeTransform(node, patch);
+  }
+  clearNodeOverride(node: number, fields?: readonly TransformField[]): boolean {
+    return this.pose.clearNodeTransform(node, fields);
   }
 }

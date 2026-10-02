@@ -3,6 +3,8 @@ import type { ModelInstance } from './model';
 import {
   copyJson,
   transformData,
+  transformOwner,
+  type EntityTransformOwner,
   type EntityDefinition,
   type JsonValue,
   type TransformData,
@@ -15,6 +17,7 @@ export class Entity {
   private components: Record<string, JsonValue>;
   private world = mat4.create();
   private local = mat4.create();
+  private owner: EntityTransformOwner;
   constructor(
     readonly id: string,
     readonly name: string | undefined,
@@ -22,6 +25,7 @@ export class Entity {
     readonly model?: ModelInstance,
   ) {
     this.value = transformData(definition.transform);
+    this.owner = transformOwner(definition.transformOwner ?? 'gameplay');
     this.components = copyJson(definition.components ?? {});
   }
   get transform(): TransformData {
@@ -30,7 +34,17 @@ export class Entity {
   get worldMatrix(): mat4 {
     return mat4.clone(this.world);
   }
-  setTransform(patch: Partial<TransformData>): void {
+  get transformOwner(): EntityTransformOwner {
+    return this.owner;
+  }
+  /** Explicit handoff prevents gameplay and physics from silently competing for
+   * the same root. Handoff preserves placement; it never writes animation locals. */
+  setTransformOwner(owner: EntityTransformOwner): void {
+    this.owner = transformOwner(owner);
+  }
+  setTransform(patch: Partial<TransformData>, writer: EntityTransformOwner = 'gameplay'): void {
+    if (transformOwner(writer) !== this.owner)
+      throw new Error(`Entity ${this.id} root is owned by ${this.owner}, not ${writer}.`);
     this.value = transformData({ ...this.value, ...patch });
   }
   getComponent(key: string): JsonValue | undefined {
@@ -66,6 +80,7 @@ export class Entity {
       ...(this.name !== undefined ? { name: this.name } : {}),
       ...(parent !== undefined ? { parent } : {}),
       transform: this.transform,
+      ...(this.owner === 'physics' ? { transformOwner: this.owner } : {}),
       ...(this.model ? { model: { asset: this.model.assetId } } : {}),
       components: copyJson(this.components),
     };
