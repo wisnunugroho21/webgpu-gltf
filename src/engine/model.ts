@@ -1,39 +1,13 @@
 import type { Asset } from '../gltf/types';
 import { Pose } from '../scene/pose';
 import { AnimationController } from '../animation/controller';
-import { identifier } from './scene-document';
+import { AssetRegistry } from './assets/registry';
 import { LoadedModel } from './loaded-model';
 import type { TransformData, TransformField } from '../scene/transform';
 
 /** Loaded bytes/definitions are shared, but mutable model poses and playback are
  * instance-owned. Device-specific GPU resources are acquired separately by the renderer. */
-export class ModelLibrary {
-  private records = new Map<string, { model: LoadedModel; uri: string }>();
-  private loaded = new WeakMap<Asset, LoadedModel>();
-  register(id: string, asset: Asset, uri: string): void {
-    identifier(id);
-    identifier(uri);
-    if (this.records.has(id)) throw new Error(`Model asset ${id} is already registered.`);
-    let model = this.loaded.get(asset);
-    if (!model) {
-      model = new LoadedModel(asset);
-      this.loaded.set(asset, model);
-    }
-    this.records.set(id, { model, uri });
-  }
-  get(id: string): Asset {
-    return this.getModel(id).asset;
-  }
-  /** Resolve shared CPU resources; get() remains compatible with asset consumers. */
-  getModel(id: string): LoadedModel {
-    const record = this.records.get(id);
-    if (!record) throw new Error(`Model asset ${id} is not loaded.`);
-    return record.model;
-  }
-  references(): Record<string, string> {
-    return Object.fromEntries([...this.records].map(([id, record]) => [id, record.uri]));
-  }
-}
+export class ModelLibrary extends AssetRegistry {}
 
 export class ModelInstance {
   readonly resources: LoadedModel;

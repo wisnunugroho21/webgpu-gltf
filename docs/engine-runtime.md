@@ -63,6 +63,10 @@ The [Phase 1 baseline](baselines/migration-phase1-2026-10-02.json) records all t
 
 The viewer owns `OrbitInput` and removes its DOM listeners during teardown. `renderViewerFrame()` evaluates the current single asset or attached world, then renders it. `ViewerRenderLoop` still owns only RAF lifecycle; `Viewer` composes these adapters and routes evaluation failures through its application error path. Seek, pause, clip blending, orbit/reset and resize retain their previous viewer behavior. Engines need no viewer imports.
 
+## CPU system services
+
+`RuntimeOptions.systems` supplies ordered gameplay, physics and presentation systems with initialization and reverse-order cleanup. Systems run before the corresponding legacy hook; presentation systems precede visual pose evaluation. Runtime destruction owns system cleanup while World/asset/renderer lifetimes remain application-owned. See [engine services](engine-services.md) for the synchronous callback contract and typed component/asset APIs.
+
 ## Regression coverage
 
 `tests/runtime.test.ts` checks headless order, fixed-step bounds, dropped time, pause/resume, held/skipped pose revisions, profiling isolation, clock validation and CPU camera depth/aspect behavior. Architecture tests prevent rendering from evaluating animation/world state or attaching input listeners. `browser-tests/engine-presentation.spec.ts` verifies externally evaluated skin/morph poses, repeated renders at different timestamps, skipped frames, direct joint overrides, engine follow views, aspect rejection and resize on a real GPU. Existing viewer, phase-order, transform, shadow, deformation and visibility regressions use the external viewer policy where animation evaluation is needed.

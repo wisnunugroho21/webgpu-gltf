@@ -122,7 +122,7 @@ For a single asset, declare movable subtrees with `await renderer.setAsset(asset
 
 ## Game entities and model instances
 
-`World` stores gameplay entities identified by strings. An entity may instantiate one glTF model containing many mesh, joint and light nodes; those node indices stay local to that `ModelInstance`. Entity hierarchy, placement and component data remain outside glTF. Iterative cached traversal and effective world revisions evaluate changed branches only; held entity roots perform no matrix work. Multiple entities can reference one loaded `Asset`, while each instance owns its pose and animation controller. Selecting an authored pose or crossfading changes model locals without resetting entity placement.
+`World` stores gameplay entities identified by strings. `AssetRegistry` adds shared loading, cancellation/retry and explicit CPU cache leases; `ComponentRegistry` adds typed schemas and preserve/reject policies for unknown JSON. `EngineRuntime` accepts ordered CPU systems. See [asset, component and system services](docs/engine-services.md) for API examples and lifetime rules. An entity may instantiate one glTF model containing many mesh, joint and light nodes; those node indices stay local to that `ModelInstance`. Entity hierarchy, placement and component data remain outside glTF. Iterative cached traversal and effective world revisions evaluate changed branches only; held entity roots perform no matrix work. Multiple entities can reference one loaded `Asset`, while each instance owns its pose and animation controller. Selecting an authored pose or crossfading changes model locals without resetting entity placement.
 
 ```ts
 import { World, ModelLibrary, Renderer, loadUrl } from './src';

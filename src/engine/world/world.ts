@@ -1,3 +1,5 @@
+import { AssetRegistry } from '../assets/registry';
+import { ComponentRegistry } from '../components/registry';
 import { ModelInstance, ModelLibrary } from '../model';
 import {
   entityDefinition,
@@ -53,7 +55,10 @@ export class World {
     syncedModelRoots: 0,
     traversalRebuilds: 0,
   };
-  constructor(readonly models = new ModelLibrary()) {}
+  constructor(
+    readonly models: AssetRegistry = new ModelLibrary(),
+    readonly components = new ComponentRegistry(),
+  ) {}
   get structureRevision(): number {
     return this.structure;
   }
@@ -79,10 +84,28 @@ export class World {
     if (this.hierarchy.has(entity)) this.dirty.add(entity);
   };
   private makeEntity(definition: EntityDefinition): Entity {
-    const model = definition.model
-      ? new ModelInstance(definition.model.asset, this.models.getModel(definition.model.asset))
-      : undefined;
-    return new Entity(definition.id, definition.name, definition, model, this.markDirty);
+    let model: ModelInstance | undefined;
+    if (definition.model) {
+      try {
+        model = new ModelInstance(
+          definition.model.asset,
+          this.models.getModel(definition.model.asset),
+        );
+      } catch (cause) {
+        throw new Error(
+          `entities[${JSON.stringify(definition.id)}].model.asset (${definition.model.asset}): ${cause instanceof Error ? cause.message : String(cause)}`,
+          { cause },
+        );
+      }
+    }
+    return new Entity(
+      definition.id,
+      definition.name,
+      definition,
+      model,
+      this.markDirty,
+      this.components,
+    );
   }
   createEntity(source: EntityDefinition): Entity {
     const definition = entityDefinition(source);
@@ -243,21 +266,31 @@ export class World {
     }
   }
   toDocument(): SceneDocument {
+    const assets = this.models.references();
+    for (const entity of this.hierarchy.values())
+      if (entity.model && !Object.hasOwn(assets, entity.model.assetId))
+        throw new Error(
+          `entities[${JSON.stringify(entity.id)}].model.asset: declaration ${entity.model.assetId} was forgotten; preserve it with cache eviction instead.`,
+        );
     return {
       version: 1,
-      assets: this.models.references(),
+      assets,
       entities: this.entities.map((entity) =>
         entity.definition(this.hierarchy.parentId(entity.id)),
       ),
     };
   }
-  static fromDocument(value: unknown, models: ModelLibrary): World {
-    const document = parseSceneDocument(value);
+  static fromDocument(
+    value: unknown,
+    models: AssetRegistry,
+    components = new ComponentRegistry(),
+  ): World {
+    const document = parseSceneDocument(value, components);
     const references = models.references();
     for (const [id, uri] of Object.entries(document.assets))
       if (references[id] !== uri)
         throw new Error(`Model library does not match scene asset ${id}.`);
-    const world = new World(models);
+    const world = new World(models, components);
     world.applyChanges(document.entities.map((entity) => ({ type: 'create', entity })));
     world.updateTransforms();
     return world;

@@ -5,6 +5,8 @@ import { CompressionRuntime } from './compression/runtime';
 import type { TextureCompression } from './compression/textures';
 
 export interface LoadOptions {
+  /** Cancels fetches; decode stages check cancellation before publishing an asset. */
+  signal?: AbortSignal;
   /** Defaults to portable RGBA8; pass renderer.textureCompression to avoid a second transcode. */
   textureCompression?: readonly TextureCompression[];
 }
@@ -46,8 +48,8 @@ export function parseGlb(data: ArrayBuffer): { gltf: Gltf; bin?: ArrayBuffer } {
   return { gltf, bin };
 }
 
-async function fetchBytes(url: string): Promise<ArrayBuffer> {
-  const response = await fetch(url);
+async function fetchBytes(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(`Could not load ${url}: HTTP ${response.status}`);
   return response.arrayBuffer();
 }
@@ -55,8 +57,8 @@ async function fetchBytes(url: string): Promise<ArrayBuffer> {
 export async function loadUrl(url: string, options: LoadOptions = {}): Promise<Asset> {
   const absolute = new URL(url, location.href);
   return load(
-    await fetchBytes(absolute.href),
-    (uri) => fetchBytes(new URL(uri, absolute).href),
+    await fetchBytes(absolute.href, options.signal),
+    (uri) => fetchBytes(new URL(uri, absolute).href, options.signal),
     options,
   );
 }
@@ -69,7 +71,7 @@ export async function loadFiles(files: File[], options: LoadOptions = {}): Promi
   return load(
     await models[0].arrayBuffer(),
     async (uri) => {
-      if (uri.startsWith('data:')) return fetchBytes(uri);
+      if (uri.startsWith('data:')) return fetchBytes(uri, options.signal);
       const name = decodeURIComponent(uri).replace(/\\/g, '/');
       const file = byName.get(name) ?? byName.get(name.split('/').pop()!);
       if (!file) throw new Error(`Missing ${uri}. Select this dependency alongside the model.`);
@@ -80,6 +82,7 @@ export async function loadFiles(files: File[], options: LoadOptions = {}): Promi
 }
 
 async function load(data: ArrayBuffer, resolve: Resolve, options: LoadOptions): Promise<Asset> {
+  options.signal?.throwIfAborted();
   const { gltf, bin } =
     data.byteLength >= 4 && new DataView(data).getUint32(0, true) === 0x46546c67
       ? parseGlb(data)
@@ -128,6 +131,7 @@ async function load(data: ArrayBuffer, resolve: Resolve, options: LoadOptions): 
       )
         throw new Error(`Invalid bufferView ${index}.`);
     }
+    options.signal?.throwIfAborted();
     await decodeDraco(gltf, buffers, runtime);
     const images = await Promise.all(
       (gltf.images ?? []).map(async (image) => {
@@ -158,6 +162,7 @@ async function load(data: ArrayBuffer, resolve: Resolve, options: LoadOptions): 
         );
       texture.source = source;
     }
+    options.signal?.throwIfAborted();
     return { gltf, buffers, images, decodedImages, warnings };
   } finally {
     runtime.dispose();

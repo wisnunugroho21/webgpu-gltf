@@ -59,3 +59,21 @@ export {
 } from './engine';
 
 export type { RenderInstanceHandle } from './engine/rendering/instance-slots';
+
+export {
+  AssetRegistry,
+  AssetLoadError,
+  type AssetResolver,
+  type AssetRegistryOptions,
+  type AssetLoadOptions,
+  type AssetLease,
+} from './engine/assets/registry';
+export {
+  ComponentRegistry,
+  ComponentValidationError,
+  type ComponentSchema,
+  type ComponentType,
+  type UnknownComponentPolicy,
+} from './engine/components/registry';
+export type { EngineSystem, SystemContext } from './engine/systems/scheduler';
+export type { LoadWorldOptions } from './engine/load-world';

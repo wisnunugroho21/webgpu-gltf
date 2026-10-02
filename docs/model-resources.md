@@ -47,3 +47,7 @@ There is no permanent unused-asset GPU cache. Removing an entity from `World` re
 ## Verification
 
 `tests/world.test.ts` verifies shared clip/key identities, frozen animation data, asset aliases and independent sampling/playback. `tests/resources.test.ts` covers shared loads, overlapping scene ownership, final eviction, idempotent release, failed loading and disposal during asynchronous creation. `browser-tests/world.spec.ts` verifies shared buffer/material/pipeline identities across independently animated entities, independent GPU outputs against the CPU oracle, complete opaque groups, retained inputs across spawn/destruction commits, and final release on an empty-world replacement. Existing viewer, animation, compression and material tests cover the single-asset path.
+
+## CPU registry retention
+
+`AssetRegistry` (and compatible `ModelLibrary`) owns CPU cache retention independently of GPU model leases. Registry eviction preserves URI metadata and live instance references; optional CPU leases pin cache entries. Disposal rejects new registry use and cancels pending subscribers without releasing existing GPU attachments. See [engine services](engine-services.md) for loading, retry, cancellation and lifetime policies.

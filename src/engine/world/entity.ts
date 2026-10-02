@@ -1,7 +1,11 @@
+import {
+  ComponentRegistry,
+  ComponentValidationError,
+  type ComponentType,
+} from '../components/registry';
 import { mat4, type quat, type vec3 } from 'gl-matrix';
 import type { ModelInstance } from '../model';
 import {
-  copyJson,
   transformData,
   transformOwner,
   type EntityTransformOwner,
@@ -47,10 +51,14 @@ export class Entity {
     definition: EntityDefinition,
     readonly model?: ModelInstance,
     private onTransform?: (entity: Entity) => void,
+    private componentRegistry = new ComponentRegistry(),
   ) {
     this.value = transformData(definition.transform);
     this.owner = transformOwner(definition.transformOwner ?? 'gameplay');
-    this.components = copyJson(definition.components ?? {});
+    this.components = this.componentRegistry.validateAll(
+      definition.components ?? {},
+      `entities[${JSON.stringify(this.id)}]`,
+    );
   }
   get transform(): TransformData {
     return transformData(this.value);
@@ -80,19 +88,47 @@ export class Entity {
     this.localVersion++;
     this.onTransform?.(this);
   }
-  getComponent(key: string): JsonValue | undefined {
-    return Object.hasOwn(this.components, key) ? copyJson(this.components[key]) : undefined;
+  getComponent<T>(type: ComponentType<T>): T | undefined;
+  getComponent(key: string): JsonValue | undefined;
+  getComponent(keyOrType: string | ComponentType<unknown>): unknown {
+    if (typeof keyOrType !== 'string') this.componentRegistry.assertType(keyOrType);
+    const key = typeof keyOrType === 'string' ? keyOrType : keyOrType.key;
+    return Object.hasOwn(this.components, key)
+      ? this.componentRegistry.validate(
+          key,
+          this.components[key],
+          `entities[${JSON.stringify(this.id)}].components[${JSON.stringify(key)}]`,
+        )
+      : undefined;
   }
-  setComponent(key: string, value: JsonValue): void {
+  requireComponent<T>(type: ComponentType<T>): T {
+    const value = this.getComponent(type);
+    if (value === undefined)
+      throw new ComponentValidationError(
+        `entities[${JSON.stringify(this.id)}].components[${JSON.stringify(type.key)}]`,
+        new Error('Required component is missing.'),
+      );
+    return value;
+  }
+  setComponent<T>(type: ComponentType<T>, value: T): void;
+  setComponent(key: string, value: JsonValue): void;
+  setComponent(keyOrType: string | ComponentType<unknown>, value: unknown): void {
+    if (typeof keyOrType !== 'string') this.componentRegistry.assertType(keyOrType);
+    const key = typeof keyOrType === 'string' ? keyOrType : keyOrType.key;
     Object.defineProperty(this.components, key, {
-      value: copyJson(value),
+      value: this.componentRegistry.validate(
+        key,
+        value,
+        `entities[${JSON.stringify(this.id)}].components[${JSON.stringify(key)}]`,
+      ),
       enumerable: true,
       writable: true,
       configurable: true,
     });
   }
-  removeComponent(key: string): void {
-    delete this.components[key];
+  removeComponent(keyOrType: string | ComponentType<unknown>): void {
+    if (typeof keyOrType !== 'string') this.componentRegistry.assertType(keyOrType);
+    delete this.components[typeof keyOrType === 'string' ? keyOrType : keyOrType.key];
   }
   /** Internal world evaluation borrows the parent's matrix within this class;
    * public getters still return copies. Local matrices survive parent-only motion. */
@@ -145,7 +181,10 @@ export class Entity {
       transform: this.transform,
       ...(this.owner === 'physics' ? { transformOwner: this.owner } : {}),
       ...(this.model ? { model: { asset: this.model.assetId } } : {}),
-      components: copyJson(this.components),
+      components: this.componentRegistry.validateAll(
+        this.components,
+        `entities[${JSON.stringify(this.id)}]`,
+      ),
     };
   }
 }

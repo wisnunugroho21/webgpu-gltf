@@ -24,3 +24,21 @@ export {
 export type { TransformField } from '../scene/transform';
 
 export type { RenderInstanceHandle } from './rendering/instance-slots';
+
+export {
+  AssetRegistry,
+  AssetLoadError,
+  type AssetResolver,
+  type AssetRegistryOptions,
+  type AssetLoadOptions,
+  type AssetLease,
+} from './assets/registry';
+export {
+  ComponentRegistry,
+  ComponentValidationError,
+  type ComponentSchema,
+  type ComponentType,
+  type UnknownComponentPolicy,
+} from './components/registry';
+export type { EngineSystem, SystemContext } from './systems/scheduler';
+export type { LoadWorldOptions } from './load-world';

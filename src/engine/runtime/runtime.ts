@@ -1,17 +1,9 @@
 import type { World } from '../world';
 
-export interface SimulationStep {
-  readonly deltaSeconds: number;
-  readonly simulationTimeMs: number;
-}
-export interface EngineFrame {
-  readonly simulationTimeMs: number;
-  readonly presentationTimeMs: number;
-  readonly alpha: number;
-  readonly steps: number;
-  readonly droppedMs: number;
-  readonly paused: boolean;
-}
+import type { SimulationStep, EngineFrame } from './types';
+export type { SimulationStep, EngineFrame } from './types';
+import { SystemScheduler, type EngineSystem } from '../systems/scheduler';
+
 export interface RuntimeHooks {
   captureInput?(wallTimestampMs: number): void;
   gameplay?(step: SimulationStep): void;
@@ -22,6 +14,7 @@ export interface RuntimeHooks {
   present?(frame: EngineFrame): void;
 }
 export interface RuntimeOptions {
+  systems?: readonly EngineSystem[];
   stepMs?: number;
   maxSteps?: number;
   maxFrameMs?: number;
@@ -35,6 +28,8 @@ export class EngineRuntime {
   private simulationTime = 0;
   private paused = false;
   private disposed = false;
+  private advancing = false;
+  private systems: SystemScheduler;
   readonly stepMs: number;
   readonly maxSteps: number;
   readonly maxFrameMs: number;
@@ -52,6 +47,7 @@ export class EngineRuntime {
       this.maxSteps < 1
     )
       throw new Error('Invalid fixed-step runtime options.');
+    this.systems = new SystemScheduler(world, options.systems ?? []);
   }
   pause(): void {
     if (!this.paused) {
@@ -66,7 +62,9 @@ export class EngineRuntime {
     }
   }
   destroy(): void {
+    if (this.disposed) return;
     this.disposed = true;
+    this.systems.destroy();
   }
   advance(timestampMs: number): EngineFrame {
     if (this.disposed) throw new Error('Engine runtime is disposed.');
@@ -75,6 +73,16 @@ export class EngineRuntime {
       (this.lastTimestamp !== undefined && timestampMs < this.lastTimestamp)
     )
       throw new Error('Engine timestamps must be finite and monotonic.');
+    if (this.advancing) throw new Error('Engine advance cannot be reentrant.');
+    this.advancing = true;
+    try {
+      this.systems.initialize();
+      return this.advanceFrame(timestampMs);
+    } finally {
+      this.advancing = false;
+    }
+  }
+  private advanceFrame(timestampMs: number): EngineFrame {
     this.hooks.captureInput?.(timestampMs);
     const elapsed =
       this.paused || this.lastTimestamp === undefined ? 0 : timestampMs - this.lastTimestamp;
@@ -89,7 +97,9 @@ export class EngineRuntime {
         deltaSeconds: this.stepMs / 1000,
         simulationTimeMs: this.simulationTime,
       });
+      this.systems.fixedUpdate('gameplay', step);
       this.hooks.gameplay?.(step);
+      this.systems.fixedUpdate('physics', step);
       this.hooks.physics?.(step);
       steps++;
     }
@@ -107,6 +117,7 @@ export class EngineRuntime {
       droppedMs,
       paused: this.paused,
     });
+    this.systems.presentationUpdate(frame);
     this.hooks.preparePresentation?.(frame);
     this.world.update(frame.presentationTimeMs);
     this.hooks.present?.(frame);
