@@ -80,6 +80,12 @@ export class World {
   getEntity(id: string): Entity {
     return this.hierarchy.get(id);
   }
+  /** Inspect current parent identity without serializing/traversing the world.
+   * Physics adapters must convert world poses using the current parent each step. */
+  getParent(id: string): Entity | undefined {
+    const parent = this.hierarchy.parentId(this.getEntity(id).id);
+    return parent === undefined ? undefined : this.getEntity(parent);
+  }
   private markDirty = (entity: Entity): void => {
     if (this.hierarchy.has(entity)) this.dirty.add(entity);
   };

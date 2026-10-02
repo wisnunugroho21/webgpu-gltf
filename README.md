@@ -45,6 +45,10 @@ Environment lighting starts with an original, generated HDR **Studio** panorama.
 
 ## Code map
 
+The **Phase 5 playable slice** is available at `/game.html` after `pnpm dev` (and in the production build). Move with WASD/arrows, hold Shift to run, and press Space to jump. It includes collision/steps, a follow camera, Idle/Walk/Run blending, pause/resume and companion spawn/despawn with shared assets and independent GPU deformation output. Generated glTF assets need no remote downloads. The viewer remains at `/`.
+
+See [playable code and lifecycle](docs/playable-slice.md) and the separate [physics backend evaluation](docs/physics-backend.md). Rapier 0.21.0 supplies WASM collision through an adapter; its game-only compatibility entry is approximately 1.66 MB gzip. Comments explain input consumption, root ownership, gameplay/physics order and retained membership. Run `pnpm test:browser:offline game.spec.ts` for playable integration checks.
+
 The project separates asset decoding (`gltf`), CPU pose/animation (`scene` and `animation`), gameplay worlds (`engine`), WebGPU rendering (`renderer`), and browser UI (`app`). See [Architecture and maintenance](docs/architecture.md) for dependency rules, resource ownership, frame phases, and extension points.
 
 See the [October 2026 code review](docs/review.md) for verified fixes, test results, remaining feature gaps, and a prioritized maintenance plan. Scene and environment GPU preparation now share a device-scoped transaction queue; overlapping public API calls validate and commit in order while failed candidates release their allocations. Core material factors are validated before texture preparation.

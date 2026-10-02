@@ -6,7 +6,7 @@ Evolve the current renderer into a browser game engine through small, verified c
 
 This document combines implemented migration phases with the remaining plan. APIs, modules and systems in unfinished phases are proposals. The [current review](review-2026-10-02.md) records existing capabilities and verification.
 
-Phase 0 safeguards, Phase 1 engine-owned updates/cameras, Phase 2 scalable world hierarchy, Phase 3 retained rendering membership and Phase 4 asset/component/system services are implemented; see [engine runtime and cameras](engine-runtime.md) for the new update/render contract; see the [migration safeguards guide](migration-safeguards.md) for commands, CI provisioning and baseline measurements. See [world hierarchy](world-hierarchy.md) for Phase 2 APIs and measurements. See [retained rendering membership](rendering-membership.md) for Phase 3 synchronization and allocation measurements. See [engine services](engine-services.md) for Phase 4 APIs and lifetime policies. Phases 5 onward remain proposed work.
+Phases 0–5 are implemented: safeguards, engine-owned updates/cameras, scalable hierarchy, retained membership, asset/component/system services, and the playable character slice. See [runtime](engine-runtime.md), [migration safeguards](migration-safeguards.md), [hierarchy](world-hierarchy.md), [retained membership](rendering-membership.md), [services](engine-services.md), and [playable slice](playable-slice.md) for APIs and verification. Phases 6 onward remain proposed work.
 
 ## Architecture and ownership contract
 
@@ -96,6 +96,8 @@ Create directories when implementing their responsibilities. Preserve public exp
 
 ## Phase 5 — Deliver the playable vertical slice
 
+**Implemented:** `/game.html` runs original local glTF characters/level through action input, registered gameplay/physics systems, the Rapier adapter and explicit follow-camera rendering. Parent-local position conversion, pause/suspension and retained companion membership have CPU/GPU coverage. See [implementation and limitations](playable-slice.md) and [backend evaluation](physics-backend.md), including measured bundle cost. The character uses rigid limb animation and compute morph breathing; anime assets/retargeting remain Phase 6 scope.
+
 **Changes:** add action-based input, a physics integration adapter, collision shapes and a character movement/controller system. Define conversion between physics world poses and entity-local roots under parents. Add an idle/walk/run animation state machine and a follow camera. Create `game/` with one level and two instances of a character model.
 
 Choose the physics backend in a separate evaluation covering browser/WASM loading, licensing, bundle cost, character-controller requirements and testability. Engine systems depend on the adapter contract rather than backend types. Do not build a general physics solver as part of the renderer refactor.
@@ -122,4 +124,4 @@ Implement each phase as small reviewable changes. Preserve the viewer, shared im
 
 Use CPU tests for hierarchy, clocks, ownership, serialization and systems. Use real GPU tests for resource lifetime, deformed output, bindings, bounds/visibility and rendered appearance. Repeat relevant checks after changes; broaden testing when new behavior or failures justify it. Establish performance acceptance from measured baselines rather than arbitrary FPS targets.
 
-The next concrete implementation is **Phase 5: deliver the playable vertical slice**. Engine-owned evaluation/cameras, scalable entity hierarchy, retained rendering membership and asset/component/system services now provide its prerequisites. Keep services driven by the first playable milestone before introducing complex gameplay or streaming. No calendar estimate is assigned until the playable slice's assets, target devices and physics backend are agreed.
+The next planned implementation is **Phase 6: gameplay animation and anime presentation**. The playable character loop provides a setting for evaluating those additions. Keep services driven by gameplay requirements before introducing complex streaming or editor frameworks.

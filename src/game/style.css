@@ -1,0 +1,39 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #14212b;
+  color: #edf5ff;
+  font: 15px system-ui;
+}
+canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+aside {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  padding: 18px 22px;
+  max-width: 340px;
+  background: #14212bee;
+  border: 1px solid #456;
+  border-radius: 12px;
+}
+h1 {
+  margin: 0;
+  font-size: 20px;
+}
+p {
+  line-height: 1.5;
+}
+button {
+  padding: 9px 12px;
+  margin-right: 8px;
+  cursor: pointer;
+}
+a {
+  color: #90dccb;
+}

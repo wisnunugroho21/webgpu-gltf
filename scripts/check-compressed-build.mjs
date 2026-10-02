@@ -1,4 +1,4 @@
-// Smoke-test the emitted decoder URLs and serialized worker against a production build.
+// Smoke-test emitted decoder URLs/worker and game WASM startup in a production build.
 // The normal browser suite imports TypeScript through Vite and cannot catch these failures.
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
@@ -75,8 +75,22 @@ try {
   gltf.extensionsRequired.push('KHR_texture_basisu');
   gltf.extensionsUsed.push('KHR_texture_basisu');
   await load('draco-basis.gltf', gltf);
+  // The dev suite cannot verify the emitted multipage entry and embedded physics
+  // WASM. Exercise the actual production game before ending the preview session.
+  await page.goto('http://127.0.0.1:5174/game.html');
+  await page.locator('#status').filter({ hasText: 'Grounded' }).waitFor();
+  await page.locator('#game').click({ position: { x: 900, y: 600 } });
+  await page.keyboard.down('KeyW');
+  await page.locator('#status').filter({ hasText: 'Walk' }).waitFor();
+  await page.keyboard.up('KeyW');
+  await page.locator('#pause').click();
+  await page.locator('#status').filter({ hasText: 'Paused' }).waitFor();
+  await page.locator('#pause').click();
+  await page.locator('#companion').click();
+  await page.locator('#companion').filter({ hasText: 'Spawn companion' }).waitFor();
+  assert((await fetch('http://127.0.0.1:5174/licenses/rapier-apache-2.0.txt')).ok);
   assert.deepEqual(errors, []);
-  console.log('Production Draco and combined Draco/Basis loads passed.');
+  console.log('Production Draco/Basis loads and playable game WASM startup passed.');
 } finally {
   await browser?.close();
   server.kill();

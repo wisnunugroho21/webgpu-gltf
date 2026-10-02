@@ -42,3 +42,6 @@ export {
 } from './components/registry';
 export type { EngineSystem, SystemContext } from './systems/scheduler';
 export type { LoadWorldOptions } from './load-world';
+export { ActionInput, type ActionState } from './input/actions';
+export { writePhysicsPosition } from './physics/entity-pose';
+export type { PhysicsAdapter, CharacterBody, CharacterMotion, Point3 } from './physics/contracts';

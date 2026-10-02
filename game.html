@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Playable WebGPU slice</title>
+  </head>
+  <body>
+    <canvas id="game" aria-label="Playable level"></canvas>
+    <aside>
+      <h1>Character playground</h1>
+      <p>WASD / arrows · Shift to run · Space to jump</p>
+      <p>Explore the steps and jump over the center barrier.</p>
+      <button id="pause" disabled>Pause</button
+      ><button id="companion" disabled>Despawn companion</button>
+      <p id="status" role="status">Loading physics and renderer…</p>
+      <a href="/">Open glTF viewer</a>
+    </aside>
+    <script type="module" src="/src/game/main.ts"></script>
+  </body>
+</html>
