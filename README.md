@@ -604,3 +604,5 @@ Test your own textured and transparent assets before depending on broader featur
 `tests/projected-bounds.test.ts` checks perspective/orthographic size, viewport/distance scaling, flattened bounds, and near-plane/invalid fail-open behavior. `browser-tests/visibility-filters.spec.ts` verifies pixel-identical opaque occlusion in MSAA and single-sample modes, delayed stale-result rejection, camera/resize/replacement invalidation, size thresholds, transparent occluder exclusions, and continued skin/morph compute with upload-before-encoding ordering.
 
 The [October 2 project review](docs/review-2026-10-02.md) records current verification, fixes, engine feature gaps and the recommended incremental refactoring order.
+
+The [game engine migration plan](docs/game-engine-plan.md) defines ownership, phased restructuring, acceptance checks and the first playable milestone.
